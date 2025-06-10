@@ -1,0 +1,7 @@
+numpy
+onnxruntime
+huggingface-hub
+soundfile
+torch
+silero-vad
+sounddevice
