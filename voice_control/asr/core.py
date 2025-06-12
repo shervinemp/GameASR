@@ -7,27 +7,14 @@ delivering transcribed text via a callback.
 
 import time
 import sounddevice as sd
-import sys
 import threading
-import logging
-import argparse
 
-from components import AudioStreamer, VADProcessor, ASRService
+from ..common.logging_utils import get_logger
 
-# Configure logging for internal module messages (can be controlled by external app)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(threadName)s - %(levelname)s - %(message)s",
-)
+from .components import AudioStreamer, VADProcessor, ASRService
 
-try:
-    from silero_vad import load_silero_vad
-    from onnx_asr import load_model
-except ImportError:
-    logging.error(
-        "Required ASR/VAD libraries not found. Please install 'silero_vad' and 'onnx_asr'."
-    )
-    sys.exit(1)
+# Get a logger for this module
+logger = get_logger(__name__)
 
 
 class RealtimeASRSystem:
@@ -40,19 +27,15 @@ class RealtimeASRSystem:
         self.samplerate = 16000  # Fixed for models
         self.vad_chunk_size_samples = 512  # Fixed for Silero VAD at 16kHz
 
-        logging.info("Loading ASR/VAD models...")
-        self.vad_model = load_silero_vad()
-        self.asr_model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
-        logging.info("Models loaded.")
+        logger.info("Loading ASR/VAD components...")
 
-        # Initialize components
+        # Initialize components with parameters from args
         self.audio_streamer = AudioStreamer(
             samplerate=self.samplerate,
             channels=1,
             chunk_size=self.vad_chunk_size_samples,
         )
         self.vad_processor = VADProcessor(
-            vad_model=self.vad_model,
             samplerate=self.samplerate,
             vad_chunk_size_samples=self.vad_chunk_size_samples,
             vad_threshold=args.vad_threshold,
@@ -60,11 +43,12 @@ class RealtimeASRSystem:
             pre_speech_buffer_duration=args.pre_speech_duration,
         )
         self.asr_service = ASRService(
-            asr_model=self.asr_model,
             samplerate=self.samplerate,
             transcription_callback=transcription_callback,  # Pass external callback
             max_queue_size=args.queue_size,
         )
+
+        logger.info("Components initialized.")
 
         self._running = False  # Internal flag to control the main loop
         self._main_loop_thread = None  # Reference to the main loop thread
@@ -74,7 +58,7 @@ class RealtimeASRSystem:
     def start(self):
         """Starts the real-time ASR processing system."""
         if self._running:
-            logging.info("ASR System is already running.")
+            logger.info("ASR System is already running.")
             return
 
         self._running = True
@@ -86,22 +70,22 @@ class RealtimeASRSystem:
             target=self._main_processing_loop, daemon=True
         )
         self._main_loop_thread.start()
-        logging.info("Realtime ASR System started.")
+        logger.info("Realtime ASR System started.")
 
     def _main_processing_loop(self):
         """Internal loop for audio capture and VAD processing."""
         while self._running:  # Loop controlled by self._running flag
-            logging.info("Listening for speech...")
+            logger.info("Listening for speech...")
             try:
                 with self.audio_streamer as streamer:
                     while self._running:  # Inner loop also controlled by self._running
                         audio_chunk_int16, overflowed = streamer.read_chunk()
 
                         if overflowed:
-                            logging.warning("Audio input buffer overflowed!")
+                            logger.warning("Audio input buffer overflowed!")
 
                         if len(audio_chunk_int16) == 0:
-                            logging.info("No audio read. Stream ended unexpectedly.")
+                            logger.info("No audio read. Stream ended unexpectedly.")
                             break  # Break inner loop
 
                         # Process chunk with VAD, get utterance if speech ends
@@ -111,13 +95,13 @@ class RealtimeASRSystem:
 
                         if utterance is not None:
                             self.asr_service.enqueue_utterance(utterance)
-                            logging.info(
+                            logger.info(
                                 "Utterance sent to ASR queue. Resetting VAD for next speech..."
                             )
                             # Re-enter outer loop to reset VAD state for the next utterance
                             break
             except sd.PortAudioError as e:
-                logging.error(
+                logger.error(
                     f"Audio device error in main loop: {e}. Attempting to restart stream."
                 )
                 # Could add a short delay here before retrying stream
@@ -125,7 +109,7 @@ class RealtimeASRSystem:
                     1
                 )  # Added a small delay to avoid rapid error loops if mic is disconnected
             except Exception as e:
-                logging.exception(
+                logger.exception(
                     f"An unexpected error occurred in main processing loop: {e}"
                 )
                 self.stop()  # Attempt to stop gracefully on unhandled error
@@ -134,17 +118,17 @@ class RealtimeASRSystem:
     def stop(self):
         """Stops the real-time ASR processing system gracefully."""
         if not self._running:
-            logging.info("ASR System is already stopped.")
+            logger.info("ASR System is already stopped.")
             return
 
-        logging.info("Stopping Realtime ASR System...")
+        logger.info("Stopping Realtime ASR System...")
         self._running = False  # Signal main loop thread to stop
 
         # Wait for the main processing loop to finish (optional, depends on UI responsiveness)
         if self._main_loop_thread and self._main_loop_thread.is_alive():
             self._main_loop_thread.join(timeout=5)  # Wait for thread to finish
             if self._main_loop_thread.is_alive():
-                logging.warning("Main processing thread did not terminate gracefully.")
+                logger.warning("Main processing thread did not terminate gracefully.")
 
         # Handle any pending utterance if app stops during active speech
         final_utterance = self.vad_processor.get_final_utterance_if_active()
@@ -156,14 +140,52 @@ class RealtimeASRSystem:
             )  # Wait for queue to clear
 
         self.asr_service.stop()  # Stop the ASR worker gracefully
-        logging.info("Realtime ASR System stopped.")
+        logger.info("Realtime ASR System stopped.")
+
+
+class ASRCore:
+    """
+    Simplified interface for running ASR from microphone input.
+
+    This class is a wrapper around RealtimeASRSystem that handles default parameter values and
+    provides a simple process_audio() method for easy use in scripts.
+    """
+
+    def __init__(self):
+        self.args = parse_asr_args()
+
+    def process_audio(self, transcription_callback=None):
+        """
+        Start processing audio from microphone input.
+
+        Args:
+            transcription_callback: Optional callback function to receive transcriptions.
+                                   If not provided, will use a default no-op callback.
+        """
+        if transcription_callback is None:
+            # Default no-op callback if none is provided
+            def transcription_callback(transcription):
+                logger.info(f"Transcription received: {transcription}")
+
+        asr_system = RealtimeASRSystem(self.args, transcription_callback)
+        try:
+            asr_system.start()
+            # Keep the main thread alive while processing in background
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Terminating ASR system...")
+        finally:
+            asr_system.stop()
 
 
 # ==============================================================================
-# 5. Argument Parsing (can be used by both module or external app)
+# Argument Parsing (can be used by both module or external app)
 # ==============================================================================
 def parse_asr_args():
     """Parses command-line arguments for the ASR system."""
+    import argparse
+
     parser = argparse.ArgumentParser(
         description="Real-time, continuous ASR from microphone using ONNX models and VAD."
     )
