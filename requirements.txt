@@ -1,7 +1,9 @@
 numpy
 onnxruntime
+onnxruntime-genai-directml
 huggingface-hub
 soundfile
 torch
 silero-vad
 sounddevice
+simpleaudio

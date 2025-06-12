@@ -6,23 +6,7 @@ This script handles installing dependencies and setting up the environment.
 """
 
 import os
-
-
-def download_file(url, destination):
-    """
-    Download a file from a URL to a specified destination.
-    """
-    import requests
-
-    try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()  # Raise an error for bad responses
-        with open(destination, "wb") as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
-        print(f"Downloaded {url} to {destination}")
-    except Exception as e:
-        print(f"Failed to download {url}: {e}")
+from ..common.download_utils import download_file
 
 
 def setup_environment():
@@ -30,7 +14,7 @@ def setup_environment():
     Set up the environment for TTS by creating necessary directories.
     """
     # Create the models directory if it doesn't exist
-    models_dir = "models"
+    models_dir = "models\\tts"
     if not os.path.exists(models_dir):
         try:
             os.makedirs(models_dir)
@@ -55,7 +39,7 @@ def main():
     for file_path in required_files:
         if not os.path.exists(file_path):
             # Download the file if it does not exist
-            destination = os.path.join("models", os.path.basename(file_path))
+            destination = os.path.join("models\\tts", os.path.basename(file_path))
             download_file(file_path, destination)
         else:
             print(f"File {file_path} already exists, skipping download.")
