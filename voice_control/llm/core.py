@@ -6,6 +6,11 @@ This module provides the main classes and functions for working with language mo
 
 import onnxruntime_genai as og
 
+from ..common.logging_utils import get_logger
+
+# Get a logger for this module
+logger = get_logger(__name__)
+
 
 class LLMCore:
     """
@@ -85,7 +90,7 @@ class LLMCore:
 
             return output
         except Exception as e:
-            print(f"Error generating tokens: {e}")
+            logger.error(f"Error generating tokens: {e}")
 
         return ""
 
