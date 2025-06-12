@@ -1,4 +1,4 @@
-"""
+""" "
 Core module for LLM functionality.
 
 This module provides the main classes and functions for working with language models.
@@ -20,6 +20,11 @@ class LLMCore:
         self.config = og.Config(model_path)
         self.model = og.Model(self.config)
         self.tokenizer = og.Tokenizer(self.model)
+        self.system_prompt = (
+            "You are a helpful assistant. "
+            "You can answer questions, provide information, and assist with various tasks. "
+            "If you don't know the answer, you can say 'I don't know'."
+        )
 
     def _convert_messages_to_string(self, messages):
         """
@@ -52,7 +57,10 @@ class LLMCore:
         # Apply chat template to the prompt
         tokenizer_input_system_prompt = self.tokenizer.apply_chat_template(
             messages=self._convert_messages_to_string(
-                [{"role": "system", "content": prompt}]
+                [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt},
+                ]
             ),
             add_generation_prompt=True,
         )
@@ -62,63 +70,24 @@ class LLMCore:
 
         # Generate the response
         output = ""
-        while not generator.is_done():
-            try:
-                next_tokens = generator.get_next_tokens()
-                if next_tokens is not None and len(next_tokens) > 0:
-                    for token in next_tokens:
-                        decoded = self.tokenizer.decode(token)
-                        output += decoded
-            except Exception as e:
-                print(f"Error generating or decoding tokens: {e}")
-                break
+        try:
+            max_tokens = 100  # Limit to prevent infinite loop
+            tokenizer_stream = self.tokenizer.create_stream()
+            for i in range(max_tokens):
+                if generator.is_done():
+                    break
+                generator.generate_next_token()
+                token = generator.get_next_tokens()[0]
+                token_str = tokenizer_stream.decode(token)
+                output += token_str
+                if len(token_str) == 0:
+                    break
 
-        return output
+            return output
+        except Exception as e:
+            print(f"Error generating tokens: {e}")
 
-    def generate_with_guidance(self, prompt, guidance_type, guidance_input):
-        """
-        Generate a response with structured guidance (e.g., JSON schema).
-
-        Args:
-            prompt (str): The input text to generate a response for.
-            guidance_type (str): Type of guidance to use ('json_schema', 'lark_grammar').
-            guidance_input (dict or str): Guidance input based on the type.
-
-        Returns:
-            str: The generated response following the guidance structure.
-        """
-        params = og.GeneratorParams(self.model)
-
-        # Set the guidance
-        params.set_guidance(guidance_type, guidance_input)
-
-        generator = og.Generator(self.model, params)
-
-        # Apply chat template to the prompt
-        tokenizer_input_system_prompt = self.tokenizer.apply_chat_template(
-            messages=self._convert_messages_to_string(
-                [{"role": "system", "content": prompt}]
-            ),
-            add_generation_prompt=False,
-        )
-
-        input_tokens = self.tokenizer.encode(tokenizer_input_system_prompt)
-        generator.append_tokens(input_tokens)
-
-        # Generate the response with guidance
-        output = ""
-        while not generator.is_done():
-            try:
-                next_tokens = generator.get_next_tokens()
-                if next_tokens is not None and len(next_tokens) > 0:
-                    for token in next_tokens:
-                        decoded = self.tokenizer.decode(token)
-                        output += decoded
-            except Exception as e:
-                print(f"Error generating or decoding tokens: {e}")
-                break
-
-        return output
+        return ""
 
 
 def create_tool_call_template(tools_list):

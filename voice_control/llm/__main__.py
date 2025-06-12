@@ -18,7 +18,7 @@ def main():
     print("LLM Service initialized successfully.")
 
     # Test generating a response
-    prompt = "What is the capital of France?"
+    prompt = "Tell me a joke"
     response = llm_service.generate_response(prompt)
 
     print(f"Prompt: {prompt}")
