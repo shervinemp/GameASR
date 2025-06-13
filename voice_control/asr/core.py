@@ -75,9 +75,9 @@ class RealtimeASRSystem:
     def _main_processing_loop(self):
         """Internal loop for audio capture and VAD processing."""
         while self._running:  # Loop controlled by self._running flag
-            logger.info("Listening for speech...")
             try:
                 with self.audio_streamer as streamer:
+                    logger.info("Listening for speech...")
                     while self._running:  # Inner loop also controlled by self._running
                         audio_chunk_int16, overflowed = streamer.read_chunk()
 
@@ -86,7 +86,7 @@ class RealtimeASRSystem:
 
                         if len(audio_chunk_int16) == 0:
                             logger.info("No audio read. Stream ended unexpectedly.")
-                            break  # Break inner loop
+                            continue  # Break inner loop
 
                         # Process chunk with VAD, get utterance if speech ends
                         utterance = self.vad_processor.process_audio_chunk(
@@ -95,11 +95,7 @@ class RealtimeASRSystem:
 
                         if utterance is not None:
                             self.asr_service.enqueue_utterance(utterance)
-                            logger.info(
-                                "Utterance sent to ASR queue. Resetting VAD for next speech..."
-                            )
-                            # Re-enter outer loop to reset VAD state for the next utterance
-                            break
+                            logger.info("Utterance sent to ASR queue.")
             except sd.PortAudioError as e:
                 logger.error(
                     f"Audio device error in main loop: {e}. Attempting to restart stream."
