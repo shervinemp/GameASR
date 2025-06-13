@@ -42,17 +42,23 @@ class AudioPlayer(BaseComponent):
             simpleaudio.PlayObject: The play object for controlling playback
         """
         try:
-            if isinstance(audio_data, np.ndarray):
-                # Convert numpy array to bytes for simpleaudio input
+            if isinstance(audio_data, np.ndarray) and audio_data.dtype != np.int16:
+                if audio_data.dtype != np.int16:
+                    audio_data = audio_data / np.max(
+                        np.abs(audio_data)
+                    )  # Normalize to -1.0 to 1.0
+                    audio_data = (audio_data * 32767).astype(
+                        np.int16
+                    )  # Scale to 16-bit range
+
                 audio_bytes = audio_data.tobytes()
             else:
                 audio_bytes = audio_data
 
-            # Create a play object and return it for control
             play_obj = sa.play_buffer(
                 audio_bytes,
-                num_channels=1,  # Mono
-                bytes_per_sample=2,  # 16-bit PCM
+                num_channels=1,
+                bytes_per_sample=2,  # 16-bit PCM (2 bytes)
                 sample_rate=sample_rate,
             )
             logger.debug("Audio playback started.")
