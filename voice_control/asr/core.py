@@ -195,13 +195,13 @@ def parse_asr_args():
     parser.add_argument(
         "--end-silence-duration",
         type=float,
-        default=0.75,
+        default=0.7,
         help="Duration of continuous silence (in seconds) to consider an utterance ended.",
     )
     parser.add_argument(
         "--pre-speech-duration",
         type=float,
-        default=0.75,
+        default=0.8,
         help="Duration of audio (in seconds) to include before detected speech starts, for context.",
     )
     parser.add_argument(
