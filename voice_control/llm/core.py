@@ -4,12 +4,35 @@ Core module for LLM functionality.
 This module provides the main classes and functions for working with language models.
 """
 
+from dataclasses import asdict, dataclass, field
+import json
 import onnxruntime_genai as og
 
 from ..common.logging_utils import get_logger
 
 # Get a logger for this module
 logger = get_logger(__name__)
+
+
+@dataclass
+class Parameter:
+    type: str
+    description: str
+    properties: dict | None = field(default_factory=dict)
+    required: list | None = None
+    enum: list | None = None
+
+
+@dataclass
+class Tool:
+    name: str
+    description: str
+    parameters: list[Parameter] = field(default_factory=list)
+
+    def __str__(self):
+        tool_dict = asdict(self)
+        tool_dict["parameters"] = list(map(asdict, self.parameters))
+        return f"<tool> {tool_dict} </tool>"
 
 
 class LLMCore:
@@ -25,27 +48,15 @@ class LLMCore:
         self.config = og.Config(model_path)
         self.model = og.Model(self.config)
         self.tokenizer = og.Tokenizer(self.model)
+        self.tools = []
+        self.contexts = []
         self.system_prompt = (
             "You are a helpful assistant. "
-            "You can answer questions, provide information, and assist with various tasks. "
+            "You can answer questions, provide information, and assist with various tasks."
             "If you don't know the answer, you can say 'I don't know'."
         )
 
-    def _convert_messages_to_string(self, messages):
-        """
-        Convert a list of message dictionaries to a JSON-formatted string.
-
-        Args:
-            messages (list): List of dictionaries with 'role' and 'content'.
-
-        Returns:
-            str: JSON-formatted string representation of the messages.
-        """
-        import json
-
-        return json.dumps(messages)
-
-    def generate_response(self, prompt):
+    def generate_response(self, prompt, tool_use: bool = True) -> str:
         """
         Generate a response from the language model.
 
@@ -58,16 +69,12 @@ class LLMCore:
         # Create a generator with the specified parameters
         params = og.GeneratorParams(self.model)
         generator = og.Generator(self.model, params)
+        messages = self._create_messages(prompt, tool_use)
 
         # Apply chat template to the prompt
         tokenizer_input_system_prompt = self.tokenizer.apply_chat_template(
-            messages=self._convert_messages_to_string(
-                [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ]
-            ),
-            add_generation_prompt=True,
+            messages=json.dumps(messages),
+            add_generation_prompt=False,
         )
 
         input_tokens = self.tokenizer.encode(tokenizer_input_system_prompt)
@@ -94,18 +101,37 @@ class LLMCore:
 
         return ""
 
+    def _create_messages(
+        self,
+        query: str,
+        tool_use: bool = True,
+    ) -> list[dict]:
+        """
+        Generate a list of messages for the LLM prompt.
 
-def create_tool_call_template(tools_list):
-    """
-    Create a tool call template for use in prompts.
+        This function combines system, user, and tool messages into a structured format
+        that can be used in LLM prompts.
 
-    Args:
-        tools_list (list): List of tool definitions to include in the template.
+        Args:
+            query (str): The user query to format.
+        """
 
-    Returns:
-        str: Template string with tool definitions.
-    """
-    template = "<tool> "
-    for tool in tools_list:
-        template += f'{{"name": "{tool["name"]}", "description": "{tool["description"]}", "parameters": {str(tool["parameters"])}}} </tool>'
-    return template
+        tools_string = ""
+        if tool_use:
+            tools_string = "\n".join(str(tool) for tool in self.tools)
+        contexts_string = "\n".join(
+            map(lambda x: f"<context> {x} </context>", self.contexts)
+        )
+
+        messages = (
+            {
+                "role": "system",
+                "content": (
+                    f"{self.system_prompt}\n" f"{tools_string}\n" f"{contexts_string}"
+                ),
+            },
+            {"role": "user", "content": query},
+            {"role": "assistant", "content": '<toolcall>{"' if tool_use else ""},
+        )
+
+        return messages
