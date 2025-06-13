@@ -30,8 +30,8 @@ class TTSProcessor(BaseComponent):
         """
         super().__init__()
         self.kokoro = Kokoro(
-            model_path="models/kokoro-v1.0.onnx",
-            voices_path="models/voices-v1.0.bin",
+            model_path="models/tts/kokoro-v1.0.onnx",
+            voices_path="models/tts/voices-v1.0.bin",
         )
         self.tokenizer = Tokenizer()
 
