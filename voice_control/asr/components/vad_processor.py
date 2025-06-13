@@ -9,6 +9,8 @@ This module provides voice activity detection (VAD) functionality using Silero V
 import numpy as np
 from collections import deque
 
+import torch
+
 # Importing Silero VAD model
 try:
     from silero_vad import load_silero_vad
@@ -78,7 +80,8 @@ class VADProcessor(BaseComponent):
         for sample in audio_chunk_float32:
             self.pre_speech_buffer_deque.append(sample)
 
-        speech_prob = self.vad_model(audio_chunk_float32, self.samplerate)
+        audio_tensor = torch.tensor(audio_chunk_float32)
+        speech_prob = self.vad_model(audio_tensor, self.samplerate)
 
         utterance_to_return = None
 
