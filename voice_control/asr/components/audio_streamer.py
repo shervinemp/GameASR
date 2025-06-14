@@ -32,7 +32,7 @@ class AudioStreamer(BaseComponent):
         self._stream = None
 
         # Use our standard logger instead of the direct logging module
-        logger.debug("AudioStreamer initialized.")
+        logger.info("AudioStreamer initialized.")
 
     def __enter__(self):
         """Open audio stream on entering context."""

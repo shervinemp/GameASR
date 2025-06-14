@@ -47,7 +47,7 @@ def parse_asr_args():
         help="Maximum number of utterances to queue for ASR processing. Prevents memory overload.",
     )
     parser.add_argument(
-        "--device",
+        "--sound-device",
         type=int,
         help="Specific audio input device ID. Use `python -m sounddevice` to list devices.",
     )

@@ -34,11 +34,11 @@ class VADProcessor(BaseComponent):
 
     def __init__(
         self,
-        samplerate: int,
-        vad_chunk_size_samples: int,
-        vad_threshold: float,
-        end_silence_duration: float,
-        pre_speech_buffer_duration: float,
+        samplerate: int = 16000,
+        vad_chunk_size_samples: int = 512,
+        vad_threshold: float = 0.3,
+        end_silence_duration: float = 0.7,
+        pre_speech_buffer_duration: float = 1.0,
         device=None,
     ):
         super().__init__()
@@ -129,7 +129,7 @@ class VADProcessor(BaseComponent):
                 else full_utterance_audio
             )
 
-            if trimmed_utterance_audio.size > 0:
+            if trimmed_utterance_audio.size > 10:
                 return trimmed_utterance_audio
             else:
                 logger.info(
@@ -154,6 +154,6 @@ class VADProcessor(BaseComponent):
             if full_utterance_audio.size > 0:
                 return full_utterance_audio
             else:
-                logger.info("Final speech segment was empty.")
+                logger.debug("Final speech segment was empty.")
                 return None
         return None

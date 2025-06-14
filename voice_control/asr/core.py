@@ -25,36 +25,36 @@ class ASRCore:
 
     def __init__(
         self,
-        vad_threshold=0.3,
-        end_silence_duration=0.7,
-        pre_speech_duration=0.8,
-        queue_size=5,
-        transcription_callback=print,
-        device=None,
+        vad_threshold: float = 0.3,
+        end_silence_duration: float = 0.7,
+        pre_speech_duration: float = 1.0,
+        vad_chunk_size_samples: int = 512,
+        sample_rate: int = 16000,
+        queue_size: int = 5,
+        transcription_callback: callable = print,
+        sound_device: int | None = None,
     ):
-        self.samplerate = 16000  # Fixed for models
-        self.vad_chunk_size_samples = 512  # Fixed for Silero VAD at 16kHz
 
         logger.info("Loading ASR/VAD components...")
 
         self.audio_streamer = AudioStreamer(
-            samplerate=self.samplerate,
+            samplerate=sample_rate,
             channels=1,
-            chunk_size=self.vad_chunk_size_samples,
+            chunk_size=vad_chunk_size_samples,
         )
         self.vad_processor = VADProcessor(
-            samplerate=self.samplerate,
-            vad_chunk_size_samples=self.vad_chunk_size_samples,
+            samplerate=sample_rate,
+            vad_chunk_size_samples=vad_chunk_size_samples,
             vad_threshold=vad_threshold,
             end_silence_duration=end_silence_duration,
             pre_speech_buffer_duration=pre_speech_duration,
-            device=device,
+            device=sound_device,
         )
         self.asr_service = ASRService(
-            samplerate=self.samplerate,
+            samplerate=sample_rate,
             transcription_callback=transcription_callback,
             max_queue_size=queue_size,
-            device=device,
+            device=sound_device,
         )
 
         logger.info("Components initialized.")

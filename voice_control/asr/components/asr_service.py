@@ -9,6 +9,7 @@ ParakeetV2 model from ONNX-ASR.
 
 import queue
 import threading
+import torch
 
 from onnx_asr import load_model
 
@@ -30,15 +31,11 @@ class ASRService(BaseComponent):
         samplerate: int = 16000,
         max_queue_size: int = 5,
         transcription_callback: callable = print,
-        device=None,
     ):
         super().__init__()
         # Load the ONNX-ASR model
         self.asr_model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         logger.info("ASR model loaded.")
-
-        if device is not None:
-            self.asr_model.set_device(device)
 
         self.samplerate = samplerate
         self.transcription_callback = transcription_callback  # Callback for results
@@ -71,16 +68,19 @@ class ASRService(BaseComponent):
                 )  # Short timeout to check for shutdown
 
                 if audio_segment is None:  # Sentinel for shutdown
-                    logger.info("Shutdown signal received. Exiting.")
+                    logger.debug("Shutdown signal received. Exiting.")
                     break
 
-                logger.info("Processing transcription...")
-                transcriptions = model.recognize(audio_segment, sample_rate=sample_rate)
+                logger.debug("Processing transcription...")
+                transcription = model.recognize(
+                    audio_segment, sample_rate=sample_rate
+                ).strip()
+                logger.debug("Transcription: " + transcription)
 
-                if transcriptions:
-                    callback(transcriptions)
+                if len(transcription):
+                    callback(transcription)
                 else:
-                    logger.info("No transcription generated for this segment.")
+                    logger.debug("No transcription generated for this segment.")
 
                 input_queue.task_done()
 
@@ -95,7 +95,7 @@ class ASRService(BaseComponent):
         """Adds an audio segment to the queue for transcription."""
         try:
             self.transcription_queue.put_nowait(audio_segment)
-            logger.info("Utterance sent to ASR queue.")
+            logger.debug("Utterance sent to ASR queue.")
         except queue.Full:
             logger.warning(
                 "ASR queue is full. Dropping utterance to maintain real-time performance."
