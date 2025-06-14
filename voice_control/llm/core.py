@@ -166,7 +166,7 @@ class LLMCore:
                 marker_idx = part.find(beg_marker)
                 start_idx = (marker_idx + beg_len) if marker_idx != -1 else 0
 
-                text += part[:marker_idx].strip() + " "
+                text += part[:marker_idx].strip() + "\n"
                 tool_call_json = part[start_idx:].strip()
                 tool_call_json = tool_call_json.replace("'", '"').replace("\n", "")
 
@@ -176,7 +176,7 @@ class LLMCore:
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON in tool call: {e}")
 
-            text += part[-1].strip() + " "
+            text += part[-1].strip() + "\n"
 
             return text, tuple(tool_calls)
         except Exception as e:
