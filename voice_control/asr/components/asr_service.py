@@ -27,9 +27,9 @@ class ASRService(BaseComponent):
 
     def __init__(
         self,
-        samplerate: int,
-        transcription_callback,
+        samplerate: int = 16000,
         max_queue_size: int = 5,
+        transcription_callback: callable = print,
         device=None,
     ):
         super().__init__()
@@ -78,7 +78,6 @@ class ASRService(BaseComponent):
                 transcriptions = model.recognize(audio_segment, sample_rate=sample_rate)
 
                 if transcriptions:
-                    # Pass the transcription results to the external callback
                     callback(transcriptions)
                 else:
                     logger.info("No transcription generated for this segment.")

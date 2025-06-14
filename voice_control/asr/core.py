@@ -29,7 +29,7 @@ class ASRCore:
         end_silence_duration=0.7,
         pre_speech_duration=0.8,
         queue_size=5,
-        transcription_callback=None,
+        transcription_callback=print,
         device=None,
     ):
         self.samplerate = 16000  # Fixed for models
@@ -52,7 +52,7 @@ class ASRCore:
         )
         self.asr_service = ASRService(
             samplerate=self.samplerate,
-            transcription_callback=transcription_callback,  # Pass external callback
+            transcription_callback=transcription_callback,
             max_queue_size=queue_size,
             device=device,
         )
@@ -67,7 +67,7 @@ class ASRCore:
     def start(self):
         """Starts the real-time ASR processing system."""
         if self._running:
-            logger.info("ASR System is already running.")
+            logger.info("ASR Core is already running.")
             return
 
         self._running = True
@@ -79,7 +79,7 @@ class ASRCore:
             target=self._main_processing_loop, daemon=True
         )
         self._main_loop_thread.start()
-        logger.info("Realtime ASR System started.")
+        logger.info("ASR Core started.")
 
     def _main_processing_loop(self):
         """Internal loop for audio capture and VAD processing."""
@@ -123,10 +123,10 @@ class ASRCore:
     def stop(self):
         """Stops the real-time ASR processing system gracefully."""
         if not self._running:
-            logger.info("ASR System is already stopped.")
+            logger.info("ASR Core is already stopped.")
             return
 
-        logger.info("Stopping Realtime ASR System...")
+        logger.info("Stopping Realtime ASR Core...")
         self._running = False  # Signal main loop thread to stop
 
         # Wait for the main processing loop to finish (optional, depends on UI responsiveness)
@@ -145,18 +145,18 @@ class ASRCore:
             )  # Wait for queue to clear
 
         self.asr_service.stop()  # Stop the ASR worker gracefully
-        logger.info("Realtime ASR System stopped.")
+        logger.info("ASR Core stopped.")
 
     def process_audio(self):
         """
         Start processing audio from microphone input.
         """
         try:
-            self.asr_system.start()
+            self.start()
             # Keep the main thread alive while processing in background
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            logger.info("Terminating ASR system...")
+            logger.info("Terminating ASR Core...")
         finally:
-            self.asr_system.stop()
+            self.stop()
