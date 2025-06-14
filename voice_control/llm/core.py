@@ -40,7 +40,7 @@ class LLMCore:
     Core class for interacting with language models.
     """
 
-    def __init__(self):
+    def __init__(self, tool_use: bool = True):
         """
         Initialize the LLM core.
         """
@@ -48,6 +48,7 @@ class LLMCore:
         self.config = og.Config(model_path)
         self.model = og.Model(self.config)
         self.tokenizer = og.Tokenizer(self.model)
+        self.tool_use = tool_use
         self.tools = []
         self.contexts = []
         self.system_prompt = (
@@ -56,12 +57,12 @@ class LLMCore:
             "If you don't know the answer, you can say 'I don't know'."
         )
 
-    def generate_response(self, prompt, tool_use: bool = True) -> str:
+    def generate_response(self, messages: list[dict]) -> str:
         """
         Generate a response from the language model.
 
         Args:
-            prompt (str): The input text to generate a response for.
+            messages (list[dict]): The input messages to generate a response for.
 
         Returns:
             str: The generated response.
@@ -69,7 +70,6 @@ class LLMCore:
         # Create a generator with the specified parameters
         params = og.GeneratorParams(self.model)
         generator = og.Generator(self.model, params)
-        messages = self._create_messages(prompt, tool_use)
 
         # Apply chat template to the prompt
         tokenizer_input_system_prompt = self.tokenizer.apply_chat_template(
@@ -94,17 +94,16 @@ class LLMCore:
                 output += token_str
                 if len(token_str) == 0:
                     break
-
-            return output
         except Exception as e:
             logger.error(f"Error generating tokens: {e}")
 
-        return ""
+        return output
 
-    def _create_messages(
+    def create_messages(
         self,
         query: str,
-        tool_use: bool = True,
+        tool_only: bool = False,
+        no_tool: bool = False,
     ) -> list[dict]:
         """
         Generate a list of messages for the LLM prompt.
@@ -114,10 +113,15 @@ class LLMCore:
 
         Args:
             query (str): The user query to format.
+            tool_only (bool): If True, the response will only include tool calls.
+            no_tool (bool): If True, tools will not be included in the system prompt.
+
+        Returns:
+            list[dict]: A list of dictionaries representing the messages.
         """
 
         tools_string = ""
-        if tool_use:
+        if self.tool_use and not no_tool:
             tools_string = "\n".join(str(tool) for tool in self.tools)
         contexts_string = "\n".join(
             map(lambda x: f"<context> {x} </context>", self.contexts)
@@ -131,7 +135,50 @@ class LLMCore:
                 ),
             },
             {"role": "user", "content": query},
-            {"role": "assistant", "content": '<toolcall>{"' if tool_use else ""},
+            {"role": "assistant", "content": "<toolcall>" if tool_only else ""},
         )
 
         return messages
+
+    def parse_response(self, response: str) -> tuple[str, list[dict]]:
+        """
+        Parse the LLM response into a tuple of text and tool calls.
+
+        Args:
+            response (str): The raw response from the language model.
+
+        Returns:
+            tuple: A tuple containing:
+                - str: Textual response
+                - list: List of dictionaries with tool call information
+        """
+        try:
+            text = ""
+            tool_calls = []
+
+            beg_marker = "<toolcall>"
+            end_marker = "</toolcall>"
+            beg_len = len(beg_marker)
+
+            # Split response into parts based on tool call markers
+            parts = response.split(end_marker)
+            for part in parts[:-1]:
+                marker_idx = part.find(beg_marker)
+                start_idx = (marker_idx + beg_len) if marker_idx != -1 else 0
+
+                text += part[:marker_idx].strip() + " "
+                tool_call_json = part[start_idx:].strip()
+                tool_call_json = tool_call_json.replace("'", '"').replace("\n", "")
+
+                try:
+                    print(f"Tool call JSON: {tool_call_json}")
+                    tool_calls.append(json.loads(tool_call_json))
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in tool call: {e}")
+
+            text += part[-1].strip() + " "
+
+            return text, tuple(tool_calls)
+        except Exception as e:
+            logger.error(f"Error parsing response: {e}")
+            return "", []
