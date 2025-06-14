@@ -17,10 +17,17 @@ logger = get_logger(__name__)
 @dataclass
 class Parameter:
     type: str
-    description: str
-    properties: dict | None = field(default_factory=dict)
-    required: list | None = None
+    description: str = None
+    properties: dict[str, "Parameter"] | None = field(default_factory=dict)
     enum: list | None = None
+    required: list | None = None
+
+    def __str__(self):
+        d = {
+            k: (str(v) if isinstance(v, Parameter) else v)
+            for k, v in asdict(self).items()
+        }
+        return str(d)
 
 
 @dataclass
@@ -31,7 +38,6 @@ class Tool:
 
     def __str__(self):
         tool_dict = asdict(self)
-        tool_dict["parameters"] = list(map(asdict, self.parameters))
         return f"<tool> {tool_dict} </tool>"
 
 
@@ -52,7 +58,7 @@ class LLMCore:
         self.tools = []
         self.contexts = []
         self.system_prompt = (
-            "You are a helpful assistant. "
+            "You are a helpful assistant."
             "You can answer questions, provide information, and assist with various tasks."
             "If you don't know the answer, you can say 'I don't know'."
         )
@@ -72,12 +78,13 @@ class LLMCore:
         generator = og.Generator(self.model, params)
 
         # Apply chat template to the prompt
-        tokenizer_input_system_prompt = self.tokenizer.apply_chat_template(
+        tokenizer_input = self.tokenizer.apply_chat_template(
             messages=json.dumps(messages),
             add_generation_prompt=False,
         )
+        logger.debug(f"LLM input:\n{tokenizer_input}")
 
-        input_tokens = self.tokenizer.encode(tokenizer_input_system_prompt)
+        input_tokens = self.tokenizer.encode(tokenizer_input)
         generator.append_tokens(input_tokens)
 
         # Generate the response
@@ -96,6 +103,8 @@ class LLMCore:
                     break
         except Exception as e:
             logger.error(f"Error generating tokens: {e}")
+
+        logger.debug(f"LLM ouput:\n{output}")
 
         return output
 
@@ -127,16 +136,18 @@ class LLMCore:
             map(lambda x: f"<context> {x} </context>", self.contexts)
         )
 
-        messages = (
+        messages = [
             {
                 "role": "system",
-                "content": (
-                    f"{self.system_prompt}\n" f"{tools_string}\n" f"{contexts_string}"
-                ),
+                "content": self.system_prompt
+                + "\n"
+                + tools_string
+                + "\n"
+                + contexts_string,
             },
             {"role": "user", "content": query},
             {"role": "assistant", "content": "<toolcall>" if tool_only else ""},
-        )
+        ]
 
         return messages
 
@@ -171,12 +182,11 @@ class LLMCore:
                 tool_call_json = tool_call_json.replace("'", '"').replace("\n", "")
 
                 try:
-                    print(f"Tool call JSON: {tool_call_json}")
                     tool_calls.append(json.loads(tool_call_json))
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON in tool call: {e}")
 
-            text += part[-1].strip() + "\n"
+            text += parts[-1].strip() + "\n"
 
             return text, tuple(tool_calls)
         except Exception as e:
