@@ -26,13 +26,19 @@ class ASRService(BaseComponent):
     """
 
     def __init__(
-        self, samplerate: int, transcription_callback, max_queue_size: int = 5
+        self,
+        samplerate: int,
+        transcription_callback,
+        max_queue_size: int = 5,
+        device=None,
     ):
         super().__init__()
         # Load the ONNX-ASR model
-        logger.info("Loading ASR model...")
         self.asr_model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         logger.info("ASR model loaded.")
+
+        if device is not None:
+            self.asr_model.set_device(device)
 
         self.samplerate = samplerate
         self.transcription_callback = transcription_callback  # Callback for results

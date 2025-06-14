@@ -17,19 +17,26 @@ from .components import AudioStreamer, VADProcessor, ASRService
 logger = get_logger(__name__)
 
 
-class RealtimeASRSystem:
+class ASRCore:
     """
     Orchestrates audio capture, VAD, and ASR services.
     Provides methods to start and stop the system.
     """
 
-    def __init__(self, args, transcription_callback):
+    def __init__(
+        self,
+        vad_threshold=0.3,
+        end_silence_duration=0.7,
+        pre_speech_duration=0.8,
+        queue_size=5,
+        transcription_callback=None,
+        device=None,
+    ):
         self.samplerate = 16000  # Fixed for models
         self.vad_chunk_size_samples = 512  # Fixed for Silero VAD at 16kHz
 
         logger.info("Loading ASR/VAD components...")
 
-        # Initialize components with parameters from args
         self.audio_streamer = AudioStreamer(
             samplerate=self.samplerate,
             channels=1,
@@ -38,14 +45,16 @@ class RealtimeASRSystem:
         self.vad_processor = VADProcessor(
             samplerate=self.samplerate,
             vad_chunk_size_samples=self.vad_chunk_size_samples,
-            vad_threshold=args.vad_threshold,
-            end_silence_duration=args.end_silence_duration,
-            pre_speech_buffer_duration=args.pre_speech_duration,
+            vad_threshold=vad_threshold,
+            end_silence_duration=end_silence_duration,
+            pre_speech_buffer_duration=pre_speech_duration,
+            device=device,
         )
         self.asr_service = ASRService(
             samplerate=self.samplerate,
             transcription_callback=transcription_callback,  # Pass external callback
-            max_queue_size=args.queue_size,
+            max_queue_size=queue_size,
+            device=device,
         )
 
         logger.info("Components initialized.")
@@ -138,81 +147,16 @@ class RealtimeASRSystem:
         self.asr_service.stop()  # Stop the ASR worker gracefully
         logger.info("Realtime ASR System stopped.")
 
-
-class ASRCore:
-    """
-    Simplified interface for running ASR from microphone input.
-
-    This class is a wrapper around RealtimeASRSystem that handles default parameter values and
-    provides a simple process_audio() method for easy use in scripts.
-    """
-
-    def __init__(self):
-        self.args = parse_asr_args()
-
-    def process_audio(self, transcription_callback=None):
+    def process_audio(self):
         """
         Start processing audio from microphone input.
-
-        Args:
-            transcription_callback: Optional callback function to receive transcriptions.
-                                   If not provided, will use a default no-op callback.
         """
-        if transcription_callback is None:
-            # Default no-op callback if none is provided
-            def transcription_callback(transcription):
-                logger.info(f"Transcription received: {transcription}")
-
-        asr_system = RealtimeASRSystem(self.args, transcription_callback)
         try:
-            asr_system.start()
+            self.asr_system.start()
             # Keep the main thread alive while processing in background
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
             logger.info("Terminating ASR system...")
         finally:
-            asr_system.stop()
-
-
-# ==============================================================================
-# Argument Parsing (can be used by both module or external app)
-# ==============================================================================
-def parse_asr_args():
-    """Parses command-line arguments for the ASR system."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Real-time, continuous ASR from microphone using ONNX models and VAD."
-    )
-
-    parser.add_argument(
-        "--vad-threshold",
-        type=float,
-        default=0.3,
-        help="Probability threshold for Voice Activity Detection (0.0-1.0). Higher values are less sensitive to noise.",
-    )
-    parser.add_argument(
-        "--end-silence-duration",
-        type=float,
-        default=0.7,
-        help="Duration of continuous silence (in seconds) to consider an utterance ended.",
-    )
-    parser.add_argument(
-        "--pre-speech-duration",
-        type=float,
-        default=0.8,
-        help="Duration of audio (in seconds) to include before detected speech starts, for context.",
-    )
-    parser.add_argument(
-        "--queue-size",
-        type=int,
-        default=5,
-        help="Maximum number of utterances to queue for ASR processing. Prevents memory overload.",
-    )
-    parser.add_argument(
-        "--device",
-        type=int,
-        help="Specific audio input device ID. Use `python -m sounddevice` to list devices.",
-    )
-    return parser.parse_args()
+            self.asr_system.stop()

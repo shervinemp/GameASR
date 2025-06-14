@@ -39,12 +39,14 @@ class VADProcessor(BaseComponent):
         vad_threshold: float,
         end_silence_duration: float,
         pre_speech_buffer_duration: float,
+        device=None,
     ):
         super().__init__()
         # Load the Silero VAD model
-        logger.info("Loading VAD model...")
         self.vad_model = load_silero_vad()
         logger.info("VAD model loaded.")
+        if device is not None:
+            self.vad_model.to(device)
 
         self.samplerate = samplerate
         self.vad_chunk_size_samples = vad_chunk_size_samples
