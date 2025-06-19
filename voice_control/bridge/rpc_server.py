@@ -1,7 +1,9 @@
+import threading
 import zmq
 import json
 import sys
 
+from ..common.utils import get_logger
 from ..llm.core import LLMCore
 
 
@@ -28,12 +30,25 @@ class LLMAPI:
 
 class RpcServer:
     def __init__(self, service_api, endpoint: str, protocol: str = "tcp"):
+        self.logger = get_logger(__name__)
+
         self.endpoint = endpoint
         self.service_api = service_api
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(self.endpoint)
-        print(f"[RpcServer] Bound to {self.endpoint}")
+        self._worker_thread = None
+        self.logger.info(f"[RpcServer] Bound to {self.endpoint}")
+
+    def start(self):
+        """Starts the server worker thread."""
+        if not self._worker_thread:
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                daemon=True,  # Daemon thread exits when main program exits
+            )
+            self._worker_thread.start()
+            self.logger.info("Server worker thread started.")
 
     def _dispatch_method(self, method_name: str, params: dict):
         # Dynamically get the method from the service api
@@ -73,14 +88,14 @@ class RpcServer:
                     "message": f"Invalid params for method '{method_name}': {str(e)}",
                 }
             except Exception as e:  # Catch any other errors from the service method
-                print(
-                    f"[Server] Error executing method '{method_name}': {e}",
-                    file=sys.stderr,
-                )
                 response_obj["error"] = {
                     "code": -32000,
                     "message": f"Server error: {str(e)}",
                 }
+                self.logger.error(
+                    f"[Server] Error executing method '{method_name}': {e}",
+                    file=sys.stderr,
+                )
 
         except json.JSONDecodeError as e:
             response_obj["error"] = {
@@ -95,34 +110,48 @@ class RpcServer:
             }
             response_obj["id"] = None
         except Exception as e:
-            print(
-                f"[Server] Unexpected error during request processing: {e}",
-                file=sys.stderr,
-            )
             response_obj["error"] = {
                 "code": -32000,
                 "message": f"An unexpected server error occurred: {str(e)}",
             }
             response_obj["id"] = None
 
+            self.logger.error(
+                f"[Server] Unexpected error during request processing: {e}",
+                file=sys.stderr,
+            )
+
         return json.dumps(response_obj)
 
-    def run(self):
+    def _worker_loop(self):
         try:
             while True:
                 message = self.socket.recv_string()
-                print(f"\n[Server] Received: {message}")
+                self.logger.debug(f"\n[Server] Received: {message}")
 
                 response = self.handle_request(message)
 
                 self.socket.send_string(response)
-                print(f"[Server] Sent: {response}")
+                self.logger.debug(f"[Server] Sent: {response}")
 
         except KeyboardInterrupt:
-            print("\n[Server] Shutting down.")
+            self.logger.info("\n[Server] Shutting down.")
         except Exception as e:
-            print(f"\n[Server] An unhandled error occurred: {e}", file=sys.stderr)
+            self.logger.error(
+                f"\n[Server] An unhandled error occurred: {e}", file=sys.stderr
+            )
         finally:
             self.socket.close()
             self.context.term()
-            print("[Server] ZeroMQ resources cleaned up.")
+            self.logger.debug("[Server] ZeroMQ resources cleaned up.")
+
+    def stop(self):
+        """Sends shutdown signal to the server worker and waits for it to finish."""
+        if self._worker_thread and self._worker_thread.is_alive():
+            self.logger.info("Sending shutdown signal to server thread...")
+            self.transcription_queue.put(None)  # Send sentinel
+            self._worker_thread.join(timeout=5)  # Wait for thread to finish
+            if self._worker_thread.is_alive():
+                self.logger.warning(
+                    "Server thread did not terminate gracefully within timeout."
+                )

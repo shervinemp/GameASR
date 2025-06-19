@@ -142,9 +142,7 @@ class ASRCore:
         if final_utterance is not None:
             self.asr_service.enqueue_utterance(final_utterance)
             # Give ASR thread a moment to process the last utterance, if any
-            self.asr_service.transcription_queue.join(
-                timeout=5
-            )  # Wait for queue to clear
+            self.asr_service.transcript_queue.join(timeout=5)  # Wait for queue to clear
 
         self.asr_service.stop()  # Stop the ASR worker gracefully
         self.logger.info("ASR Core stopped.")
