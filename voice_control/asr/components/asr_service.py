@@ -25,60 +25,57 @@ class ASRService:
         self,
         samplerate: int = 16000,
         max_queue_size: int = 5,
-        transcription_callback: callable = print,
+        transcript_callback: callable | None = None,
     ):
         self.logger = get_logger(__name__)
 
+        if transcript_callback is None:
+            transcript_callback = self.logger.info
+
         # Load the ONNX-ASR model
-        self.asr_model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
+        self.model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         self.logger.info("ASR model loaded.")
 
         self.samplerate = samplerate
-        self.transcription_callback = transcription_callback  # Callback for results
-        self.transcription_queue = queue.Queue(maxsize=max_queue_size)
+        self.transcript_callback = transcript_callback  # Callback for results
+        self.transcript_queue = queue.Queue(maxsize=max_queue_size)
         self._worker_thread = None
 
     def start(self):
         """Starts the ASR worker thread."""
         if not self._worker_thread:
             self._worker_thread = threading.Thread(
-                target=self._asr_worker_loop,
-                args=(
-                    self.asr_model,
-                    self.transcription_queue,
-                    self.samplerate,
-                    self.transcription_callback,
-                ),
+                target=self._worker_loop,
                 daemon=True,  # Daemon thread exits when main program exits
             )
             self._worker_thread.start()
             self.logger.info("ASR worker thread started.")
 
-    def _asr_worker_loop(self, model, input_queue, sample_rate, callback):
+    def _worker_loop(self):  # No arguments here!
         """The main loop executed by the ASR worker thread."""
         threading.current_thread().name = "ASR_Worker"
         while True:
             try:
-                audio_segment = input_queue.get(
+                audio_segment = self.transcript_queue.get(
                     timeout=0.1
                 )  # Short timeout to check for shutdown
 
                 if audio_segment is None:  # Sentinel for shutdown
-                    self.logger.debug("Shutdown signal received. Exiting.")
+                    self.logger.info("Shutdown signal received. Exiting.")
                     break
 
                 self.logger.debug("Processing transcription...")
-                transcription = model.recognize(
-                    audio_segment, sample_rate=sample_rate
+                transcription = self.model.recognize(
+                    audio_segment, sample_rate=self.samplerate
                 ).strip()
                 self.logger.debug("Transcription: " + transcription)
 
                 if len(transcription):
-                    callback(transcription)
+                    self.transcript_callback(transcription)  # Call instance callback
                 else:
                     self.logger.debug("No transcription generated for this segment.")
 
-                input_queue.task_done()
+                self.transcript_queue.task_done()
 
             except queue.Empty:
                 continue  # Keep trying if queue is empty
@@ -87,12 +84,12 @@ class ASRService:
                     f"An unexpected error occurred during transcription: {e}"
                 )
                 if audio_segment is not None:
-                    input_queue.task_done()
+                    self.transcript_queue.task_done()
 
     def enqueue_utterance(self, audio_segment):
         """Adds an audio segment to the queue for transcription."""
         try:
-            self.transcription_queue.put_nowait(audio_segment)
+            self.transcript_queue.put_nowait(audio_segment)
             self.logger.debug("Utterance sent to ASR queue.")
         except queue.Full:
             self.logger.warning(
@@ -103,7 +100,7 @@ class ASRService:
         """Sends shutdown signal to the ASR worker and waits for it to finish."""
         if self._worker_thread and self._worker_thread.is_alive():
             self.logger.info("Sending shutdown signal to ASR thread...")
-            self.transcription_queue.put(None)  # Send sentinel
+            self.transcript_queue.put(None)  # Send sentinel
             self._worker_thread.join(timeout=5)  # Wait for thread to finish
             if self._worker_thread.is_alive():
                 self.logger.warning(
