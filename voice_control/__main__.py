@@ -5,7 +5,7 @@ import sys
 from .pipeline import Pipeline
 
 from .bridge.tool_client import ToolCaller, get_client_class
-from .bridge.rpc_server import LLMAPI, RpcServer
+from .bridge.rpc_server import LLMService, RpcServer
 
 from .common.utils import setup_logging, get_logger, parse_api_spec
 
@@ -21,14 +21,14 @@ def main():
         "--port",
         type=int,
         default=8000,
-        help="Port used by the server.",
+        help="Port used by the RPC server.",
     )
     parser.add_argument(
         "--protocol",
         type=str,
         default="tcp",
         choices=["tcp", "ipc"],
-        help="Protocol used by the server.",
+        help="Protocol used by the RPC server.",
     )
     parser.add_argument(
         "--tools-host",
@@ -106,7 +106,7 @@ def main():
         sys.exit(1)
 
     try:
-        service_api = LLMAPI(pipe.llm)
+        service_api = LLMService(pipe.llm)
         endpoint = args.protocol + "://" + args.host + ":" + str(args.port)
         rpc_server = RpcServer(service_api, endpoint, protocol=args.protocol)
     except Exception as e:

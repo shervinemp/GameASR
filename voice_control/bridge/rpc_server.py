@@ -7,7 +7,7 @@ from ..common.utils import get_logger
 from ..llm.core import LLMCore
 
 
-class LLMAPI:
+class LLMService:
     def __init__(self, llm: LLMCore):
         self.llm = llm
 
