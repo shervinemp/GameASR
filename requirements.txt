@@ -7,3 +7,5 @@ torch
 silero-vad
 sounddevice
 simpleaudio
+grpcio
+zmq

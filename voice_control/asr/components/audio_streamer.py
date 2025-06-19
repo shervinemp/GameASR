@@ -7,14 +7,10 @@ Part of the ASR components package.
 import sounddevice as sd
 import numpy as np
 
-from ...common.base_component import BaseComponent
-from ...common.logging_utils import get_logger
-
-# Get module logger using our standard logging utility
-logger = get_logger(__name__)
+from ...common.utils import get_logger
 
 
-class AudioStreamer(BaseComponent):
+class AudioStreamer:
     """
     Captures audio from microphone input using sounddevice library.
     Inherits start/stop methods from BaseComponent.
@@ -24,15 +20,13 @@ class AudioStreamer(BaseComponent):
 
     def __init__(self, samplerate=16000, channels=1, chunk_size=512):
         """Initialize with default parameters for ASR."""
-        super().__init__()
+        self.logger = get_logger(__name__)
+
         self.samplerate = samplerate
         self.channels = channels
         self.chunk_size = chunk_size
         self.dtype = "int16"  # Fixed for microphone input common to ASR
         self._stream = None
-
-        # Use our standard logger instead of the direct logging module
-        logger.info("AudioStreamer initialized.")
 
     def __enter__(self):
         """Open audio stream on entering context."""
@@ -60,7 +54,7 @@ class AudioStreamer(BaseComponent):
             self._stream.close()
 
             # Use our standard logger instead of the direct logging module
-            logger.info("Audio stream stopped and closed.")
+            self.logger.info("Audio stream stopped and closed.")
 
     def read_chunk(self) -> tuple[np.ndarray, bool]:
         """
@@ -75,7 +69,7 @@ class AudioStreamer(BaseComponent):
 
         if len(audio_chunk_int16) != self.chunk_size:
             # Use our standard logger instead of the direct logging module
-            logger.warning(
+            self.logger.warning(
                 f"Audio chunk size mismatch. Expected {self.chunk_size}, "
                 f"got {len(audio_chunk_int16)}. Data may be incomplete."
             )

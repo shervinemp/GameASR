@@ -19,14 +19,10 @@ except ImportError:
         "Silero VAD is not installed. Please install it using: pip install silero-vad"
     )
 
-from ...common.base_component import BaseComponent
-from ...common.logging_utils import get_logger
-
-# Get a logger for this module
-logger = get_logger(__name__)
+from ...common.utils import get_logger
 
 
-class VADProcessor(BaseComponent):
+class VADProcessor:
     """
     Manages VAD state and logic to segment continuous audio into utterances.
     Yields complete utterances when speech ends.
@@ -41,10 +37,11 @@ class VADProcessor(BaseComponent):
         pre_speech_buffer_duration: float = 1.0,
         device=None,
     ):
-        super().__init__()
+        self.logger = get_logger(__name__)
+
         # Load the Silero VAD model
         self.vad_model = load_silero_vad()
-        logger.info("VAD model loaded.")
+        self.logger.info("VAD model loaded.")
         if device is not None:
             self.vad_model.to(device)
 
@@ -90,7 +87,7 @@ class VADProcessor(BaseComponent):
         if not self.is_speech_active:
             # Listening for speech start
             if speech_prob > self.vad_threshold:
-                logger.info("Speech detected! Accumulating utterance...")
+                self.logger.info("Speech detected! Accumulating utterance...")
                 self.is_speech_active = True
                 self.current_utterance_audio_chunks.append(
                     np.array(self.pre_speech_buffer_deque, dtype=np.float32)
@@ -107,7 +104,7 @@ class VADProcessor(BaseComponent):
                 self.silence_counter += 1  # Increment if silence is detected
 
                 if self.silence_counter >= self.SILENCE_THRESHOLD_CHUNKS:
-                    logger.info("End of speech detected.")
+                    self.logger.info("End of speech detected.")
                     utterance_to_return = self._finalize_utterance()
 
         return utterance_to_return
@@ -132,12 +129,14 @@ class VADProcessor(BaseComponent):
             if trimmed_utterance_audio.size > 10:
                 return trimmed_utterance_audio
             else:
-                logger.info(
+                self.logger.info(
                     "Speech segment was too short or contained only silence after trimming. Not returning."
                 )
                 return None
         else:
-            logger.info("No audio accumulated for transcription (empty utterance).")
+            self.logger.info(
+                "No audio accumulated for transcription (empty utterance)."
+            )
             return None
 
     def get_final_utterance_if_active(self) -> np.ndarray | None:
@@ -145,7 +144,7 @@ class VADProcessor(BaseComponent):
         Call this when the audio stream ends to get any pending active utterance.
         """
         if self.is_speech_active and self.current_utterance_audio_chunks:
-            logger.info("Stream ended during active speech. Finalizing segment...")
+            self.logger.info("Stream ended during active speech. Finalizing segment...")
             # No trimming of trailing silence here, as the stream just ended.
             full_utterance_audio = np.concatenate(self.current_utterance_audio_chunks)
             self.current_utterance_audio_chunks = []
@@ -154,6 +153,6 @@ class VADProcessor(BaseComponent):
             if full_utterance_audio.size > 0:
                 return full_utterance_audio
             else:
-                logger.debug("Final speech segment was empty.")
+                self.logger.debug("Final speech segment was empty.")
                 return None
         return None

@@ -4,41 +4,10 @@ Core module for LLM functionality.
 This module provides the main classes and functions for working with language models.
 """
 
-from dataclasses import asdict, dataclass, field
 import json
 import onnxruntime_genai as og
 
-from ..common.logging_utils import get_logger
-
-# Get a logger for this module
-logger = get_logger(__name__)
-
-
-@dataclass
-class Parameter:
-    type: str
-    description: str = None
-    properties: dict[str, "Parameter"] | None = field(default_factory=dict)
-    enum: list | None = None
-    required: list | None = None
-
-    def __str__(self):
-        d = {
-            k: (str(v) if isinstance(v, Parameter) else v)
-            for k, v in asdict(self).items()
-        }
-        return str(d)
-
-
-@dataclass
-class Tool:
-    name: str
-    description: str
-    parameters: list[Parameter] = field(default_factory=list)
-
-    def __str__(self):
-        tool_dict = asdict(self)
-        return f"<tool> {tool_dict} </tool>"
+from ..common.utils import get_logger
 
 
 class LLMCore:
@@ -50,6 +19,8 @@ class LLMCore:
         """
         Initialize the LLM core.
         """
+        self.logger = get_logger(__name__)
+
         model_path = "models\\llm"
         self.config = og.Config(model_path)
         self.model = og.Model(self.config)
@@ -82,7 +53,7 @@ class LLMCore:
             messages=json.dumps(messages),
             add_generation_prompt=False,
         )
-        logger.debug(f"LLM input:\n{tokenizer_input}")
+        self.logger.debug(f"LLM input:\n{tokenizer_input}")
 
         input_tokens = self.tokenizer.encode(tokenizer_input)
         generator.append_tokens(input_tokens)
@@ -102,9 +73,9 @@ class LLMCore:
                 if len(token_str) == 0:
                     break
         except Exception as e:
-            logger.error(f"Error generating tokens: {e}")
+            self.logger.error(f"Error generating tokens: {e}")
 
-        logger.debug(f"LLM ouput:\n{output}")
+        self.logger.debug(f"LLM ouput:\n{output}")
 
         return output
 
@@ -131,7 +102,7 @@ class LLMCore:
 
         tools_string = ""
         if self.tool_use and not no_tool:
-            tools_string = "\n".join(str(tool) for tool in self.tools)
+            tools_string = "</tool>\n<tool>".join(str(tool) for tool in self.tools)
         contexts_string = "\n".join(
             map(lambda x: f"<context> {x} </context>", self.contexts)
         )
@@ -184,11 +155,11 @@ class LLMCore:
                 try:
                     tool_calls.append(json.loads(tool_call_json))
                 except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in tool call: {e}")
+                    self.logger.error(f"Invalid JSON in tool call: {e}")
 
             text += parts[-1].strip() + "\n"
 
             return text, tuple(tool_calls)
         except Exception as e:
-            logger.error(f"Error parsing response: {e}")
+            self.logger.error(f"Error parsing response: {e}")
             return "", []

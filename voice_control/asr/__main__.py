@@ -8,7 +8,7 @@ This script demonstrates how to set up and run the ASR pipeline.
 import sys
 
 # Import standard logging utilities
-from ..common.logging_utils import setup_logging, get_logger
+from ..common.utils import setup_logging, get_logger
 
 # Import the core ASR component
 from .core import ASRCore

@@ -9,14 +9,10 @@ This module provides text-to-speech processing functionality using ONNX models.
 from kokoro_onnx import Kokoro
 from kokoro_onnx.tokenizer import Tokenizer
 
-from ...common.base_component import BaseComponent
-from ...common.logging_utils import get_logger
-
-# Get a logger for this module
-logger = get_logger(__name__)
+from ...common.utils import get_logger
 
 
-class TTSProcessor(BaseComponent):
+class TTSProcessor:
     """
     Processes text to generate speech audio.
     Inherits start/stop methods from BaseComponent.
@@ -28,7 +24,8 @@ class TTSProcessor(BaseComponent):
         """
         Initialize TTS processor with the specified model and configuration files.
         """
-        super().__init__()
+        self.logger = get_logger(__name__)
+
         self.kokoro = Kokoro(
             model_path="models/tts/kokoro-v1.0.onnx",
             voices_path="models/tts/voices-v1.0.bin",
@@ -55,5 +52,5 @@ class TTSProcessor(BaseComponent):
 
             return samples, sample_rate
         except Exception as e:
-            logger.error(f"Error processing text: {e}")
+            self.logger.error(f"Error processing text: {e}")
             raise

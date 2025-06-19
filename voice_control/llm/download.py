@@ -6,7 +6,7 @@ This script handles installing dependencies and setting up the environment.
 """
 
 import os
-from ..common.download_utils import download_file
+from ..common.utils import download_file
 
 
 def setup_environment():

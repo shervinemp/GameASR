@@ -9,18 +9,13 @@ ParakeetV2 model from ONNX-ASR.
 
 import queue
 import threading
-import torch
 
 from onnx_asr import load_model
 
-from ...common.base_component import BaseComponent
-from ...common.logging_utils import get_logger
-
-# Get a logger for this module
-logger = get_logger(__name__)
+from ...common.utils import get_logger
 
 
-class ASRService(BaseComponent):
+class ASRService:
     """
     Manages the ASR model and a dedicated worker thread for asynchronous transcription.
     Delivers results via a callback function.
@@ -32,10 +27,11 @@ class ASRService(BaseComponent):
         max_queue_size: int = 5,
         transcription_callback: callable = print,
     ):
-        super().__init__()
+        self.logger = get_logger(__name__)
+
         # Load the ONNX-ASR model
         self.asr_model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
-        logger.info("ASR model loaded.")
+        self.logger.info("ASR model loaded.")
 
         self.samplerate = samplerate
         self.transcription_callback = transcription_callback  # Callback for results
@@ -56,7 +52,7 @@ class ASRService(BaseComponent):
                 daemon=True,  # Daemon thread exits when main program exits
             )
             self._worker_thread.start()
-            logger.info("ASR worker thread started.")
+            self.logger.info("ASR worker thread started.")
 
     def _asr_worker_loop(self, model, input_queue, sample_rate, callback):
         """The main loop executed by the ASR worker thread."""
@@ -68,26 +64,28 @@ class ASRService(BaseComponent):
                 )  # Short timeout to check for shutdown
 
                 if audio_segment is None:  # Sentinel for shutdown
-                    logger.debug("Shutdown signal received. Exiting.")
+                    self.logger.debug("Shutdown signal received. Exiting.")
                     break
 
-                logger.debug("Processing transcription...")
+                self.logger.debug("Processing transcription...")
                 transcription = model.recognize(
                     audio_segment, sample_rate=sample_rate
                 ).strip()
-                logger.debug("Transcription: " + transcription)
+                self.logger.debug("Transcription: " + transcription)
 
                 if len(transcription):
                     callback(transcription)
                 else:
-                    logger.debug("No transcription generated for this segment.")
+                    self.logger.debug("No transcription generated for this segment.")
 
                 input_queue.task_done()
 
             except queue.Empty:
                 continue  # Keep trying if queue is empty
             except Exception as e:
-                logger.error(f"An unexpected error occurred during transcription: {e}")
+                self.logger.error(
+                    f"An unexpected error occurred during transcription: {e}"
+                )
                 if audio_segment is not None:
                     input_queue.task_done()
 
@@ -95,19 +93,19 @@ class ASRService(BaseComponent):
         """Adds an audio segment to the queue for transcription."""
         try:
             self.transcription_queue.put_nowait(audio_segment)
-            logger.debug("Utterance sent to ASR queue.")
+            self.logger.debug("Utterance sent to ASR queue.")
         except queue.Full:
-            logger.warning(
+            self.logger.warning(
                 "ASR queue is full. Dropping utterance to maintain real-time performance."
             )
 
     def stop(self):
         """Sends shutdown signal to the ASR worker and waits for it to finish."""
         if self._worker_thread and self._worker_thread.is_alive():
-            logger.info("Sending shutdown signal to ASR thread...")
+            self.logger.info("Sending shutdown signal to ASR thread...")
             self.transcription_queue.put(None)  # Send sentinel
             self._worker_thread.join(timeout=5)  # Wait for thread to finish
             if self._worker_thread.is_alive():
-                logger.warning(
+                self.logger.warning(
                     "ASR thread did not terminate gracefully within timeout."
                 )

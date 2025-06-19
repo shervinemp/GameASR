@@ -5,7 +5,7 @@ Part of the TTS components package.
 
 This module provides text-to-speech (TTS) services using a sequence of processors.
 """
-from ..common.logging_utils import get_logger
+from ..common.utils import get_logger
 
 from .components.tts_processor import TTSProcessor
 from .components.audio_player import AudioPlayer
@@ -22,17 +22,8 @@ class TTSCore:
     """
 
     def __init__(self):
-        super().__init__()
-
-        try:
-            # Initialize TTS processor and audio player components
-            self.tts_processor = TTSProcessor()
-            self.audio_player = AudioPlayer()
-
-            logger.debug("TTSCore initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize TTSCore: {e}")
-            raise
+        self.tts_processor = TTSProcessor()
+        self.audio_player = AudioPlayer()
 
     def speak(self, text):
         """

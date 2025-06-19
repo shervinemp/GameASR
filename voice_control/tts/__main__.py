@@ -8,7 +8,7 @@ This script demonstrates how to set up and run a continuous TTS loop that gets t
 import sys
 
 # Import standard logging utilities
-from ..common.logging_utils import setup_logging, get_logger
+from ..common.utils import setup_logging, get_logger
 
 # Import the core TTS component
 from .core import TTSCore
