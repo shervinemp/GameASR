@@ -9,26 +9,10 @@ import os
 from ..common.utils import download_file
 
 
-def setup_environment():
-    """
-    Set up the environment for TTS by creating necessary directories.
-    """
-    # Create the models directory if it doesn't exist
-    models_dir = "models\\tts"
-    if not os.path.exists(models_dir):
-        try:
-            os.makedirs(models_dir)
-            print(f"Created directory: {models_dir}")
-        except Exception as e:
-            print(f"Failed to create directory {models_dir}: {e}")
-
-
 def main():
     """
     Main function to set up the TTS environment.
     """
-    # Set up the environment (create directories)
-    setup_environment()
 
     # Check if required files exist
     required_files = [
@@ -39,7 +23,10 @@ def main():
     for file_path in required_files:
         if not os.path.exists(file_path):
             # Download the file if it does not exist
-            destination = os.path.join("models\\tts", os.path.basename(file_path))
+            destination = os.path.join(
+                os.getcwd(), "models", "tts", os.path.basename(file_path)
+            )
+            os.makedirs(os.path.split(destination[0]), exist_ok=True)
             download_file(file_path, destination)
         else:
             print(f"File {file_path} already exists, skipping download.")

@@ -14,7 +14,7 @@ def setup_environment():
     Set up the environment for LLM by creating necessary directories.
     """
     # Create the models directory if it doesn't exist
-    models_dir = "models\\llm"
+    models_dir = os.path.join("models", "llm")
     if not os.path.exists(models_dir):
         try:
             os.makedirs(models_dir)
@@ -39,7 +39,7 @@ def download_all_files():
 
     for filename in files_to_download:
         url = f"{base_url}{filename}"
-        destination = os.path.join("models\\llm", filename)
+        destination = os.path.join("models", "llm", filename)
         if not os.path.exists(destination):
             download_file(url, destination)
         else:
