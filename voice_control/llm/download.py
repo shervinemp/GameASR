@@ -6,27 +6,14 @@ This script handles installing dependencies and setting up the environment.
 """
 
 import os
-from ..common.utils import download_file
+from ..common.utils import download_file, get_logger
 
 
-def setup_environment():
-    """
-    Set up the environment for LLM by creating necessary directories.
-    """
-    # Create the models directory if it doesn't exist
-    models_dir = os.path.join("models", "llm")
-    if not os.path.exists(models_dir):
-        try:
-            os.makedirs(models_dir)
-            print(f"Created directory: {models_dir}")
-        except Exception as e:
-            print(f"Failed to create directory {models_dir}: {e}")
-
-
-def download_all_files():
+def download_all_files(models_dir: str):
     """
     Download all required files for the LLM model.
     """
+    logger = get_logger(__name__)
     base_url = "https://api.ngc.nvidia.com/v2/models/org/nvidia/nemotoron-mini-4b-instruct-onnx-int4-rtx/1.0/files?redirect=true&path="
     files_to_download = [
         "genai_config.json",
@@ -39,24 +26,27 @@ def download_all_files():
 
     for filename in files_to_download:
         url = f"{base_url}{filename}"
-        destination = os.path.join("models", "llm", filename)
+        destination = os.path.join(models_dir, filename)
         if not os.path.exists(destination):
             download_file(url, destination)
         else:
-            print(f"File {destination} already exists, skipping download.")
+            logger.info(f"File {destination} already exists, skipping download.")
 
 
 def main():
     """
     Main function to set up the LLM environment.
     """
-    # Set up the environment (create directories)
-    setup_environment()
+    logger = get_logger(__name__)
+    # Ensure the destination directory exists
+    models_dir = os.path.join("models", "llm")
+    os.makedirs(models_dir, exist_ok=True)
+    logger.info(f"Ensured directory exists: {models_dir}")
 
     # Download all required files
-    download_all_files()
+    download_all_files(models_dir)
 
-    print("LLM setup completed successfully.")
+    logger.info("LLM setup completed successfully.")
 
 
 if __name__ == "__main__":
