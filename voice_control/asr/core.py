@@ -28,7 +28,7 @@ class ASRCore:
         vad_chunk_size_samples: int = 512,
         sample_rate: int = 16000,
         queue_size: int = 5,
-        transcription_callback: callable = print,
+        transcript_callback: callable = print,
         sound_device: int | None = None,
     ):
         self.logger = get_logger(__name__)
@@ -50,9 +50,8 @@ class ASRCore:
         )
         self.asr_service = ASRService(
             samplerate=sample_rate,
-            transcription_callback=transcription_callback,
             max_queue_size=queue_size,
-            device=sound_device,
+            transcript_callback=transcript_callback,
         )
 
         self.logger.info("Components initialized.")

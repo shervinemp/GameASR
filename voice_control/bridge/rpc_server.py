@@ -29,7 +29,7 @@ class LLMService:
 
 
 class RpcServer:
-    def __init__(self, service_api, endpoint: str, protocol: str = "tcp"):
+    def __init__(self, service_api, endpoint: str):
         self.logger = get_logger(__name__)
 
         self.endpoint = endpoint

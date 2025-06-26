@@ -4,22 +4,22 @@
 local json = require("json")
 local zmq = require("lzmq")
 
-local ToolServer = {}
-ToolServer.__index = ToolServer
+local RpcToolServer = {}
+RpcToolServer.__index = RpcToolServer
 
---- Constructor for the ToolServer client.
+--- Constructor for the RpcToolServer.
 -- @param protocol string The connection protocol ("tcp" or "ipc"). Defaults to "tcp".
 -- @param endpoint string The endpoint string.
---   For TCP: "127.0.0.1:5555" (host:port). Defaults to "127.0.0.1:5555" for TCP.
+--   For TCP: "127.0.0.1:8080" (host:port). Defaults to "127.0.0.1:8080" for TCP.
 --   For IPC: "/tmp/voice_control.ipc" (file path or named pipe name).
--- @return ToolServer A new API client instance.
-function ToolServer:new(protocol, endpoint)
+-- @return RpcToolServer A new API client instance.
+function RpcToolServer:new(protocol, endpoint)
     -- Apply defaults for protocol
     protocol = protocol or "tcp"
 
     -- Apply defaults for endpoint based on protocol
     if protocol == "tcp" then
-        endpoint = endpoint or "127.0.0.1:5555"
+        endpoint = endpoint or "127.0.0.1:8080"
     elseif protocol == "ipc" then
         -- Consider a default IPC path if it makes sense for your application.
         -- For now, we'll let it error if not provided for IPC.
@@ -37,7 +37,7 @@ function ToolServer:new(protocol, endpoint)
     return obj
 end
 
-function ToolServer:connect()
+function RpcToolServer:connect()
     if self.socket then self:disconnect() end
 
     -- Construct the full ZeroMQ endpoint string
@@ -85,7 +85,7 @@ function ToolServer:connect()
     return true
 end
 
-function ToolServer:disconnect()
+function RpcToolServer:disconnect()
     if self.socket then self.socket:close() end
     if self.context then self.context:term() end
     self.socket = nil
@@ -93,7 +93,7 @@ function ToolServer:disconnect()
     print("[Lua-Client-API] Disconnected.")
 end
 
-function ToolServer:_request(method, params)
+function RpcToolServer:_request(method, params)
     if not self.socket then
         return nil, "Not connected to ZeroMQ. Call connect() first."
     end
@@ -170,14 +170,14 @@ function ToolServer:_request(method, params)
     end
 end
 
-function ToolServer:set_contexts(contexts)
+function RpcToolServer:set_contexts(contexts)
     print("[Lua-Client-API] Calling set_contexts on Python...")
     local result, err = self:_request("set_contexts", {contexts = contexts})
     if err then print("[Lua-Client-API] Error setting contexts:", err) end
     return result, err
 end
 
-function ToolServer:query(content, role)
+function RpcToolServer:query(content, role)
     role = role or "user"
     print("[Lua-Client-API] Calling query on Python:", content)
     local result, err = self:_request("query", {role = role, content=content})
@@ -185,4 +185,4 @@ function ToolServer:query(content, role)
     return result, err
 end
 
-return ToolServer
+return RpcToolServer

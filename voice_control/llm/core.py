@@ -5,7 +5,10 @@ This module provides the main classes and functions for working with language mo
 """
 
 import json
+import os
 import onnxruntime_genai as og
+
+from .tool_client import ToolClient
 
 from ..common.utils import get_logger
 
@@ -15,24 +18,83 @@ class LLMCore:
     Core class for interacting with language models.
     """
 
-    def __init__(self, tool_use: bool = True):
+    def __init__(self, tool_client: ToolClient | None = None):
         """
         Initialize the LLM core.
         """
         self.logger = get_logger(__name__)
 
-        model_path = "models\\llm"
+        model_path = os.path.join("models", "llm")
         self.config = og.Config(model_path)
         self.model = og.Model(self.config)
         self.tokenizer = og.Tokenizer(self.model)
-        self.tool_use = tool_use
-        self.tools = []
+        self.tool_client = tool_client
         self.contexts = []
         self.system_prompt = (
             "You are a helpful assistant."
             "You can answer questions, provide information, and assist with various tasks."
             "If you don't know the answer, you can say 'I don't know'."
         )
+        self.max_tokens = 250
+
+    def __call__(self, query: str):
+        msgs = self.create_messages(query)
+        res = self.generate_response(msgs)
+        out, tc = self.parse_response(res)
+
+        if self.tool_client:
+            out = out.format(
+                *[
+                    self.tool_client(
+                        t_["name"],
+                        **t_["args"],
+                    )
+                    for t_ in tc
+                ]
+            )
+
+        return out
+
+    def create_messages(
+        self,
+        query: str,
+        tools_only: bool = False,
+        ignore_tools: bool = False,
+    ) -> list[dict]:
+        """
+        Generate a list of messages for the LLM prompt.
+
+        This function combines system, user, and tool messages into a structured format
+        that can be used in LLM prompts.
+
+        Args:
+            query (str): The user query to format.
+            tools_only (bool): If True, the response will only include tool calls.
+            ignore_tools (bool): If True, tools will not be included in the system prompt.
+
+        Returns:
+            list[dict]: A list of dictionaries representing the messages.
+        """
+
+        tools_string = ""
+        if self.tool_client and not ignore_tools:
+            tools_string = "\n".join(str(tool) for tool in self.tool_client._tools)
+        contexts_string = "\n".join(map("<context>{}</context>".format, self.contexts))
+
+        messages = [
+            {
+                "role": "system",
+                "content": self.system_prompt
+                + "\n"
+                + tools_string
+                + "\n"
+                + contexts_string,
+            },
+            {"role": "user", "content": query},
+            {"role": "assistant", "content": "<toolcall>" if tools_only else ""},
+        ]
+
+        return messages
 
     def generate_response(self, messages: list[dict]) -> str:
         """
@@ -61,9 +123,8 @@ class LLMCore:
         # Generate the response
         output = ""
         try:
-            max_tokens = 100  # Limit to prevent infinite loop
             tokenizer_stream = self.tokenizer.create_stream()
-            for i in range(max_tokens):
+            for i in range(self.max_tokens):
                 if generator.is_done():
                     break
                 generator.generate_next_token()
@@ -78,49 +139,6 @@ class LLMCore:
         self.logger.debug(f"LLM ouput:\n{output}")
 
         return output
-
-    def create_messages(
-        self,
-        query: str,
-        tool_only: bool = False,
-        no_tool: bool = False,
-    ) -> list[dict]:
-        """
-        Generate a list of messages for the LLM prompt.
-
-        This function combines system, user, and tool messages into a structured format
-        that can be used in LLM prompts.
-
-        Args:
-            query (str): The user query to format.
-            tool_only (bool): If True, the response will only include tool calls.
-            no_tool (bool): If True, tools will not be included in the system prompt.
-
-        Returns:
-            list[dict]: A list of dictionaries representing the messages.
-        """
-
-        tools_string = ""
-        if self.tool_use and not no_tool:
-            tools_string = "</tool>\n<tool>".join(str(tool) for tool in self.tools)
-        contexts_string = "\n".join(
-            map(lambda x: f"<context> {x} </context>", self.contexts)
-        )
-
-        messages = [
-            {
-                "role": "system",
-                "content": self.system_prompt
-                + "\n"
-                + tools_string
-                + "\n"
-                + contexts_string,
-            },
-            {"role": "user", "content": query},
-            {"role": "assistant", "content": "<toolcall>" if tool_only else ""},
-        ]
-
-        return messages
 
     def parse_response(self, response: str) -> tuple[str, list[dict]]:
         """
@@ -154,6 +172,7 @@ class LLMCore:
 
                 try:
                     tool_calls.append(json.loads(tool_call_json))
+                    text += "{}"
                 except json.JSONDecodeError as e:
                     self.logger.error(f"Invalid JSON in tool call: {e}")
 

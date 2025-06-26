@@ -23,14 +23,25 @@ class LuaParser(BaseParser):
         'function rpc_api.method_name(param1, param2)'
         """
         # This regex is specific to the 'rpc_api' table.
-        function_pattern = re.compile(r"function\s+rpc_api\.(\w+)\((.*?)\)")
+        # This regex is more robust, handling multiline and nested parentheses
+        function_pattern = re.compile(
+            r"function\s+rpc_api\.(\w+)\s*\(\s*(.*?)\s*\)",
+            re.DOTALL,  # Allows the pattern to match across multiple lines
+        )
         functions = []
-        matches = function_pattern.findall(content)
+        matches = function_pattern.finditer(
+            content
+        )  # Use finditer for better control over matching groups
 
         for match in matches:
-            func_name = match[0]
-            params_str = match[1]
-            params = [p.strip() for p in params_str.split(",") if p.strip()]
+            func_name = match.group(1)
+            params_str = match.group(2).strip()
+            # Handle potentially empty parameter lists or complex parameters
+            params = []
+            if params_str:
+                params = [p.strip() for p in re.split(r",\s*", params_str) if p.strip()]
+        # Only add non-empty function definitions
+        if func_name and isinstance(params, list):
             functions.append({"name": func_name, "params": params})
         return functions
 

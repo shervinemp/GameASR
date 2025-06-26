@@ -4,7 +4,7 @@ import sys
 
 from .pipeline import Pipeline
 
-from .bridge.tool_client import ToolCaller, get_client_class
+from .bridge.rpc_tool_client import ToolCaller, get_client_class
 from .bridge.rpc_server import LLMService, RpcServer
 
 from .common.utils import setup_logging, get_logger, parse_api_spec
@@ -63,10 +63,10 @@ def main():
 
     try:
         tools_spec = parse_api_spec(args.specs_path)
-        logger.info(f"Successfully parsed tool spec from '{args.tools_path}'.")
+        logger.info(f"Successfully parsed tool spec from '{args.specs_path}'.")
     except Exception as e:
         logger.critical(
-            f"Error parsing game API spec '{args.tools_path}': {e}. Exiting.",
+            f"Error parsing game API spec '{args.specs_path}': {e}. Exiting.",
             exc_info=True,
         )
         sys.exit(1)

@@ -37,12 +37,12 @@ class AudioStreamer:
             self._stream.start()
 
             # Use our standard logger instead of the direct logging module
-            logger.info(
+            self.logger.info(
                 f"Audio stream started: Sample Rate={self.samplerate}Hz, Chunk Size={self.chunk_size}"
             )
         except Exception as e:
             # Use our standard logger instead of the direct logging module
-            logger.error(f"Failed to open audio stream: {e}")
+            self.logger.error(f"Failed to open audio stream: {e}")
             raise
 
         return self

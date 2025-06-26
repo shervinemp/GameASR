@@ -9,6 +9,7 @@ ParakeetV2 model from ONNX-ASR.
 
 import queue
 import threading
+from typing import Callable
 
 from onnx_asr import load_model
 
@@ -25,7 +26,7 @@ class ASRService:
         self,
         samplerate: int = 16000,
         max_queue_size: int = 5,
-        transcript_callback: callable | None = None,
+        transcript_callback: Callable | None = None,
     ):
         self.logger = get_logger(__name__)
 

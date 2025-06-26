@@ -6,7 +6,7 @@ local VoiceControlClient = {}
 
 --- Constructor for the VoiceControlClient.
 -- @param config table A table containing connection details.
---   For TCP: {protocol = "tcp", host = "127.0.0.1", port = 5555}
+--   For TCP: {protocol = "tcp", host = "127.0.0.1", port = 8000}
 --   For IPC: {protocol = "ipc", path = "/tmp/voice_control.ipc"}
 -- @return VoiceControlClient A new client instance.
 function VoiceControlClient:new(config)
