@@ -28,10 +28,13 @@ class ASRCore:
         vad_chunk_size_samples: int = 512,
         sample_rate: int = 16000,
         queue_size: int = 5,
-        transcript_callback: callable = print,
+        transcript_callback: callable | None = None,
         sound_device: int | None = None,
     ):
         self.logger = get_logger(__name__)
+
+        if transcript_callback is None:
+            transcript_callback = self.logger.info
 
         self.logger.info("Loading ASR/VAD components...")
 
