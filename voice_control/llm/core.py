@@ -37,7 +37,7 @@ class LLMCore:
         )
         self.max_tokens = 250
 
-    def __call__(self, query: str):
+    def __call__(self, query: str) -> str:
         msgs = self.create_messages(query)
         res = self.generate_response(msgs)
         out, tc = self.parse_response(res)
@@ -53,7 +53,7 @@ class LLMCore:
                 ]
             )
 
-        return out
+        return out, tc
 
     def create_messages(
         self,

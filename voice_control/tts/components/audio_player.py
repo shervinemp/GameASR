@@ -47,10 +47,7 @@ class AudioPlayer:
                     audio_data = (audio_data * 32767).astype(
                         np.int16
                     )  # Scale to 16-bit range
-
-                audio_bytes = audio_data.tobytes()
-            else:
-                audio_bytes = audio_data
+            audio_bytes = audio_data
 
             play_obj = sa.play_buffer(
                 audio_bytes,
