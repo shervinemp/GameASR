@@ -39,7 +39,7 @@ class AudioPlayer:
             simpleaudio.PlayObject: The play object for controlling playback
         """
         try:
-            if isinstance(audio_data, np.ndarray) and audio_data.dtype != np.int16:
+            if isinstance(audio_data, np.ndarray):
                 if audio_data.dtype != np.int16:
                     audio_data = audio_data / np.max(
                         np.abs(audio_data)
