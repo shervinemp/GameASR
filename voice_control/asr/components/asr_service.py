@@ -66,13 +66,13 @@ class ASRService:
                     break
 
                 self.logger.debug("Processing transcription...")
-                transcription = self.model.recognize(
+                transcript = self.model.recognize(
                     audio_segment, sample_rate=self.samplerate
                 ).strip()
-                self.logger.debug("Transcription: " + transcription)
+                self.logger.debug("Transcription: " + transcript)
 
-                if len(transcription):
-                    self.transcript_callback(transcription)  # Call instance callback
+                if len(transcript):
+                    self.transcript_callback(transcript)  # Call instance callback
                 else:
                     self.logger.debug("No transcription generated for this segment.")
 
