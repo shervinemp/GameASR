@@ -6,7 +6,6 @@ This module provides the integration between ASR (Automatic Speech Recognition),
 LLM (Language Model), and TTS (Text-to-Speech) components to create a seamless
 voice control pipeline.
 """
-import os
 import sys
 
 from .common.utils import setup_logging, get_logger
