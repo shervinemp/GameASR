@@ -6,6 +6,7 @@ delivering transcribed text via a callback.
 """
 
 import time
+from typing import Callable
 import sounddevice as sd
 import threading
 
@@ -28,7 +29,7 @@ class ASRCore:
         vad_chunk_size_samples: int = 512,
         sample_rate: int = 16000,
         queue_size: int = 5,
-        transcript_callback: callable | None = None,
+        transcript_callback: Callable | None = None,
         sound_device: int | None = None,
     ):
         self.logger = get_logger(__name__)
