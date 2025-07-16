@@ -45,7 +45,7 @@ class MessageList(List):
 class Conversation:
 
     def __init__(self):
-        self.messages = Conversation.MessageList()
+        self.messages = MessageList()
 
     def add_user_message(self, content: str):
         msg = Message(role=Message.Role.user, content=content)
