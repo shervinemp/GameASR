@@ -38,12 +38,11 @@ def main():
     Main function to set up the LLM environment.
     """
     logger = get_logger(__name__)
-    # Ensure the destination directory exists
+
     models_dir = os.path.join("models", "llm")
     os.makedirs(models_dir, exist_ok=True)
     logger.info(f"Ensured directory exists: {models_dir}")
 
-    # Download all required files
     download_all_files(models_dir)
 
     logger.info("LLM setup completed successfully.")

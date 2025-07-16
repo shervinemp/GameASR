@@ -4,6 +4,17 @@ LLM module for voice control.
 This module provides language model functionality for voice interaction.
 """
 
-from .core import LLMCore
+from .conversation import Conversation, Message, MessageList, SystemPrompt
+from .model import LLM
+from .session import Session
+from .tools import Tool
 
-__all__ = ["LLMCore"]
+__all__ = [
+    "LLM",
+    "Conversation",
+    "Message",
+    "MessageList",
+    "SystemPrompt",
+    "Session",
+    "Tool",
+]
