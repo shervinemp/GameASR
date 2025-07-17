@@ -4,11 +4,11 @@ import json
 import sys
 
 from ..common.utils import get_logger
-from ..llm.core import LLMCore
+from ..llm.model import LLM
 
 
 class LLMService:
-    def __init__(self, llm: LLMCore):
+    def __init__(self, llm: LLM):
         self.llm = llm
 
     def set_contexts(self, contexts: list[str]) -> None:
@@ -23,7 +23,7 @@ class LLMService:
             raise TypeError(content, str)
 
         message = {"role": role, "content": content}
-        response = self.llm.generate_response([message])
+        response = "".join(self.llm([message]))
 
         return response
 
