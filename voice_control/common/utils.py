@@ -4,7 +4,7 @@ import requests
 from typing import Dict, Any, Tuple
 
 
-def setup_logging(log_level=logging.INFO, log_format=None):
+def setup_logging(log_level=logging.INFO, log_format=None, stream=None):
     """
     Configure the logging system with a standardized format and level.
 
@@ -18,7 +18,10 @@ def setup_logging(log_level=logging.INFO, log_format=None):
     # Ensure logging is only configured once to avoid duplicate handlers
     if not logging.getLogger().handlers:
         logging.basicConfig(
-            level=log_level, format=log_format, datefmt="%Y-%m-%d %H:%M:%S"
+            level=log_level,
+            format=log_format,
+            datefmt="%Y-%m-%d %H:%M:%S",
+            stream=stream,
         )
 
 
