@@ -27,13 +27,13 @@ class MessageList(List):
 
     def __getitem__(self, key: int | slice) -> Dict[str, str] | List[Dict[str, str]]:
         if isinstance(key, slice):
-            return list(map(self.__getitem__, range(len(self._indices))[key]))
+            return list(map(self.__getitem__, range(len(self))[key]))
         else:
             return Message.asdict(super().__getitem__(key))
 
     def __setitem__(self, key: int | slice, value: Dict[str, str]):
         if isinstance(key, slice):
-            for i in range(len(self._indices))[key]:
+            for i in range(len(self))[key]:
                 self.__setitem__(i, value)
         else:
             self._message_list[key] = Message.from_dict(value)

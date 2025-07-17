@@ -1,8 +1,8 @@
-from collections import deque
 from functools import partial
 import asyncio
+from queue import Queue
 import threading
-from typing import Any, Deque, Dict, Generator, Optional, Tuple
+from typing import Any, Dict, Generator, Optional, Tuple
 
 from ..common.utils import get_logger
 
@@ -23,11 +23,6 @@ class Session:
         self.tool_caller.start()
 
     def __call__(self, query: str, cutoff_idx: int = 0) -> Generator[str, None, None]:
-        if not self._loop or not self._loop.is_running():
-            raise RuntimeError(
-                "Session's background asyncio loop is not running. Call .start() first."
-            )
-
         self.conversation.add_user_message(query)
         messages = self.conversation.messages[cutoff_idx:]
 
@@ -75,7 +70,7 @@ class ToolCaller:
         self._loop: asyncio.AbstractEventLoop = None
         self._loop_thread: threading.Thread = None
         self._loop_ready_event = threading.Event()
-        self._futures: Deque[Tuple[str, asyncio.Future]] = None
+        self._futures: Queue[Tuple[str, asyncio.Future]] = None
         self.logger = get_logger(__name__)
 
     def __call__(self, tool, **tool_args):
@@ -84,12 +79,12 @@ class ToolCaller:
         future = asyncio.run_coroutine_threadsafe(
             asyncio.to_thread(sync_tool_callable), self._loop
         )
-        self._futures.append((tool.name, future))
+        self._futures.put((tool.name, future))
 
     def gather(self) -> Dict[str, Any]:
         responses = {}
         while self._futures:
-            tool_name, future = self._futures.popleft()
+            tool_name, future = self._futures.get()
             try:
                 responses[tool_name] = future.result()
             except Exception as e:
@@ -113,7 +108,7 @@ class ToolCaller:
             self._loop = None
             self._loop_ready_event.clear()
 
-        self._futures = deque()
+        self._futures = Queue()
         self._loop_thread = threading.Thread(target=run_loop, daemon=True)
         self._loop_thread.start()
 
