@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 import inspect
 import re
 from typing import Callable, List, Dict, Optional, Any, Type, Union
@@ -39,9 +39,8 @@ class Tool:
 
         def to_dict(self) -> Dict[str, Any]:
             """Converts the Parameter to a dictionary compatible with from_dict."""
-            d = {
-                "type": self.type,
-            }
+            d = {"type": self.type}
+
             if self.description:
                 d["description"] = self.description
 
@@ -50,6 +49,7 @@ class Tool:
                     d["properties"] = {
                         k: v.to_dict() for k, v in self.properties.items()
                     }
+
                 if self.required:
                     d["required"] = self.required
 
@@ -68,12 +68,6 @@ class Tool:
 
     def __call__(self, **kwargs) -> Any:
         return self.callback(**self._parse_args(kwargs))
-
-    def __str__(self) -> str:
-        """Returns a clean string representation of the tool."""
-        tool_dict = asdict(self)
-        del tool_dict["callback"]
-        return str(tool_dict)
 
     def _parse_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -181,16 +175,38 @@ class Tool:
 
         return ToolFactory
 
-    @staticmethod
-    def from_dict(d: Dict[str, Any]) -> "Tool":
-        """Creates a Tool instance from a dictionary definition."""
-        return Tool(
-            name=d["name"],
-            description=d["description"],
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Converts the Tool instance to a dictionary that conforms to the OpenAI
+        tool schema, which is used by llama-cpp-python.
+        """
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": (
+                    self.parameters.to_dict()
+                    if self.parameters
+                    else {"type": "object", "properties": {}}
+                ),
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Tool":
+        """
+        Creates a Tool instance from a dictionary definition conforming to the
+        OpenAI tool schema.
+        """
+        function_data = d.get("function", {})
+        parameters_data = function_data.get("parameters")
+
+        return cls(
+            name=function_data.get("name"),
+            description=function_data.get("description"),
             parameters=(
-                Tool.Parameter.from_dict(d["parameters"])
-                if d.get("parameters")
-                else None
+                cls.Parameter.from_dict(parameters_data) if parameters_data else None
             ),
         )
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List, Dict, Tuple
+from typing import Iterable, List, Dict
 from .tools import Tool
 
 
@@ -8,9 +8,10 @@ from .tools import Tool
 class Message:
 
     class Role(Enum):
+        system = "system"
         user = "user"
         assistant = "assistant"
-        system = "system"
+        tool = "tool"
 
     role: Role
     content: str
@@ -45,58 +46,36 @@ class MessageList(List):
 class Conversation:
 
     def __init__(self):
-        self.messages = MessageList()
-
-    def add_user_message(self, content: str):
-        msg = Message(role=Message.Role.user, content=content)
-        self.messages.append(msg)
-
-    def add_assistant_message(self, content: str):
-        msg = Message(role=Message.Role.assistant, content=content)
-        self.messages.append(msg)
+        self._messages: MessageList = MessageList()
+        self._cutoff_idx: int = 0
+        self._tools: Dict[str, Tool] = {}
 
     def add_system_message(self, content: str):
         msg = Message(role=Message.Role.system, content=content)
-        self.messages.append(msg)
+        self._messages.append(msg)
 
+    def add_user_message(self, content: str):
+        msg = Message(role=Message.Role.user, content=content)
+        self._messages.append(msg)
 
-class SystemPrompt:
+    def add_assistant_message(self, content: str):
+        msg = Message(role=Message.Role.assistant, content=content)
+        self._messages.append(msg)
 
-    def __init__(
-        self,
-        prompt: str = "",
-        contexts: Tuple[str, ...] = (),
-        tools: Dict[str, Tool] | List[Tool] = {},
-    ):
-        self.prompt = prompt
-        self.contexts = contexts
-        self.tools = tools
+    def add_tool_message(self, content: str):
+        msg = Message(role=Message.Role.tool, content=content)
+        self._messages.append(msg)
 
-    def __str__(self) -> str:
-        parts = []
-        if self.prompt:
-            parts.append(self.prompt)
-
-        if self.tools:
-            tools_string = "\n".join(
-                f"<tool>{tool}</tool>" for tool in self.tools.values()
-            )
-            parts.append(f"\n<tools>\n{tools_string}\n</tools>")
-
-        if self.contexts:
-            contexts_string = "\n".join(
-                f"<context>{ctx}</context>" for ctx in self.contexts
-            )
-            parts.append(f"\n{contexts_string}")
-
-        return "\n".join(parts)
+    @property
+    def messages(self) -> MessageList:
+        return self._messages[self._cutoff_idx :]
 
     @property
     def tools(self) -> Dict[str, Tool]:
         return self._tools
 
     @tools.setter
-    def tools(self, tools: Iterable[Tool] | Dict[str, Tool]):
+    def tools(self, tools: Dict[str, Tool] | Iterable[Tool]):
         if not isinstance(tools, dict):
             tools = {t.name: t for t in tools}
         self._tools = tools

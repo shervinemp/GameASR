@@ -22,41 +22,32 @@ class Session:
         self.tool_caller = ToolCaller()
         self.tool_caller.start()
 
-    def __call__(self, query: str, cutoff_idx: int = 0) -> Generator[str, None, None]:
+    def __call__(self, query: str) -> Generator[str, None, None]:
         self.conversation.add_user_message(query)
-        messages = self.conversation.messages[cutoff_idx:]
 
         response = ""
-        for chunk in self.llm(messages):
+        logger = get_logger(__name__)
+        for chunk in self.llm(self.conversation):
+            logger.debug(chunk)
             if isinstance(chunk, dict):
                 tool_name = chunk["name"]
-                tool_args = chunk["args"]
+                tool_args = chunk["arguments"]
                 tool = self.conversation.tools[tool_name]
                 self.tool_caller(tool, **tool_args)
             else:
                 response += chunk
                 yield chunk
 
-        tool_responses = self.tool_caller.gather()
-
-        tool_response = ""
-        if tool_responses:
-            tool_response = "\n".join(
-                f'<response name="{k}">{v}</response>'
-                for k, v in tool_responses.items()
-            )
-
         if response:
             self.conversation.add_assistant_message(response)
 
-        if tool_response:
-            self.conversation.add_assistant_message(tool_response)
+        tool_responses = self.tool_caller.gather()
+        if tool_responses:
+            for k, v in tool_responses.items():
+                self.conversation.add_tool_message(f"{k}: {v}")
 
             response = ""
-            messages = self.conversation.messages[
-                cutoff_idx - 2 if cutoff_idx < 0 else cutoff_idx :
-            ]
-            for chunk in self.llm(messages, force_toolcall=False):
+            for chunk in self.llm(self.conversation, tool_choice="none"):
                 response += chunk
                 yield chunk
 
@@ -83,7 +74,7 @@ class ToolCaller:
 
     def gather(self) -> Dict[str, Any]:
         responses = {}
-        while self._futures:
+        while not self._futures.empty():
             tool_name, future = self._futures.get()
             try:
                 responses[tool_name] = future.result()
