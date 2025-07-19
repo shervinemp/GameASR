@@ -5,6 +5,7 @@ by external applications. It handles audio processing, VAD, and asynchronous ASR
 delivering transcribed text via a callback.
 """
 
+from queue import Queue
 import time
 from typing import Callable
 import sounddevice as sd
@@ -12,7 +13,7 @@ import threading
 
 from ..common.utils import get_logger
 
-from .components import AudioStreamer, VADProcessor, ASRService
+from .components import VADProcessor, ASRService
 
 
 class ASR:
@@ -26,11 +27,12 @@ class ASR:
         vad_threshold: float = 0.3,
         end_silence_duration: float = 0.7,
         pre_speech_duration: float = 1.0,
-        vad_chunk_size_samples: int = 512,
+        chunk_size: int = 512,
         sample_rate: int = 16000,
         queue_size: int = 5,
         transcript_callback: Callable | None = None,
-        sound_device: int | None = None,
+        sound_device: int = 0,
+        skip_vad: bool = False,
     ):
         self.logger = get_logger(__name__)
 
@@ -39,19 +41,30 @@ class ASR:
 
         self.logger.info("Loading ASR/VAD components...")
 
-        self.audio_streamer = AudioStreamer(
-            sample_rate=sample_rate,
+        def audio_callback(indata, _frames, _time, _status):
+            self.block_queue.put(indata.copy())
+
+        self.block_queue = Queue()
+        self.input_stream = sd.InputStream(
+            samplerate=sample_rate,
             channels=1,
-            chunk_size=vad_chunk_size_samples,
-        )
-        self.vad_processor = VADProcessor(
-            sample_rate=sample_rate,
-            vad_chunk_size_samples=vad_chunk_size_samples,
-            vad_threshold=vad_threshold,
-            end_silence_duration=end_silence_duration,
-            pre_speech_buffer_duration=pre_speech_duration,
+            dtype="int16",
             device=sound_device,
+            callback=audio_callback,
         )
+
+        self.vad_processor = (
+            None
+            if skip_vad
+            else VADProcessor(
+                sample_rate=sample_rate,
+                vad_chunk_size_samples=chunk_size,
+                vad_threshold=vad_threshold,
+                end_silence_duration=end_silence_duration,
+                pre_speech_buffer_duration=pre_speech_duration,
+            )
+        )
+
         self.asr_service = ASRService(
             sample_rate=sample_rate,
             queue_size=queue_size,
@@ -84,10 +97,10 @@ class ASR:
         """Internal loop for audio capture and VAD processing."""
         while self._running:
             try:
-                with self.audio_streamer as streamer:
+                with self.input_stream as stream:
                     self.logger.info("Listening for speech...")
                     while self._running:
-                        audio_chunk_int16, overflowed = streamer.read_chunk()
+                        audio_chunk_int16, overflowed = stream.read_chunk()
 
                         if overflowed:
                             self.logger.warning("Audio input buffer overflowed!")
@@ -98,13 +111,16 @@ class ASR:
                             )
                             continue
 
-                        utterance = self.vad_processor.process_audio_chunk(
-                            audio_chunk_int16
-                        )
+                        utterance = audio_chunk_int16
+                        if self.vad_processor:
+                            utterance = self.vad_processor.process_audio_chunk(
+                                audio_chunk_int16
+                            )
 
                         if utterance is not None:
                             self.asr_service.enqueue_utterance(utterance)
                             self.logger.info("Utterance sent to ASR queue.")
+
             except sd.PortAudioError as e:
                 self.logger.error(
                     f"Audio device error in main loop: {e}. Attempting to restart stream."
