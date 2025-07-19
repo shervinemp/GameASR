@@ -17,7 +17,9 @@ class AudioStreamer:
     input device to prevent conflicts.
     """
 
-    def __init__(self, input_device=None, samplerate=16000, channels=1, chunk_size=512):
+    def __init__(
+        self, input_device=None, sample_rate=16000, channels=1, chunk_size=512
+    ):
         self.logger = get_logger(__name__)
 
         if input_device is None:
@@ -30,7 +32,7 @@ class AudioStreamer:
         )
 
         self.input_device = input_device
-        self.samplerate = samplerate
+        self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size
         self.dtype = "int16"
@@ -43,12 +45,12 @@ class AudioStreamer:
         try:
             self._stream = sd.InputStream(
                 device=self.input_device,
-                samplerate=self.samplerate,
+                samplerate=self.sample_rate,
                 channels=self.channels,
                 dtype=self.dtype,
             )
             self._stream.start()
-            self.logger.info(f"Audio stream started: Sample Rate={self.samplerate}Hz")
+            self.logger.info(f"Audio stream started: Sample Rate={self.sample_rate}Hz")
         except Exception as e:
             self.logger.error(f"Failed to open audio stream: {e}")
             raise

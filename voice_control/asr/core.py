@@ -40,7 +40,7 @@ class ASR:
         self.logger.info("Loading ASR/VAD components...")
 
         self.audio_streamer = AudioStreamer(
-            samplerate=sample_rate,
+            sample_rate=sample_rate,
             channels=1,
             chunk_size=vad_chunk_size_samples,
         )
@@ -60,8 +60,8 @@ class ASR:
 
         self.logger.info("Components initialized.")
 
-        self._running = False  # Internal flag to control the main loop
-        self._main_loop_thread = None  # Reference to the main loop thread
+        self._running = False
+        self._main_loop_thread = None
 
         threading.current_thread().name = "Main_App_Orchestrator"
 
@@ -72,10 +72,8 @@ class ASR:
             return
 
         self._running = True
-        self.asr_service.start()  # Start the ASR worker thread
+        self.asr_service.start()
 
-        # Run the main audio capture loop in a separate thread to allow
-        # the calling application to potentially do other things or manage UI.
         self._main_loop_thread = threading.Thread(
             target=self._main_processing_loop, daemon=True
         )
@@ -84,11 +82,11 @@ class ASR:
 
     def _main_processing_loop(self):
         """Internal loop for audio capture and VAD processing."""
-        while self._running:  # Loop controlled by self._running flag
+        while self._running:
             try:
                 with self.audio_streamer as streamer:
                     self.logger.info("Listening for speech...")
-                    while self._running:  # Inner loop also controlled by self._running
+                    while self._running:
                         audio_chunk_int16, overflowed = streamer.read_chunk()
 
                         if overflowed:
@@ -98,9 +96,8 @@ class ASR:
                             self.logger.info(
                                 "No audio read. Stream ended unexpectedly."
                             )
-                            continue  # Break inner loop
+                            continue
 
-                        # Process chunk with VAD, get utterance if speech ends
                         utterance = self.vad_processor.process_audio_chunk(
                             audio_chunk_int16
                         )
@@ -112,7 +109,6 @@ class ASR:
                 self.logger.error(
                     f"Audio device error in main loop: {e}. Attempting to restart stream."
                 )
-                # Could add a short delay here before retrying stream
                 time.sleep(
                     1
                 )  # Added a small delay to avoid rapid error loops if mic is disconnected
@@ -120,8 +116,8 @@ class ASR:
                 self.logger.exception(
                     f"An unexpected error occurred in main processing loop: {e}"
                 )
-                self.stop()  # Attempt to stop gracefully on unhandled error
-                break  # Exit main loop on critical error
+                self.stop()
+                break
 
     def stop(self):
         """Stops the real-time ASR processing system gracefully."""
@@ -130,24 +126,21 @@ class ASR:
             return
 
         self.logger.info("Stopping Realtime ASR Core...")
-        self._running = False  # Signal main loop thread to stop
+        self._running = False
 
-        # Wait for the main processing loop to finish (optional, depends on UI responsiveness)
         if self._main_loop_thread and self._main_loop_thread.is_alive():
-            self._main_loop_thread.join(timeout=5)  # Wait for thread to finish
+            self._main_loop_thread.join(timeout=5)
             if self._main_loop_thread.is_alive():
                 self.logger.warning(
                     "Main processing thread did not terminate gracefully."
                 )
 
-        # Handle any pending utterance if app stops during active speech
         final_utterance = self.vad_processor.get_final_utterance_if_active()
         if final_utterance is not None:
             self.asr_service.enqueue_utterance(final_utterance)
-            # Give ASR thread a moment to process the last utterance, if any
-            self.asr_service.transcript_queue.join(timeout=5)  # Wait for queue to clear
+            self.asr_service.transcript_queue.join(timeout=5)
 
-        self.asr_service.stop()  # Stop the ASR worker gracefully
+        self.asr_service.stop()
         self.logger.info("ASR Core stopped.")
 
     def process_audio(self):
@@ -156,7 +149,6 @@ class ASR:
         """
         try:
             self.start()
-            # Keep the main thread alive while processing in background
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
