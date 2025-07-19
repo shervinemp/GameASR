@@ -8,7 +8,6 @@ This module provides functionality for playing audio files and raw data.
 
 import atexit
 from time import sleep
-from typing import Optional
 import numpy as np
 import sounddevice as sd
 
