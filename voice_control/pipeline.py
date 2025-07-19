@@ -7,18 +7,14 @@ LLM (Language Model), and TTS (Text-to-Speech) components to create a seamless
 voice control pipeline.
 """
 import sys
+from typing import Optional
 
 from .common.utils import setup_logging, get_logger
 
-from .asr.core import ASRCore
-from .llm.core import LLMCore
-from .tts.core import TTSCore
+from .asr import ASR
+from .llm import Session
+from .tts import TTS
 from .bridge.rpc_server import RpcServer
-
-
-class CallbackList(list):
-    def __call__(self, response: str, tool_calls: list[dict]) -> str:
-        return "/n".join(cb(response, tool_calls) for cb in self)
 
 
 class Pipeline:
@@ -31,15 +27,15 @@ class Pipeline:
     - The LLM response is sent to TTS for audio output
     """
 
-    def __init__(self, llm: LLMCore | None = None, rpc_server: bool = False):
+    def __init__(self, session: Optional[Session] = None, rpc_server: bool = False):
         """
         Initialize the voice control pipeline with ASR, LLM, and TTS components,
         and dynamically set up tool execution based on the game API spec.
         """
-        self.asr = ASRCore(transcript_callback=self._callback)
-        self.llm = llm or LLMCore()
-        self.tts = TTSCore()
-        self.rpc_server = RpcServer(rpc_handler=self.llm) if rpc_server else None
+        self.asr = ASR(transcript_callback=self._callback)
+        self.session = session or Session()
+        self.tts = TTS()
+        self.rpc_server = RpcServer(rpc_handler=self.session) if rpc_server else None
 
     def _callback(self, transcription: str):
         """
@@ -48,7 +44,7 @@ class Pipeline:
         """
         if not transcription:
             return
-        response, _ = self.llm(transcription)
+        response = "".join(self.session(transcription))
         if response:
             self.tts.speak(response)
 
@@ -72,10 +68,6 @@ def main():
 
     try:
         pipe = Pipeline()
-        l_ = pipe.llm
-        l_.system_prompt = "Your goal is to assist the user in navigating and interacting with the game world through voice commands. Be helpful and responsive."
-        l_.contexts.append("You are a playable character in an open-world game.")
-
         logger.info("Starting voice control pipeline...")
         pipe.run()
     except Exception as e:

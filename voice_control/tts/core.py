@@ -14,7 +14,7 @@ from .components.audio_player import AudioPlayer
 logger = get_logger(__name__)
 
 
-class TTSCore:
+class TTS:
     """
     Manages the complete TTS pipeline: from text input to audio output.
 

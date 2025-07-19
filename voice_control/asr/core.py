@@ -15,7 +15,7 @@ from ..common.utils import get_logger
 from .components import AudioStreamer, VADProcessor, ASRService
 
 
-class ASRCore:
+class ASR:
     """
     Orchestrates audio capture, VAD, and ASR services.
     Provides methods to start and stop the system.
@@ -45,7 +45,7 @@ class ASRCore:
             chunk_size=vad_chunk_size_samples,
         )
         self.vad_processor = VADProcessor(
-            samplerate=sample_rate,
+            sample_rate=sample_rate,
             vad_chunk_size_samples=vad_chunk_size_samples,
             vad_threshold=vad_threshold,
             end_silence_duration=end_silence_duration,
@@ -53,8 +53,8 @@ class ASRCore:
             device=sound_device,
         )
         self.asr_service = ASRService(
-            samplerate=sample_rate,
-            max_queue_size=queue_size,
+            sample_rate=sample_rate,
+            queue_size=queue_size,
             transcript_callback=transcript_callback,
         )
 

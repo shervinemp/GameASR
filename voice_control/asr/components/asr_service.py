@@ -24,8 +24,8 @@ class ASRService:
 
     def __init__(
         self,
-        samplerate: int = 16000,
-        max_queue_size: int = 5,
+        sample_rate: int = 16000,
+        queue_size: int = 5,
         transcript_callback: Callable | None = None,
     ):
         self.logger = get_logger(__name__)
@@ -33,13 +33,12 @@ class ASRService:
         if transcript_callback is None:
             transcript_callback = self.logger.info
 
-        # Load the ONNX-ASR model
         self.model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         self.logger.info("ASR model loaded.")
 
-        self.samplerate = samplerate
+        self.samplerate = sample_rate
         self.transcript_callback = transcript_callback  # Callback for results
-        self.transcript_queue = queue.Queue(maxsize=max_queue_size)
+        self.transcript_queue = queue.Queue(maxsize=queue_size)
         self._worker_thread = None
 
     def start(self):

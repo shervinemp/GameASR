@@ -11,7 +11,6 @@ from collections import deque
 
 import torch
 
-# Importing Silero VAD model
 try:
     from silero_vad import load_silero_vad
 except ImportError:
@@ -30,7 +29,7 @@ class VADProcessor:
 
     def __init__(
         self,
-        samplerate: int = 16000,
+        sample_rate: int = 16000,
         vad_chunk_size_samples: int = 512,
         vad_threshold: float = 0.3,
         end_silence_duration: float = 0.7,
@@ -39,19 +38,18 @@ class VADProcessor:
     ):
         self.logger = get_logger(__name__)
 
-        # Load the Silero VAD model
         self.vad_model = load_silero_vad()
         self.logger.info("VAD model loaded.")
         if device is not None:
             self.vad_model.to(device)
 
-        self.samplerate = samplerate
+        self.sample_rate = sample_rate
         self.vad_chunk_size_samples = vad_chunk_size_samples
         self.vad_threshold = vad_threshold
         self.end_silence_duration = end_silence_duration
         self.pre_speech_buffer_duration = pre_speech_buffer_duration
 
-        self.vad_chunk_duration = self.vad_chunk_size_samples / self.samplerate
+        self.vad_chunk_duration = self.vad_chunk_size_samples / self.sample_rate
         self.SILENCE_THRESHOLD_CHUNKS = int(
             self.end_silence_duration / self.vad_chunk_duration
         )
@@ -60,8 +58,9 @@ class VADProcessor:
         self.silence_counter = 0
         self.current_utterance_audio_chunks = []
 
-        pre_speech_buffer_size = int(self.pre_speech_buffer_duration * self.samplerate)
+        pre_speech_buffer_size = int(self.pre_speech_buffer_duration * self.sample_rate)
         self.pre_speech_buffer_deque = deque(maxlen=pre_speech_buffer_size)
+
         # Initialize deque with zeros to fill its maxlen
         for _ in range(pre_speech_buffer_size):
             self.pre_speech_buffer_deque.append(0.0)
@@ -80,12 +79,11 @@ class VADProcessor:
             self.pre_speech_buffer_deque.append(sample)
 
         audio_tensor = torch.tensor(audio_chunk_float32)
-        speech_prob = self.vad_model(audio_tensor, self.samplerate)
+        speech_prob = self.vad_model(audio_tensor, self.sample_rate)
 
         utterance_to_return = None
 
         if not self.is_speech_active:
-            # Listening for speech start
             if speech_prob > self.vad_threshold:
                 self.logger.info("Speech detected! Accumulating utterance...")
                 self.is_speech_active = True
@@ -95,13 +93,12 @@ class VADProcessor:
                 self.current_utterance_audio_chunks.append(audio_chunk_float32)
                 self.silence_counter = 0
         else:
-            # In active speech state
             self.current_utterance_audio_chunks.append(audio_chunk_float32)
 
             if speech_prob > self.vad_threshold:
-                self.silence_counter = 0  # Reset if speech continues
+                self.silence_counter = 0
             else:
-                self.silence_counter += 1  # Increment if silence is detected
+                self.silence_counter += 1
 
                 if self.silence_counter >= self.SILENCE_THRESHOLD_CHUNKS:
                     self.logger.info("End of speech detected.")
@@ -111,15 +108,14 @@ class VADProcessor:
 
     def _finalize_utterance(self) -> np.ndarray | None:
         """Helper to concatenate and trim the current utterance."""
-        self.is_speech_active = False  # Reset state
-        self.silence_counter = 0  # Reset counter
+        self.is_speech_active = False
+        self.silence_counter = 0
 
         if self.current_utterance_audio_chunks:
             full_utterance_audio = np.concatenate(self.current_utterance_audio_chunks)
-            self.current_utterance_audio_chunks = []  # Clear for next utterance
+            self.current_utterance_audio_chunks = []
 
-            # Trim trailing silence that triggered the end of speech
-            trim_samples = int(self.end_silence_duration * self.samplerate)
+            trim_samples = int(self.end_silence_duration * self.sample_rate)
             trimmed_utterance_audio = (
                 full_utterance_audio[:-trim_samples]
                 if len(full_utterance_audio) > trim_samples
@@ -145,10 +141,11 @@ class VADProcessor:
         """
         if self.is_speech_active and self.current_utterance_audio_chunks:
             self.logger.info("Stream ended during active speech. Finalizing segment...")
+
             # No trimming of trailing silence here, as the stream just ended.
             full_utterance_audio = np.concatenate(self.current_utterance_audio_chunks)
             self.current_utterance_audio_chunks = []
-            self.is_speech_active = False  # Reset state
+            self.is_speech_active = False
             self.silence_counter = 0
             if full_utterance_audio.size > 0:
                 return full_utterance_audio

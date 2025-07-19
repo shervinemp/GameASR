@@ -7,39 +7,30 @@ This script demonstrates how to set up and run a continuous TTS loop that gets t
 
 import sys
 
-# Import standard logging utilities
 from ..common.utils import setup_logging, get_logger
 
-# Import the core TTS component
-from .core import TTSCore
+from .core import TTS
 
 
 def main():
     """
     Main function to run a continuous TTS loop.
     """
-    # Configure logging for this session
     setup_logging(log_level="DEBUG")
-
-    # Get a logger for this module
     logger = get_logger(__name__)
 
     try:
-        # Create an instance of TTSCore
-        tts_core = TTSCore()
+        tts_core = TTS()
 
-        # Continuous TTS loop
         logger.info("Starting continuous TTS loop. Type 'exit' to quit.")
         while True:
             try:
-                # Get text input from user
                 user_input = input("Enter text to speak (or 'exit' to quit): ")
 
                 if user_input.lower() == "exit":
                     logger.info("Exiting TTS loop...")
                     break
 
-                # Convert text to speech and play it
                 tts_core.speak(user_input)
             except KeyboardInterrupt:
                 logger.info("Keyboard interrupt detected. Exiting...")
@@ -53,5 +44,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Run the main function
     main()

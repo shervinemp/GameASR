@@ -106,7 +106,7 @@ def main():
         sys.exit(1)
 
     try:
-        service_api = LLMService(pipe.llm)
+        service_api = LLMService(pipe.session)
         endpoint = args.protocol + "://" + args.host + ":" + str(args.port)
         rpc_server = RpcServer(service_api, endpoint, protocol=args.protocol)
     except Exception as e:

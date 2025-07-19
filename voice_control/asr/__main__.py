@@ -7,11 +7,9 @@ This script demonstrates how to set up and run the ASR pipeline.
 
 import sys
 
-# Import standard logging utilities
 from ..common.utils import setup_logging, get_logger
 
-# Import the core ASR component
-from .core import ASRCore
+from .core import ASR
 
 
 def parse_asr_args():
@@ -66,7 +64,7 @@ def main():
 
     try:
         # Create an instance of ASRCore
-        asr_core = ASRCore(**parse_asr_args().__dict__)
+        asr_core = ASR(**parse_asr_args().__dict__)
 
         # Start processing audio from the microphone
         logger.info("Starting ASR pipeline...")

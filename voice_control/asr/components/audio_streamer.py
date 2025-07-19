@@ -42,7 +42,7 @@ class AudioStreamer:
         """Open audio stream on entering context."""
         try:
             self._stream = sd.InputStream(
-                device=self.input_device,  # Pass explicit device ID
+                device=self.input_device,
                 samplerate=self.samplerate,
                 channels=self.channels,
                 dtype=self.dtype,
