@@ -9,7 +9,7 @@ import sys
 
 from ..common.utils import setup_logging, get_logger
 
-from .core import TTS
+from .model import TTS
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
     logger = get_logger(__name__)
 
     try:
-        tts_core = TTS()
+        tts = TTS()
 
         logger.info("Starting continuous TTS loop. Type 'exit' to quit.")
         while True:
@@ -31,7 +31,7 @@ def main():
                     logger.info("Exiting TTS loop...")
                     break
 
-                tts_core.speak(user_input)
+                _ = tts(user_input)
             except KeyboardInterrupt:
                 logger.info("Keyboard interrupt detected. Exiting...")
                 break
