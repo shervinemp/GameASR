@@ -1,8 +1,8 @@
 from queue import Queue
+import threading
 from typing import Callable, Generator, Iterable
 from collections import deque
 import numpy as np
-from onnx_asr import load_vad
 import sounddevice as sd
 
 try:
@@ -15,6 +15,8 @@ except ImportError:
 from .base import ConsumerProducer, ModelBase
 from ...common.utils import get_logger
 
+gpu_access_lock = threading.Lock()
+
 
 class ParakeetV2(ModelBase):
 
@@ -22,10 +24,7 @@ class ParakeetV2(ModelBase):
         self,
         sound_device: int = 0,
     ):
-        self._model = load_model(
-            "nemo-parakeet-tdt-0.6b-v2",
-            quantization="int8",
-        )
+        self._model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         self._vad = Silero()
 
         super().__init__(sound_device)
@@ -34,10 +33,12 @@ class ParakeetV2(ModelBase):
         self._vad(chunk)
 
     def _produce(self) -> Generator[str, None, None]:
-        yield from (
-            self._model.recognize(e, sample_rate=self._vad._model.SAMPLE_RATE)
-            for e in self._vad
-        )
+        global gpu_access_lock
+        for e in self._vad:
+            r = None
+            with gpu_access_lock:
+                r = self._model.recognize(e, sample_rate=self._vad._model.SAMPLE_RATE)
+            yield r
 
     def _inputstream(self, sound_device: int, callback: Callable):
         return sd.InputStream(
@@ -95,19 +96,27 @@ class Silero(ConsumerProducer):
         while True:
             if (c := self._queue.get()) is not None:
                 buffer.append(c)
-            elif len(buffer) >= 20:
+            elif len(buffer) >= 8:
                 yield np.concatenate(buffer)
                 buffer.clear()
 
     def _consume(self, chunk: Iterable[np.ndarray]):
+        global gpu_access_lock
+
         chunk = np.mean(chunk, axis=1)
 
         self._model_input_frame = np.concatenate(
             [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
         )
 
-        speech_prob, *_ = self._model._encode(self._model_input_frame[np.newaxis, :])
-        is_loud = speech_prob[0] > self.vad_threshold
+        speech_prob = 0
+        with gpu_access_lock:
+            speech_prob, *_ = self._model._encode(
+                self._model_input_frame[np.newaxis, :]
+            )
+            speech_prob = speech_prob[0]
+
+        is_loud = speech_prob > self.vad_threshold
 
         if not self._is_speech_segment and is_loud:
             self._is_speech_segment = True
