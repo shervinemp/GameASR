@@ -54,7 +54,8 @@ class Pipeline:
             self.asr.start()
             self.rpc_server.start()
         try:
-            self.asr.process_audio()
+            for transcript in self.asr:
+                self._callback(transcript)
         finally:
             if self.asr:
                 self.asr.stop()

@@ -19,7 +19,7 @@ def main():
     logger = get_logger(__name__)
 
     try:
-        LLM().download()
+        LLM.download()
         logger.info("Model download completed successfully.")
     except Exception as e:
         logger.error(f"Failed to download model: {e}")

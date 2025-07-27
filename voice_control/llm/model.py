@@ -25,7 +25,7 @@ from ..common.utils import download_hf_file, get_logger
 class LLM:
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename: str = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
-    local_dir: str = "model_files/llm"
+    local_dir: str = os.path.join("model_files", "llm")
 
     def __init__(self):
         self.logger = get_logger(__name__)
@@ -48,19 +48,14 @@ class LLM:
         )
         self.logger.info("Model loaded successfully.")
 
-    def download(self):
-        self.logger.info(f"Ensuring directory exists: {self.local_dir}")
-        os.makedirs(self.local_dir, exist_ok=True)
-
-        try:
-            download_hf_file(
-                repo_id=self.hf_repo,
-                filename=self.filename,
-                save_directory=self.local_dir,
-            )
-            self.logger.info("Model download completed successfully.")
-        except Exception as e:
-            self.logger.error(f"Failed to download model: {e}")
+    @classmethod
+    def download(cls):
+        os.makedirs(cls.local_dir, exist_ok=True)
+        download_hf_file(
+            repo_id=cls.hf_repo,
+            filename=cls.filename,
+            directory=cls.local_dir,
+        )
 
     def __call__(
         self,
