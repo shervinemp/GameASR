@@ -60,7 +60,7 @@ class TTS:
                 is_phonemes=True,
             )
 
-            self.audio_player.play_audio(samples, sample_rate)
+            self.audio_player.play(samples, sample_rate)
 
         except Exception as e:
             self.logger.error(f"Error speaking text: {e}")

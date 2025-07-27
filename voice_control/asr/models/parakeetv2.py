@@ -27,16 +27,18 @@ class ParakeetV2(ModelBase):
         self._model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         self._vad = Silero()
 
+        global _provider_lock
+        self._lock = _provider_lock
+
         super().__init__(sound_device)
 
     def _consume(self, chunk: Iterable[float]):
         self._vad(chunk)
 
     def _produce(self) -> Generator[str, None, None]:
-        global _provider_lock
         for e in self._vad:
             r = None
-            with _provider_lock:
+            with self._lock:
                 r = self._model.recognize(e, sample_rate=self._vad._model.SAMPLE_RATE)
             yield r
 
@@ -53,7 +55,7 @@ class ParakeetV2(ModelBase):
 class Silero(ConsumerProducer):
     def __init__(
         self,
-        vad_threshold: float = 0.3,
+        vad_threshold: float = 0.32,
         post_speech_silence_dur: float = 0.7,
         pre_speech_dur: float = 0.7,
     ):
@@ -61,6 +63,9 @@ class Silero(ConsumerProducer):
 
         self._model = load_vad("silero")
         self._queue = Queue(maxsize=1000)
+
+        global _provider_lock
+        self._lock = _provider_lock
 
         self.vad_threshold = vad_threshold
         self.post_speech_silence_dur = post_speech_silence_dur
@@ -83,9 +88,6 @@ class Silero(ConsumerProducer):
             / self._model.HOP_SIZE
             + 1
         )
-        self._trailing_silence_buffer = np.zeros(
-            self._trailing_silent_chunks * self._model.HOP_SIZE, dtype=np.float32
-        )
 
         self._model_input_frame = np.zeros(
             self._model.CONTEXT_SIZE + self._model.HOP_SIZE, dtype=np.float32
@@ -96,7 +98,7 @@ class Silero(ConsumerProducer):
         while True:
             if (c := self._queue.get()) is not None:
                 buffer.append(c)
-            elif len(buffer) >= 8:
+            elif len(buffer) >= 10:
                 yield np.concatenate(buffer)
                 buffer.clear()
 
@@ -108,9 +110,8 @@ class Silero(ConsumerProducer):
             [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
         )
 
-        global _provider_lock
         speech_prob = 0
-        with _provider_lock:
+        with self._lock:
             speech_prob, *_ = self._model._encode(
                 self._model_input_frame[np.newaxis, :]
             )
@@ -120,30 +121,19 @@ class Silero(ConsumerProducer):
 
         if not self._is_speech_segment and is_loud:
             self._is_speech_segment = True
+            if self._pre_speech_buffer:
+                r = np.concatenate(self._pre_speech_buffer, dtype=np.float32)
+                self._queue.put(r)
+                self._pre_speech_buffer.clear()
 
         if self._is_speech_segment:
-            if is_loud:
-                if self._pre_speech_buffer:
-                    r = np.concatenate(self._pre_speech_buffer, dtype=np.float32)
-                    self._queue.put(r)
-                    self._pre_speech_buffer.clear()
-
-                self._queue.put(chunk)
-            else:
-                s_ = self._silence_counter * self._model.HOP_SIZE
-                self._trailing_silence_buffer[s_ : s_ + self._model.HOP_SIZE] = chunk
+            self._queue.put(chunk)
+            if not is_loud:
                 self._silence_counter += 1
-
-                self._pre_speech_buffer.append(chunk)
-
                 if self._silence_counter >= (self._trailing_silent_chunks):
-                    self.finalize()
                     self._is_speech_segment = False
                     self._silence_counter = 0
+                    self._queue.put(None)
 
-    def finalize(self):
-        r = self._trailing_silence_buffer[
-            : self._silence_counter * self._model.HOP_SIZE
-        ]
-        self._queue.put(r)
-        self._queue.put(None)
+        if not is_loud:
+            self._pre_speech_buffer.append(chunk)

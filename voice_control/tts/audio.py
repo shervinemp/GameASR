@@ -35,16 +35,12 @@ class AudioPlayer:
 
         atexit.register(self.stop_all)
 
-    def stop_all(self):
-        """Stops all currently playing audio."""
-        self.logger.info("Stopping all audio playback.")
-        sd.stop()
+    def __call__(self, audio_data: np.ndarray[np.float32 | np.int16], sample_rate: int):
+        return self.play(audio_data, sample_rate)
 
-    def play_audio(self, audio_data, sample_rate: int = 24000):
+    def play(self, audio_data: np.ndarray[np.float32 | np.int16], sample_rate: int):
         """Plays raw audio data, passing the explicit device ID to sd.play()."""
         try:
-            if not isinstance(audio_data, np.ndarray):
-                raise TypeError("audio_data must be a NumPy array.")
             if audio_data.dtype != np.float32:
                 audio_data = (
                     audio_data.astype(np.float32) / 32768.0
@@ -64,6 +60,11 @@ class AudioPlayer:
             self.logger.error(f"Error during audio playback: {e}")
             raise
 
+    def stop_all(self):
+        """Stops all currently playing audio."""
+        self.logger.info("Stopping all audio playback.")
+        sd.stop()
+
 
 if __name__ == "__main__":
     logger = get_logger("AudioPlayerExample")
@@ -77,7 +78,7 @@ if __name__ == "__main__":
     t = np.linspace(0.0, duration, int(sample_rate * duration), endpoint=False)
     sine_wave = 0.5 * np.sin(2 * np.pi * frequency * t)
 
-    player.play_audio(sine_wave, sample_rate)
+    player.play(sine_wave, sample_rate)
     sleep(duration)
 
     logger.info("Sine wave playback complete.\n")
