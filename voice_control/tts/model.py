@@ -9,7 +9,7 @@ This module provides text-to-speech processing functionality using ONNX models.
 from kokoro_onnx import Kokoro
 from kokoro_onnx.tokenizer import Tokenizer
 
-from .player import AudioPlayer
+from .audio import AudioPlayer
 
 from ..common.utils import get_logger
 

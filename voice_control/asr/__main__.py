@@ -9,7 +9,7 @@ import sys
 
 from ..common.utils import setup_logging, get_logger
 
-from .core import ASR
+from .model import get_model_class
 
 
 def parse_asr_args():
@@ -21,32 +21,16 @@ def parse_asr_args():
     )
 
     parser.add_argument(
-        "--vad-threshold",
-        type=float,
-        default=0.3,
-        help="Probability threshold for Voice Activity Detection (0.0-1.0). Higher values are less sensitive to noise.",
+        "--model-name",
+        type=str,
+        default="parakeetv2",
+        help="The name of the ASR model to use. Available models include 'parakeetv2' and 'kyutai'.",
     )
-    parser.add_argument(
-        "--end-silence-duration",
-        type=float,
-        default=0.7,
-        help="Duration of continuous silence (in seconds) to consider an utterance ended.",
-    )
-    parser.add_argument(
-        "--pre-speech-duration",
-        type=float,
-        default=0.8,
-        help="Duration of audio (in seconds) to include before detected speech starts, for context.",
-    )
-    parser.add_argument(
-        "--queue-size",
-        type=int,
-        default=5,
-        help="Maximum number of utterances to queue for ASR processing. Prevents memory overload.",
-    )
+
     parser.add_argument(
         "--sound-device",
         type=int,
+        default=0,
         help="Specific audio input device ID. Use `python -m sounddevice` to list devices.",
     )
     return parser.parse_args()
@@ -56,24 +40,21 @@ def main():
     """
     Main function to run the ASR system.
     """
-    # Configure logging for this session
-    setup_logging(log_level="DEBUG")
-
-    # Get a logger for this module
+    setup_logging(log_level="DEBUG", stream=sys.stdout)
     logger = get_logger(__name__)
 
-    try:
-        # Create an instance of ASRCore
-        asr_core = ASR(**parse_asr_args().__dict__)
+    args = parse_asr_args().__dict__
 
-        # Start processing audio from the microphone
-        logger.info("Starting ASR pipeline...")
-        asr_core.process_audio()
-    except Exception as e:
-        logger.error(f"Error in main(): {e}")
-        sys.exit(1)
+    model_type = get_model_class(args["model_name"])
+    del args["model_name"]
+    model = model_type(**args)
+
+    logger.info("Starting ASR...")
+    model.start()
+
+    for text in model:
+        logger.info(text)
 
 
 if __name__ == "__main__":
-    # Run the main function
     main()

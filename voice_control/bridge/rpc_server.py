@@ -4,17 +4,12 @@ import json
 import sys
 
 from ..common.utils import get_logger
-from ..llm.model import LLM
+from ..llm import Session
 
 
 class LLMService:
-    def __init__(self, llm: LLM):
-        self.llm = llm
-
-    def set_contexts(self, contexts: list[str]) -> None:
-        if not isinstance(contexts, list):
-            raise TypeError("Contexts must be a list of strings.")
-        self.llm.contexts = contexts
+    def __init__(self, session: Session):
+        self.session = session
 
     def query(self, content: str, role: str) -> str:
         if not isinstance(role, str):
@@ -23,7 +18,7 @@ class LLMService:
             raise TypeError(content, str)
 
         message = {"role": role, "content": content}
-        response = "".join(self.llm([message]))
+        response = "".join(self.session([message]))
 
         return response
 

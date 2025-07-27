@@ -11,7 +11,7 @@ from typing import Optional
 
 from .common.utils import setup_logging, get_logger
 
-from .asr import ASR
+from .asr import ParakeetV2
 from .llm import Session
 from .tts import TTS
 from .bridge.rpc_server import RpcServer
@@ -32,7 +32,7 @@ class Pipeline:
         Initialize the voice control pipeline with ASR, LLM, and TTS components,
         and dynamically set up tool execution based on the game API spec.
         """
-        self.asr = ASR(transcript_callback=self._callback)
+        self.asr = ParakeetV2()
         self.session = session or Session()
         self.tts = TTS()
         self.rpc_server = RpcServer(rpc_handler=self.session) if rpc_server else None
@@ -51,10 +51,13 @@ class Pipeline:
     def run(self):
         """Start the voice control pipeline."""
         if self.rpc_server:
+            self.asr.start()
             self.rpc_server.start()
         try:
             self.asr.process_audio()
         finally:
+            if self.asr:
+                self.asr.stop()
             if self.rpc_server:
                 self.rpc_server.stop()
 
