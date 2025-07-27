@@ -1,5 +1,7 @@
 # utils.py
 import logging
+import os
+from huggingface_hub import hf_hub_download
 import requests
 from typing import Dict, Any, Tuple
 
@@ -36,6 +38,40 @@ def get_logger(name: str) -> logging.Logger:
         logging.Logger: A configured logger instance
     """
     return logging.getLogger(name)
+
+
+def download_hf_file(repo_id: str, filename: str, save_directory: str):
+    """
+    Downloads a single file from the Hugging Face Hub.
+
+    Args:
+        repo_id (str): The Hugging Face repository identifier.
+        filename (str): The specific file to download from the repo.
+        save_directory (str): The local directory to save the model file.
+    """
+    logger = get_logger(__name__)
+    logger.info(f"Preparing to download '{filename}' from '{repo_id}'...")
+
+    if os.path.exists(os.path.join(save_directory, filename)):
+        logger.info(f"File already exist in {save_directory}. Skipping download.")
+        return
+
+    logger.info("Starting download...")
+    os.makedirs(save_directory, exist_ok=True)
+
+    try:
+        hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            local_dir=save_directory,
+            local_dir_use_symlinks=False,
+        )
+
+        print("Model and tokenizer files downloaded successfully.")
+    except Exception as e:
+        # We catch the exception, print it, and then re-raise it to stop the script
+        print(f"An error occurred during download: {e}")
+        raise
 
 
 def map_json_type_to_python(json_type: str) -> str:

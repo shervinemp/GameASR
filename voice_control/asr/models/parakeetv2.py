@@ -20,10 +20,7 @@ _provider_lock = threading.Lock()
 
 class ParakeetV2(ModelBase):
 
-    def __init__(
-        self,
-        sound_device: int = 0,
-    ):
+    def __init__(self, sound_device: int = 0):
         self._model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
         self._vad = Silero()
 

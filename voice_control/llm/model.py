@@ -19,15 +19,17 @@ from llama_cpp import (
 
 from .conversation import Conversation
 
-from ..common.utils import get_logger
+from ..common.utils import download_hf_file, get_logger
 
 
 class LLM:
+    hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
+    filename: str = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
+    local_dir: str = "model_files/llm"
 
     def __init__(self):
         self.logger = get_logger(__name__)
-        model_filename = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
-        model_path = os.path.join("model_files", "llm", model_filename)
+        model_path = os.path.join(self.local_dir, self.filename)
         self.max_tokens = 4096
         self.stream_processor = self._parse
 
@@ -45,6 +47,20 @@ class LLM:
             verbose=False,
         )
         self.logger.info("Model loaded successfully.")
+
+    def download(self):
+        self.logger.info(f"Ensuring directory exists: {self.local_dir}")
+        os.makedirs(self.local_dir, exist_ok=True)
+
+        try:
+            download_hf_file(
+                repo_id=self.hf_repo,
+                filename=self.filename,
+                save_directory=self.local_dir,
+            )
+            self.logger.info("Model download completed successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to download model: {e}")
 
     def __call__(
         self,
