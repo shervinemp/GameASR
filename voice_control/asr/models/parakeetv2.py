@@ -103,19 +103,22 @@ class Silero(ConsumerProducer):
                 buffer.clear()
 
     def _consume(self, chunk: Iterable[np.ndarray]):
+        acquired = self._lock.acquire(timeout=2)
+        if not acquired:
+            return
 
-        chunk = np.mean(chunk, axis=1)
+        try:
+            chunk = np.mean(chunk, axis=1)
+            self._model_input_frame = np.concatenate(
+                [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
+            )
 
-        self._model_input_frame = np.concatenate(
-            [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
-        )
-
-        speech_prob = 0
-        with self._lock:
             speech_prob, *_ = self._model._encode(
                 self._model_input_frame[np.newaxis, :]
             )
             speech_prob = speech_prob[0]
+        finally:
+            self._lock.release()
 
         is_loud = speech_prob > self.vad_threshold
 
