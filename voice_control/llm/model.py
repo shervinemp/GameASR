@@ -27,7 +27,7 @@ class LLM:
     def __init__(self):
         self.logger = get_logger(__name__)
         model_filename = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
-        model_path = os.path.join("models", "llm", model_filename)
+        model_path = os.path.join("model_files", "llm", model_filename)
         self.max_tokens = 4096
         self.stream_processor = self._parse
 

@@ -1,0 +1,140 @@
+from queue import Queue
+from typing import Callable, Generator, Iterable
+from collections import deque
+import numpy as np
+from onnx_asr import load_vad
+import sounddevice as sd
+
+try:
+    from onnx_asr import load_model, load_vad
+except ImportError:
+    raise ImportError(
+        "ONNX-ASR is not installed. Please install it using: pip install onnx-asr"
+    )
+
+from .base import ConsumerProducer, ModelBase
+from ...common.utils import get_logger
+
+
+class ParakeetV2(ModelBase):
+
+    def __init__(
+        self,
+        sound_device: int = 0,
+    ):
+        self._model = load_model(
+            "nemo-parakeet-tdt-0.6b-v2",
+            quantization="int8",
+        )
+        self._vad = Silero()
+
+        super().__init__(sound_device)
+
+    def _consume(self, chunk: Iterable[float]):
+        self._vad(chunk)
+
+    def _produce(self) -> Generator[str, None, None]:
+        yield from (
+            self._model.recognize(e, sample_rate=self._vad._model.SAMPLE_RATE)
+            for e in self._vad
+        )
+
+    def _inputstream(self, sound_device: int, callback: Callable):
+        return sd.InputStream(
+            samplerate=self._vad._model.SAMPLE_RATE,
+            blocksize=self._vad._model.HOP_SIZE,
+            device=sound_device,
+            channels=1,
+            callback=callback,
+        )
+
+
+class Silero(ConsumerProducer):
+    def __init__(
+        self,
+        vad_threshold: float = 0.3,
+        post_speech_silence_dur: float = 0.7,
+        pre_speech_dur: float = 0.7,
+    ):
+        self.logger = get_logger(__name__)
+
+        self._model = load_vad("silero")
+        self._queue = Queue(maxsize=1000)
+
+        self.vad_threshold = vad_threshold
+        self.post_speech_silence_dur = post_speech_silence_dur
+        self.pre_speech_dur = pre_speech_dur
+
+        self.reset()
+
+    def reset(self):
+        self._is_speech_segment = False
+        self._silence_counter = 0
+
+        pre_speech_chunks = int(
+            self.pre_speech_dur * self._model.SAMPLE_RATE / self._model.HOP_SIZE
+        )
+        self._pre_speech_buffer = deque(maxlen=pre_speech_chunks)
+
+        self._trailing_silent_chunks = int(
+            self.post_speech_silence_dur
+            * self._model.SAMPLE_RATE
+            / self._model.HOP_SIZE
+            + 1
+        )
+        self._trailing_silence_buffer = np.zeros(
+            self._trailing_silent_chunks * self._model.HOP_SIZE, dtype=np.float32
+        )
+
+        self._model_input_frame = np.zeros(
+            self._model.CONTEXT_SIZE + self._model.HOP_SIZE, dtype=np.float32
+        )
+
+    def _produce(self) -> Generator[np.ndarray, None, None]:
+        buffer = deque()
+        while True:
+            if (c := self._queue.get()) is not None:
+                buffer.append(c)
+            elif len(buffer) >= 20:
+                yield np.concatenate(buffer)
+                buffer.clear()
+
+    def _consume(self, chunk: Iterable[np.ndarray]):
+        chunk = np.mean(chunk, axis=1)
+
+        self._model_input_frame = np.concatenate(
+            [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
+        )
+
+        speech_prob, *_ = self._model._encode(self._model_input_frame[np.newaxis, :])
+        is_loud = speech_prob[0] > self.vad_threshold
+
+        if not self._is_speech_segment and is_loud:
+            self._is_speech_segment = True
+
+        if self._is_speech_segment:
+            if is_loud:
+                if self._pre_speech_buffer:
+                    r = np.concatenate(self._pre_speech_buffer, dtype=np.float32)
+                    self._queue.put(r)
+                    self._pre_speech_buffer.clear()
+
+                self._queue.put(chunk)
+            else:
+                s_ = self._silence_counter * self._model.HOP_SIZE
+                self._trailing_silence_buffer[s_ : s_ + self._model.HOP_SIZE] = chunk
+                self._silence_counter += 1
+
+                self._pre_speech_buffer.append(chunk)
+
+                if self._silence_counter >= (self._trailing_silent_chunks):
+                    self.finalize()
+                    self._is_speech_segment = False
+                    self._silence_counter = 0
+
+    def finalize(self):
+        r = self._trailing_silence_buffer[
+            : self._silence_counter * self._model.HOP_SIZE
+        ]
+        self._queue.put(r)
+        self._queue.put(None)

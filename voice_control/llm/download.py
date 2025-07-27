@@ -55,7 +55,7 @@ def main():
     repo_id = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
 
-    models_dir = os.path.join("models", "llm")
+    models_dir = os.path.join("model_files", "llm")
 
     logger.info(f"Ensuring directory exists: {models_dir}")
     os.makedirs(models_dir, exist_ok=True)

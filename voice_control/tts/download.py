@@ -16,7 +16,7 @@ def main():
     logger = get_logger(__name__)
 
     # Define the destination directory for TTS models
-    models_dir = os.path.join("models", "tts")
+    models_dir = os.path.join("model_files", "tts")
     os.makedirs(models_dir, exist_ok=True)
     logger.info(f"Ensured directory exists: {models_dir}")
 

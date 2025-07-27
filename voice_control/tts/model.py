@@ -29,8 +29,8 @@ class TTS:
         self.logger = get_logger(__name__)
 
         self.kokoro = Kokoro(
-            model_path="models/tts/kokoro-v1.0.onnx",
-            voices_path="models/tts/voices-v1.0.bin",
+            model_path="model_files/tts/kokoro-v1.0.onnx",
+            voices_path="model_files/tts/voices-v1.0.bin",
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()

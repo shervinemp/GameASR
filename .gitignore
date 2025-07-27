@@ -47,4 +47,4 @@ __pycache__
 # Databases
 *.sqlite3
 
-models/
+model_files/
