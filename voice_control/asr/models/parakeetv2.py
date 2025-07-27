@@ -15,7 +15,7 @@ except ImportError:
 from .base import ConsumerProducer, ModelBase
 from ...common.utils import get_logger
 
-gpu_access_lock = threading.Lock()
+_provider_lock = threading.Lock()
 
 
 class ParakeetV2(ModelBase):
@@ -33,10 +33,10 @@ class ParakeetV2(ModelBase):
         self._vad(chunk)
 
     def _produce(self) -> Generator[str, None, None]:
-        global gpu_access_lock
+        global _provider_lock
         for e in self._vad:
             r = None
-            with gpu_access_lock:
+            with _provider_lock:
                 r = self._model.recognize(e, sample_rate=self._vad._model.SAMPLE_RATE)
             yield r
 
@@ -101,7 +101,6 @@ class Silero(ConsumerProducer):
                 buffer.clear()
 
     def _consume(self, chunk: Iterable[np.ndarray]):
-        global gpu_access_lock
 
         chunk = np.mean(chunk, axis=1)
 
@@ -109,8 +108,9 @@ class Silero(ConsumerProducer):
             [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
         )
 
+        global _provider_lock
         speech_prob = 0
-        with gpu_access_lock:
+        with _provider_lock:
             speech_prob, *_ = self._model._encode(
                 self._model_input_frame[np.newaxis, :]
             )
