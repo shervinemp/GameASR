@@ -55,9 +55,9 @@ class ParakeetV2(ModelBase):
 class Silero(ConsumerProducer):
     def __init__(
         self,
-        vad_threshold: float = 0.32,
-        post_speech_silence_dur: float = 0.7,
-        pre_speech_dur: float = 0.7,
+        vad_threshold: float = 0.33,
+        post_speech_silence_dur: float = 0.75,
+        pre_speech_dur: float = 0.75,
     ):
         self.logger = get_logger(__name__)
 
@@ -133,7 +133,7 @@ class Silero(ConsumerProducer):
             self._queue.put(chunk)
             if not is_loud:
                 self._silence_counter += 1
-                if self._silence_counter >= (self._trailing_silent_chunks):
+                if self._silence_counter >= self._trailing_silent_chunks:
                     self._is_speech_segment = False
                     self._silence_counter = 0
                     self._queue.put(None)
