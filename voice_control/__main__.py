@@ -1,11 +1,9 @@
-# voice_control_backend_main.py
 import argparse
 import sys
 
 from .pipeline import Pipeline
 
-from .bridge.rpc_tool_client import ToolCaller, get_client_class
-from .bridge.rpc_server import LLMService, RpcServer
+from .bridge.rpc_tool_client import RpcToolClient
 
 from .common.utils import setup_logging, get_logger, parse_api_spec
 
@@ -66,57 +64,31 @@ def main():
         logger.info(f"Successfully parsed tool spec from '{args.specs_path}'.")
     except Exception as e:
         logger.critical(
-            f"Error parsing game API spec '{args.specs_path}': {e}. Exiting.",
+            f"Error parsing API spec '{args.specs_path}': {e}. Exiting.",
             exc_info=True,
         )
         sys.exit(1)
 
-    tool_caller = ToolCaller()
-
     try:
-        pipe = Pipeline()
-        logger.info("Successfully created voice control pipeline.")
+        ToolClient = RpcToolClient()
+        tools = ToolClient.from_spec(tools_spec)
     except Exception as e:
         logger.critical(
-            f"Error creating voice control pipeline: {e}. Exiting.",
+            f"Error creating tools: {e}. Exiting.",
             exc_info=True,
         )
         sys.exit(1)
 
     try:
-        ToolClient = get_client_class(tools_spec)
-        endpoint = (
-            args.tools_protocol + "://" + args.tools_host + ":" + str(args.tools_port)
-        )
-        tool_client = ToolClient(endpoint, protocol=args.tools_protocol)
-    except Exception as e:
-        logger.critical(
-            f"Error creating tools client: {e}. Exiting.",
-            exc_info=True,
-        )
-        sys.exit(1)
-
-    tool_caller = ToolCaller(tool_client)
-
-    try:
-        pipe = Pipeline(callback=tool_caller)
+        pipe = Pipeline(rpc_server=True)
+        c_ = pipe.session.conversation
+        c_.tools = {**c_.tools, **tools}
         logger.info("Pipeline instance created.")
     except Exception as e:
         logger.critical(f"Failed to initialize Pipeline: {e}. Exiting.", exc_info=True)
         sys.exit(1)
 
-    try:
-        service_api = LLMService(pipe.session)
-        endpoint = args.protocol + "://" + args.host + ":" + str(args.port)
-        rpc_server = RpcServer(service_api, endpoint, protocol=args.protocol)
-    except Exception as e:
-        logger.critical(
-            f"Failed to initialize RPC Server: {e}. Exiting.", exc_info=True
-        )
-        sys.exit(1)
-
-    pipe.start()
-    rpc_server.start()
+    pipe.run()
 
 
 if __name__ == "__main__":

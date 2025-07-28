@@ -113,7 +113,7 @@ class ToolCaller:
         """Stops the background asyncio event loop gracefully."""
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
-            self._loop_thread.join(timeout=5.0)
+            self._loop_thread.join(timeout=5)
             if self._loop_thread.is_alive():
                 self.logger.warning("Background loop thread did not stop gracefully.")
             self._loop_thread = None

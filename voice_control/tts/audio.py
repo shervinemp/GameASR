@@ -87,7 +87,7 @@ class AudioPlayer:
         with self._queue.mutex:
             self._queue.queue.clear()
         self._running = False
-        self._thread.join()
+        self._thread.join(timeout=5)
         sd.stop()
 
 

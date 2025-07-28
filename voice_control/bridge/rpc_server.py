@@ -35,27 +35,15 @@ class RpcServer:
         self._worker_thread = None
         self.logger.info(f"[RpcServer] Bound to {self.endpoint}")
 
-    def start(self):
-        """Starts the server worker thread."""
-        if not self._worker_thread:
-            self._worker_thread = threading.Thread(
-                target=self._worker_loop,
-                daemon=True,  # Daemon thread exits when main program exits
-            )
-            self._worker_thread.start()
-            self.logger.info("Server worker thread started.")
-
     def _dispatch_method(self, method_name: str, params: dict):
-        # Dynamically get the method from the service api
         method_func = getattr(self.service_api, method_name, None)
 
         if method_func is None or not callable(method_func):
             raise ValueError(f"Method not found: {method_name}")
 
-        # Call the method with unpacked parameters
         return method_func(**params)
 
-    def handle_request(self, request_body_str: str):
+    def _handle_request(self, request_body_str: str):
         response_obj = {"jsonrpc": "2.0"}
         try:
             request = json.loads(request_body_str)
@@ -124,7 +112,7 @@ class RpcServer:
                 message = self.socket.recv_string()
                 self.logger.debug(f"\n[Server] Received: {message}")
 
-                response = self.handle_request(message)
+                response = self._handle_request(message)
 
                 self.socket.send_string(response)
                 self.logger.debug(f"[Server] Sent: {response}")
@@ -139,6 +127,15 @@ class RpcServer:
             self.socket.close()
             self.context.term()
             self.logger.debug("[Server] ZeroMQ resources cleaned up.")
+
+    def start(self):
+        if not self._worker_thread:
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                daemon=True,
+            )
+            self._worker_thread.start()
+            self.logger.info("Server worker thread started.")
 
     def stop(self):
         """Sends shutdown signal to the server worker and waits for it to finish."""

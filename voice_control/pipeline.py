@@ -15,7 +15,7 @@ from .common.utils import setup_logging, get_logger
 from .asr import ParakeetV2
 from .llm import Session
 from .tts import TTS
-from .bridge.rpc_server import RpcServer
+from .bridge.rpc_server import LLMService, RpcServer
 
 
 class Pipeline:
@@ -38,7 +38,9 @@ class Pipeline:
         self.asr = ParakeetV2()
         self.session = session or Session()
         self.tts = TTS()
-        self.rpc_server = RpcServer(rpc_handler=self.session) if rpc_server else None
+        self.rpc_server = (
+            RpcServer(rpc_handler=LLMService(self.session)) if rpc_server else None
+        )
 
     def _callback(self, transcription: str):
         """
