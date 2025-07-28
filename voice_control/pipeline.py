@@ -52,8 +52,7 @@ class Pipeline:
         interrupt = True
         for chunk in self.session(transcription):
             buffer += chunk
-            matches = boundary.finditer(buffer)
-            if matches:
+            if matches := boundary.finditer(buffer):
                 for match in matches:
                     sentence = buffer[: match.start() + 2]
                     buffer = buffer[match.end() :]
