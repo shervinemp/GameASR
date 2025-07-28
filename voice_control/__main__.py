@@ -5,13 +5,13 @@ from .pipeline import Pipeline
 
 from .bridge.rpc_tool_client import RpcToolClient
 
-from .common.utils import setup_logging, get_logger, parse_api_spec
+from .common.utils import load_specs, setup_logging, get_logger
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run the voice-control pipeline.")
     parser.add_argument(
-        "specs-path",
+        "specs_path",
         type=str,
         help="Path to the tool specification JSON file.",
     )
@@ -60,7 +60,7 @@ def main():
     logger = get_logger(__name__)
 
     try:
-        tools_spec = parse_api_spec(args.specs_path)
+        tools_spec = load_specs(args.specs_path)
         logger.info(f"Successfully parsed tool spec from '{args.specs_path}'.")
     except Exception as e:
         logger.critical(
@@ -70,7 +70,9 @@ def main():
         sys.exit(1)
 
     try:
-        ToolClient = RpcToolClient()
+        ToolClient = RpcToolClient(
+            f"{args.tools_protocol}://{args.tools_host}:{args.tools_port}"
+        )
         tools = ToolClient.from_spec(tools_spec)
     except Exception as e:
         logger.critical(
@@ -80,9 +82,8 @@ def main():
         sys.exit(1)
 
     try:
-        pipe = Pipeline(rpc_server=True)
-        c_ = pipe.session.conversation
-        c_.tools = {**c_.tools, **tools}
+        pipe = Pipeline(rpc_server=f"{args.protocol}://127.0.0.1:{args.port}")
+        pipe.session.conversation.tools = tools
         logger.info("Pipeline instance created.")
     except Exception as e:
         logger.critical(f"Failed to initialize Pipeline: {e}. Exiting.", exc_info=True)

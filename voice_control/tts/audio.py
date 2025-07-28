@@ -84,11 +84,12 @@ class AudioPlayer:
             self._thread.start()
 
     def stop(self):
-        with self._queue.mutex:
-            self._queue.queue.clear()
-        self._running = False
-        self._thread.join(timeout=5)
-        sd.stop()
+        if self._running:
+            with self._queue.mutex:
+                self._queue.queue.clear()
+            self._running = False
+            self._thread.join(timeout=5)
+            sd.stop()
 
 
 def main():

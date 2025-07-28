@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from huggingface_hub import hf_hub_download
@@ -63,6 +64,11 @@ def download_hf_file(repo_id: str, filename: str, directory: str):
         filename=filename,
         local_dir=directory,
     )
+
+
+def load_specs(specs_path: str) -> Dict[str, Any]:
+    with open(specs_path, "r") as f:
+        return json.load(f)
 
 
 def map_json_type_to_python(json_type: str) -> str:

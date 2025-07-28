@@ -28,10 +28,18 @@ class Pipeline:
     - The LLM response is sent to TTS for audio output
     """
 
-    def __init__(self, session: Optional[Session] = None, rpc_server: bool = False):
+    def __init__(
+        self,
+        session: Optional[Session] = None,
+        rpc_server: str | None = None,
+    ):
         """
         Initialize the voice control pipeline with ASR, LLM, and TTS components,
         and dynamically set up tool execution based on the game API spec.
+
+        Args:
+            session: An optional session object for the LLM.
+            rpc_server: An optional RPC server endpoint for the LLM service.
         """
         self.logger = get_logger(__name__)
 
@@ -39,7 +47,9 @@ class Pipeline:
         self.session = session or Session()
         self.tts = TTS()
         self.rpc_server = (
-            RpcServer(rpc_handler=LLMService(self.session)) if rpc_server else None
+            RpcServer(LLMService(self.session), endpoint=rpc_server)
+            if rpc_server
+            else None
         )
 
     def _callback(self, transcription: str):

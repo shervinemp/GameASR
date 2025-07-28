@@ -11,10 +11,10 @@ class RpcToolClient:
     a provided api specification.
     """
 
-    def __init__(self, host="localhost", port=5556):
+    def __init__(self, endpoint: str):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REQ)
-        self.socket.connect(f"tcp://{host}:{port}")
+        self.socket.connect(endpoint)
 
     def from_spec(self, spec_dict: dict) -> List[Tool]:
         tools = []
