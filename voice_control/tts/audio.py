@@ -30,12 +30,12 @@ class AudioPlayer:
     def _run(self):
         while self._running:
             try:
-                audio_data, sample_rate = self._queue.get(timeout=0.9)
+                audio_data, sample_rate = self._queue.get(timeout=0.85)
                 self.play(audio_data, sample_rate)
             except Empty:
                 pass
             finally:
-                sleep(0.1)
+                sleep(0.15)
 
     def __call__(
         self,
