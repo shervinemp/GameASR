@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""
-Module containing the AudioPlayer class.
-Part of the TTS components package.
-
-This module provides functionality for playing audio files and raw data.
-"""
-
 import atexit
 from queue import Empty, Queue
 import threading
@@ -17,10 +9,6 @@ from ..common.utils import get_logger
 
 
 class AudioPlayer:
-    """
-    Plays audio using the `sounddevice` library, explicitly managing the
-    output device to prevent conflicts.
-    """
 
     def __init__(self, output_device: int | None = None):
         self.logger = get_logger(__name__)
@@ -103,7 +91,7 @@ class AudioPlayer:
         sd.stop()
 
 
-if __name__ == "__main__":
+def main():
     logger = get_logger("AudioPlayerExample")
 
     player = AudioPlayer()
@@ -119,3 +107,7 @@ if __name__ == "__main__":
     sleep(duration)
 
     logger.info("Sine wave playback complete.\n")
+
+
+if __name__ == "__main__":
+    main()
