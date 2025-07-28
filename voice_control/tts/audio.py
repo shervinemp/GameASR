@@ -34,7 +34,7 @@ class AudioPlayer:
             f"AudioPlayer initialized. Using output device: '{device_name}' (ID: {output_device})"
         )
 
-        self._queue = Queue()
+        self._queue = Queue(maxsize=1000)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
         atexit.register(self.stop)
@@ -42,12 +42,20 @@ class AudioPlayer:
     def _run(self):
         while self._running:
             try:
-                audio_data, sample_rate = self._queue.get(timeout=1)
+                audio_data, sample_rate = self._queue.get(timeout=0.9)
                 self.play(audio_data, sample_rate)
             except Empty:
                 pass
             finally:
                 sleep(0.1)
+
+    def __call__(
+        self,
+        audio_data: np.ndarray[np.float32 | np.int16],
+        sample_rate: int,
+        interrupt: bool = False,
+    ):
+        return self._consume(audio_data, sample_rate, interrupt)
 
     def _consume(
         self,
@@ -60,14 +68,6 @@ class AudioPlayer:
                 self._queue.queue.clear()
             sd.stop()
         self._queue.put((audio_data, sample_rate))
-
-    def __call__(
-        self,
-        audio_data: np.ndarray[np.float32 | np.int16],
-        sample_rate: int,
-        interrupt: bool = False,
-    ):
-        return self._consume(audio_data, sample_rate, interrupt)
 
     def play(
         self,
