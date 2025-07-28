@@ -1,4 +1,4 @@
-from queue import Queue
+from queue import Empty, Queue
 import threading
 from typing import Callable, Generator, Iterable
 from collections import deque
@@ -94,11 +94,14 @@ class Silero(ConsumerProducer):
     def _produce(self) -> Generator[np.ndarray, None, None]:
         buffer = deque()
         while True:
-            if (c := self._queue.get()) is not None:
-                buffer.append(c)
-            elif len(buffer) >= 10:
-                yield np.concatenate(buffer)
-                buffer.clear()
+            try:
+                if (c := self._queue.get(timeout=1)) is not None:
+                    buffer.append(c)
+                elif len(buffer) >= 10:
+                    yield np.concatenate(buffer)
+                    buffer.clear()
+            except Empty:
+                pass
 
     def _consume(self, chunk: Iterable[np.ndarray]):
         acquired = self._lock.acquire(timeout=2)

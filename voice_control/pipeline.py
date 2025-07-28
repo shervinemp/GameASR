@@ -52,11 +52,13 @@ class Pipeline:
         interrupt = True
         for chunk in self.session(transcription):
             buffer += chunk
-            if matches := boundary.finditer(buffer):
-                for match in matches:
-                    sentence = buffer[: match.start() + 2]
-                    buffer = buffer[match.end() :]
-                    self.tts(sentence.strip(), interrupt=interrupt)
+            if len(buffer) > 8:
+                if matches := boundary.finditer(buffer):
+                    for match in matches:
+                        start, end = (match.start() + 2, match.end())
+                        sentence = buffer[:start]
+                        buffer = buffer[end:]
+                        self.tts(sentence.strip(), interrupt=interrupt)
             interrupt = False
         else:
             if s := buffer.strip():
