@@ -1,7 +1,6 @@
 import threading
 import zmq
 import json
-import sys
 
 from ..common.utils import get_logger
 from ..llm import Session
@@ -9,81 +8,79 @@ from ..llm import Session
 
 class LLMService:
     def __init__(self, session: Session):
+        if not isinstance(session, Session):
+            raise TypeError("Session must be an instance of Session class.")
         self.session = session
 
     def query(self, content: str, role: str) -> str:
         if not isinstance(role, str):
             raise TypeError("Role must be a string.")
         if not isinstance(content, str):
-            raise TypeError(content, str)
+            raise TypeError("Content must be a string.")
 
         message = {"role": role, "content": content}
-        response = "".join(self.session([message]))
-
-        return response
+        response_parts = self.session([message])
+        return "".join(response_parts)
 
 
 class RpcServer:
     def __init__(self, service_api, endpoint: str):
         self.logger = get_logger(__name__)
-
         self.endpoint = endpoint
         self.service_api = service_api
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(self.endpoint)
         self._worker_thread = None
-        self.logger.info(f"[RpcServer] Bound to {self.endpoint}")
+        self._running = False
+        self.logger.info(f"RPC Server bound to {self.endpoint}")
 
     def _dispatch_method(self, method_name: str, params: dict):
         method_func = getattr(self.service_api, method_name, None)
 
         if method_func is None or not callable(method_func):
             raise ValueError(f"Method not found: {method_name}")
+        if not isinstance(params, dict):
+            raise TypeError("Parameters must be a dictionary.")
 
         return method_func(**params)
 
     def _handle_request(self, request_body_str: str):
         response_obj = {"jsonrpc": "2.0"}
+        request_id = None
+
         try:
             request = json.loads(request_body_str)
+            request_id = request.get("id")
+            response_obj["id"] = request_id
 
             if request.get("jsonrpc") != "2.0" or "method" not in request:
                 raise ValueError("Invalid JSON-RPC request format.")
 
             method_name = request["method"]
             params = request.get("params", {})
-            request_id = request.get("id")
-
-            response_obj["id"] = request_id
 
             try:
                 result = self._dispatch_method(method_name, params)
                 response_obj["result"] = result
-            except ValueError as e:  # Catch method not found from _dispatch_method
-                response_obj["error"] = {
-                    "code": -32601,
-                    "message": str(e),
-                }  # Method not found
-            except TypeError as e:  # Catch argument mismatch (Invalid params)
+            except ValueError as e:
+                response_obj["error"] = {"code": -32601, "message": str(e)}
+            except TypeError as e:
                 response_obj["error"] = {
                     "code": -32602,
                     "message": f"Invalid params for method '{method_name}': {str(e)}",
                 }
-            except Exception as e:  # Catch any other errors from the service method
+            except Exception as e:
                 response_obj["error"] = {
                     "code": -32000,
-                    "message": f"Server error: {str(e)}",
+                    "message": f"Server error executing '{method_name}': {str(e)}",
                 }
-                self.logger.error(
-                    f"[Server] Error executing method '{method_name}': {e}",
-                    file=sys.stderr,
-                )
+                self.logger.error(f"Error executing method '{method_name}': {e}")
 
         except json.JSONDecodeError as e:
             response_obj["error"] = {
                 "code": -32700,
-                "message": f"Parse error: Invalid JSON received - {str(e)}",
+                "message": f"Parse error: Invalid JSON - {str(e)}",
             }
             response_obj["id"] = None
         except ValueError as e:
@@ -95,55 +92,76 @@ class RpcServer:
         except Exception as e:
             response_obj["error"] = {
                 "code": -32000,
-                "message": f"An unexpected server error occurred: {str(e)}",
+                "message": f"Unexpected server error: {str(e)}",
             }
             response_obj["id"] = None
-
-            self.logger.error(
-                f"[Server] Unexpected error during request processing: {e}",
-                file=sys.stderr,
-            )
+            self.logger.error(f"Unexpected error during request processing: {e}")
 
         return json.dumps(response_obj)
 
     def _worker_loop(self):
+        self.logger.info("RPC Server worker thread started.")
+        self._running = True
         try:
-            while True:
-                message = self.socket.recv_string()
-                self.logger.debug(f"\n[Server] Received: {message}")
-
-                response = self._handle_request(message)
-
-                self.socket.send_string(response)
-                self.logger.debug(f"[Server] Sent: {response}")
-
+            while self._running:
+                if self.socket.poll(100) & zmq.POLLIN:
+                    message = self.socket.recv_string()
+                    self.logger.debug(f"Received: {message}")
+                    response = self._handle_request(message)
+                    self.socket.send_string(response)
+                    self.logger.debug(f"Sent: {response}")
         except KeyboardInterrupt:
-            self.logger.info("\n[Server] Shutting down.")
+            self.logger.info("RPC Server shutting down due to KeyboardInterrupt.")
         except Exception as e:
-            self.logger.error(
-                f"\n[Server] An unhandled error occurred: {e}", file=sys.stderr
-            )
+            self.logger.error(f"Unhandled error in RPC Server worker loop: {e}")
         finally:
+            self._running = False
             self.socket.close()
             self.context.term()
-            self.logger.debug("[Server] ZeroMQ resources cleaned up.")
+            self.logger.info("ZeroMQ resources cleaned up.")
 
     def start(self):
         if not self._worker_thread:
             self._worker_thread = threading.Thread(
-                target=self._worker_loop,
-                daemon=True,
+                target=self._worker_loop, daemon=True, name="RpcServerWorker"
             )
             self._worker_thread.start()
-            self.logger.info("Server worker thread started.")
+            self.logger.info("RPC Server worker thread initiated.")
+        else:
+            self.logger.info("RPC Server worker thread is already running.")
 
     def stop(self):
-        """Sends shutdown signal to the server worker and waits for it to finish."""
         if self._worker_thread and self._worker_thread.is_alive():
-            self.logger.info("Sending shutdown signal to server thread...")
-            self.transcription_queue.put(None)  # Send sentinel
-            self._worker_thread.join(timeout=5)  # Wait for thread to finish
+            self.logger.info("Attempting to stop RPC Server worker thread...")
+            self._running = False
+            self._worker_thread.join(timeout=2)
             if self._worker_thread.is_alive():
                 self.logger.warning(
-                    "Server thread did not terminate gracefully within timeout."
+                    "RPC Server thread did not terminate gracefully within timeout."
                 )
+            else:
+                self.logger.info("RPC Server worker thread stopped successfully.")
+            self._worker_thread = None
+        else:
+            self.logger.info(
+                "RPC Server worker thread is not running or already stopped."
+            )
+
+
+if __name__ == "__main__":
+    llm_session = Session()
+    llm_service_instance = LLMService(llm_session)
+
+    server_endpoint = "tcp://127.0.0.1:5555"
+    rpc_server = RpcServer(llm_service_instance, server_endpoint)
+
+    rpc_server.start()
+    print(f"RPC Server started on {server_endpoint}. Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            threading.Event().wait(1)
+    except KeyboardInterrupt:
+        print("\nMain thread received KeyboardInterrupt. Stopping RPC server...")
+        rpc_server.stop()
+        print("Application exiting.")
