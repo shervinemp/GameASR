@@ -59,7 +59,7 @@ class Pipeline:
                         sentence = buffer[:start]
                         buffer = buffer[end:]
                         self.tts(sentence.strip(), interrupt=interrupt)
-            interrupt = False
+                        interrupt = False
         else:
             if s := buffer.strip():
                 self.tts(s, interrupt=interrupt)
