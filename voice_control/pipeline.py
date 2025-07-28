@@ -6,6 +6,7 @@ This module provides the integration between ASR (Automatic Speech Recognition),
 LLM (Language Model), and TTS (Text-to-Speech) components to create a seamless
 voice control pipeline.
 """
+import re
 import sys
 from typing import Optional
 
@@ -32,6 +33,8 @@ class Pipeline:
         Initialize the voice control pipeline with ASR, LLM, and TTS components,
         and dynamically set up tool execution based on the game API spec.
         """
+        self.logger = get_logger(__name__)
+
         self.asr = ParakeetV2()
         self.session = session or Session()
         self.tts = TTS()
@@ -44,23 +47,37 @@ class Pipeline:
         """
         if not transcription:
             return
-        response = "".join(self.session(transcription))
-        if response:
-            self.tts.speak(response)
+        boundary = re.compile(r"[^.][.!?]\s+")
+        buffer = ""
+        interrupt = True
+        for chunk in self.session(transcription):
+            buffer += chunk
+            matches = boundary.finditer(buffer)
+            if matches:
+                for match in matches:
+                    sentence = buffer[: match.start() + 2]
+                    buffer = buffer[match.end() :]
+                    self.tts(sentence.strip(), interrupt=interrupt)
+            interrupt = False
+        else:
+            if s := buffer.strip():
+                self.tts(s, interrupt=interrupt)
 
     def run(self):
         """Start the voice control pipeline."""
+        self.asr.start()
+        self.tts.start()
         if self.rpc_server:
-            self.asr.start()
             self.rpc_server.start()
         try:
             for transcript in self.asr:
+                self.logger.debug(f"{transcript=}")
                 self._callback(transcript)
         finally:
-            if self.asr:
-                self.asr.stop()
             if self.rpc_server:
                 self.rpc_server.stop()
+            self.asr.stop()
+            self.tts.stop()
 
 
 def main():

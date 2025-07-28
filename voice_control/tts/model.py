@@ -16,6 +16,7 @@ from ..common.utils import download_file, get_logger
 
 
 class TTS:
+    sample_rate: int = 24_000
     local_dir: str = os.path.join("model_files", "tts")
 
     def __init__(self):
@@ -52,6 +53,7 @@ class TTS:
         voice: str = "af_heart",
         language: str = "en-us",
         speed: float = 1.0,
+        interrupt: bool = False,
     ):
         """
         Convert text into speech audio.
@@ -62,19 +64,26 @@ class TTS:
         Returns:
             tuple: (numpy array of audio samples, sample rate)
         """
-        try:
-            phonemes = self.tokenizer.phonemize(text, lang=language)
-            samples, sample_rate = self.kokoro.create(
-                phonemes,
-                voice=voice,
-                speed=speed,
-                is_phonemes=True,
-            )
+        phonemes = self.tokenizer.phonemize(text, lang=language)
+        samples, sample_rate = self.kokoro.create(
+            phonemes,
+            voice=voice,
+            speed=speed,
+            is_phonemes=True,
+        )
 
-            self.audio_player.play(samples, sample_rate)
-
-        except Exception as e:
-            self.logger.error(f"Error speaking text: {e}")
-            raise
+        self.audio_player(samples, sample_rate, interrupt)
 
         return samples, sample_rate
+
+    def start(self):
+        self.audio_player.start()
+
+    def stop(self):
+        self.audio_player.stop()
+
+    def __enter__(self):
+        self.start()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()

@@ -5,15 +5,16 @@ from collections import deque
 import numpy as np
 import sounddevice as sd
 
+from .base import ModelBase
+from ...common.utils import get_logger
+from ...common.base import ConsumerProducer
+
 try:
     from onnx_asr import load_model, load_vad
 except ImportError:
     raise ImportError(
         "ONNX-ASR is not installed. Please install it using: pip install onnx-asr"
     )
-
-from .base import ConsumerProducer, ModelBase
-from ...common.utils import get_logger
 
 _provider_lock = threading.Lock()
 
@@ -52,7 +53,7 @@ class ParakeetV2(ModelBase):
 class Silero(ConsumerProducer):
     def __init__(
         self,
-        vad_threshold: float = 0.33,
+        vad_threshold: float = 0.4,
         post_speech_silence_dur: float = 0.75,
         pre_speech_dur: float = 0.75,
     ):
