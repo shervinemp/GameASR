@@ -17,18 +17,19 @@ class Session:
         llm: Optional[LLM] = None,
         conversation: Optional[Conversation] = None,
     ):
+        self.logger = get_logger(__name__)
+
         self.llm = llm or LLM()
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
         self.tool_caller.start()
 
-    def __call__(self, query: str) -> Generator[str, None, None]:
+    def __call__(self, query: str, **kwargs) -> Generator[str, None, None]:
         self.conversation.add_user_message(query)
+        self.logger.debug(f"{query=}")
 
         response = ""
-        logger = get_logger(__name__)
-        for chunk in self.llm(self.conversation):
-            logger.debug(chunk)
+        for chunk in self.llm(self.conversation, **kwargs):
             if isinstance(chunk, dict):
                 tool_name = chunk["name"]
                 tool_args = chunk["arguments"]
