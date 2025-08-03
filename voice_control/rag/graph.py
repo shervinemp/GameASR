@@ -13,6 +13,8 @@ from typing import Any, Deque, Dict, Tuple, Optional, List
 from neo4j import GraphDatabase
 from neo4j_graphrag.indexes import create_vector_index
 
+from ..llm.session import Session
+
 
 class KnowledgeGraph:
     def __init__(self, uri: str, user: str, password: str):
@@ -117,12 +119,10 @@ class Exploration:
         self.graph = graph
         self.frontier: Deque[Dict[str, Any]] = deque(maxlen=10)
         self.ancestry: Dict[str, str] = dict()
-        self.step: int = 0
 
     def start(self, node_ids: List[str]) -> List[Dict[str, Any]]:
         subgraph = self.graph.subgraph(node_ids)
         self._add(subgraph["nodes"], subgraph["relations"])
-        self.n_hops = 0
         return subgraph
 
     def expand(
@@ -133,7 +133,6 @@ class Exploration:
         if flush_frontier:
             self.frontier.clear()
         self._add(candidates["nodes"], candidates["relations"])
-        self.step += 1
 
     @property
     def candidates(self) -> List[Dict[str, Dict[str, Any]]]:
@@ -162,14 +161,15 @@ class Exploration:
 class Orchestrator:
     def __init__(
         self,
-        exploration: Exploration,
-        llm: LLM,
+        graph: KnowledgeGraph,
         max_iterations: int = 5,
     ):
-        self.exploration = exploration
-        self.graph = exploration.graph
-        self.llm = llm
+        self.graph = graph
         self.max_iterations = max_iterations
+
+        self.session = Session()
+        self.session.conversation._cutoff_idx = -1
+
         self.summary = "Starting search with initial nodes..."
 
     def _build_expansion_prompt(self, query: str) -> str:
@@ -232,7 +232,7 @@ class Orchestrator:
         if not initial_nodes:
             return "Could not find any relevant information."
 
-        state = self.exploration
+        state = Exploration(self.graph)
         state.start(initial_nodes)
         while state.iteration < self.max_iterations:
             print(f"\n--- Iteration {state.iteration + 1} ---")
@@ -241,7 +241,7 @@ class Orchestrator:
                 break
 
             prompt = self._build_expansion_prompt()
-            response = "".join(self.llm(prompt))
+            response = "".join(self.session(prompt))
             response = self.parse(response)
 
             nodes_to_expand = response.get("nodes_to_expand", [])
