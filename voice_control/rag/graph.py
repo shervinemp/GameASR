@@ -33,19 +33,58 @@ class KnowledgeGraph:
     def close(self):
         self._driver.close()
 
+    def keyword_search(self, keywords: List[str], top_k: int = 5) -> List[List[Dict]]:
+        """
+        Performs a keyword search for a list of keywords.
+
+        Args:
+            keywords: A list of keywords to search for.
+            top_k: The number of top results to return for each keyword.
+
+        Returns:
+            A list of lists, where each inner list contains the top-k search
+            results (as dictionaries) for the corresponding keyword.
+        """
+        queries_data = [
+            {"id": i, "keyword": keyword} for i, keyword in enumerate(keywords)
+        ]
+
+        query = """
+            UNWIND $queries_data AS q_data
+            CALL {
+                WITH q_data
+                CALL db.index.fulltext.queryNodes("nodes_label_description_fulltext", q_data.keyword + '~', {limit: $top_k})
+                YIELD node, score
+                RETURN collect(
+                    apoc.map.merge(
+                        apoc.map.removeKey(properties(node), 'embedding'),
+                        {score: score}
+                    )
+                ) AS result_list
+            }
+            RETURN q_data.id AS query_id, result_list AS results
+            ORDER BY query_id ASC
+        """
+
+        with self._driver.session() as session:
+            records = session.run(query, queries_data=queries_data, top_k=top_k)
+            result = [record["results"] for record in records]
+
+        return result
+
     def vector_search(
         self, embeddings: List[List[float]], top_k: int = 5
     ) -> List[List[Dict]]:
         """
-        Performs a vector similarity search for a list of query texts efficiently.
+        Performs a vector similarity search for a list of embeddings.
 
         Args:
-            queries: A list of strings to search for.
-            top_k: The number of top similar results to return for each query.
+            embeddings: A list of embeddings to search for.
+            top_k: The number of top similar results to return for each embedding.
 
         Returns:
             A list of lists, where each inner list contains the top-k search
-            results (as dictionaries) for the corresponding query text.
+            results (as dictionaries) for the corresponding embedding.
         """
         queries_data = [
             {"id": i, "embedding": emb.tolist()} for i, emb in enumerate(embeddings)
@@ -193,7 +232,13 @@ class Orchestrator:
         keywords = self._extract_keywords(query)
         embeddings = self.graph.embedding_model.encode(keywords)
 
-        initial_results = self.graph.vector_search(embeddings, top_k=5)
+        initial_results = [
+            a + b
+            for a, b in zip(
+                self.graph.vector_search(embeddings, top_k=4),
+                self.graph.keyword_search(keywords, top_k=3),
+            )
+        ]
 
         self.logger.debug("Found initial candidates:")
         initial_nodes = []
@@ -258,14 +303,7 @@ class Orchestrator:
 
     def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
         frontier = list(state.frontier)
-        candidates = [
-            kword_arr[i]
-            for kword_arr in state.candidates
-            for i in random.sample(
-                range(len(kword_arr)),
-                min(15, len(kword_arr)),
-            )
-        ]
+        candidates = [c for kword_arr in state.candidates for c in kword_arr[:15]]
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
@@ -453,7 +491,10 @@ class Neo4jImporter:
 
     def _ensure_indexes(self):
         print("Ensuring indexes are in place...")
-        query = "CREATE INDEX entity_id_index IF NOT EXISTS FOR (e:Entity) ON (e.id)"
+        query = "CREATE INDEX entity_id_index IF NOT EXISTS FOR (n:Entity) ON (n.id)"
+        self._run_query(query)
+
+        query = "CREATE FULLTEXT INDEX nodes_label_description_fulltext IF NOT EXISTS FOR (n:Entity) ON EACH [n.label, n.description]"
         self._run_query(query)
 
         create_vector_index(
@@ -580,6 +621,8 @@ def main():
     triples, entities, relations = data_loader.load_filtered_data(
         size=DATASET_SIZE, limit=TRIPLE_LIMIT
     )
+    with open("ent.txt", "wt") as f:
+        json.dump(entities, f)
 
     with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
         importer.clear_database()
@@ -588,8 +631,8 @@ def main():
         node_count = importer.get_node_count()
         print(f"\n✅ Import complete. Total nodes in database: {node_count}")
 
-    # user_query = "Which American presidents had a background in law before taking office, like Obama?"
-    user_query = "What are some of Keanu Reeves's movies?"
+    user_query = "Which American presidents had a background in law before taking office, like Obama?"
+    user_query = "Who are the members of the band Coldplay?"
 
     graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
     orchestrator = Orchestrator(graph)
