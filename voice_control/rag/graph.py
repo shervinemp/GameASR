@@ -13,7 +13,10 @@ from typing import Any, Deque, Dict, Tuple, Optional, List
 from neo4j import GraphDatabase
 from neo4j_graphrag.indexes import create_vector_index
 
+from ..llm.model import LLM
 from ..llm.session import Session
+
+from ..common.utils import get_logger
 
 
 class KnowledgeGraph:
@@ -88,7 +91,7 @@ class KnowledgeGraph:
             record = session.run(query, nodes=node_ids).single()
             result = record.data()
 
-        return result["nodes"], result["relations"]
+        return result
 
     def expansion(
         self, frontier_ids: List[str], excluded_ids: List[str]
@@ -137,8 +140,9 @@ class Exploration:
     @property
     def candidates(self) -> List[Dict[str, Dict[str, Any]]]:
         frontier_ids = [n["id"] for n in self.frontier]
+        excluded_ids = list(self.ancestry.keys())
         candidates = self.graph.expansion(
-            frontier_ids=frontier_ids, excluded_ids=self.ancestry.keys()
+            frontier_ids=frontier_ids, excluded_ids=excluded_ids
         )
         return candidates
 
@@ -162,12 +166,15 @@ class Orchestrator:
     def __init__(
         self,
         graph: KnowledgeGraph,
+        llm: LLM | None = None,
         max_iterations: int = 5,
     ):
+        self.logger = get_logger(__file__)
+
         self.graph = graph
         self.max_iterations = max_iterations
 
-        self.session = Session()
+        self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
 
         self.summary = "Starting search with initial nodes..."
@@ -177,47 +184,58 @@ class Orchestrator:
 
     def _execute_query(self, query: str) -> str:
 
-        keywords = self.extract_keywords(query)
-        embeddings = self.graph.embedding_model(keywords)
+        keywords = self._extract_keywords(query)
+        embeddings = self.graph.embedding_model.encode(keywords)
 
-        initial_results = self.graph.vector_search(embeddings, top_k=5)
+        initial_results = self.graph.vector_search(embeddings, top_k=3)
 
-        print("Found initial candidates:")
-        for r in initial_results:
-            print(f"  - ID: {r['id']}, Score: {r['score']:.4f}")
+        self.logger.debug("Found initial candidates:")
+        initial_nodes = []
+        for i, kword_arr in enumerate(initial_results):
+            self.logger.debug(f"{keywords[i]}:")
+            for r in kword_arr:
+                self.logger.debug(f"  - ID: {r['id']}, Score: {r['score']:.4f}")
+            initial_nodes.append(r["id"])
 
-        initial_nodes = [r["id"] for r in initial_results]
         if not initial_nodes:
             return "Could not find any relevant information."
 
         state = Exploration(self.graph)
         state.start(initial_nodes)
-        while state.iteration < self.max_iterations:
-            print(f"\n--- Iteration {state.iteration + 1} ---")
+        i = 0
+        while i < self.max_iterations:
+            self.logger.info(f"\n--- Iteration {i + 1} ---")
             if not state.frontier:
-                print("Frontier is empty. Halting exploration.")
+                self.logger.info("Frontier is empty. Halting exploration.")
                 break
 
-            prompt = self._build_expansion_prompt()
+            prompt = self._build_expansion_prompt(query, state)
             response = "".join(self.session(prompt))
-            response = self.parse(response)
+            response = self._parse_answer(response)
 
             nodes_to_expand = response.get("nodes_to_expand", [])
+            nodes_to_expand = [
+                n["node"] for n in state.candidates if n["id"] in nodes_to_expand
+            ]
+
             new_summary = response.get("investigation_summary", "")
             final_answer = response.get("final_answer", None)
 
-            print(f"LLM Summary: {new_summary}")
-            print(f"LLM decided to expand: {nodes_to_expand}")
+            self.logger.info(f"LLM Summary: {new_summary}")
+            self.logger.info(f"LLM decided to expand: {nodes_to_expand}")
 
             if not nodes_to_expand:
-                print("LLM returned no nodes to expand. Halting exploration.")
+                self.logger.info(
+                    "LLM returned no nodes to expand. Halting exploration."
+                )
                 break
 
             if final_answer:
-                print("LLM provided a final answer.")
+                self.logger.info("LLM provided a final answer.")
                 break
 
             state.expand(nodes_to_expand)
+            i += 1
 
         # print("\n--- Finalizing Answer ---")
         # final_subgraph_context = self.graph.subgraph(state.frontier)
@@ -233,9 +251,9 @@ class Orchestrator:
 
         return final_answer
 
-    def _build_expansion_prompt(self, query: str) -> str:
-        frontier = self.exploration.frontier
-        candidates = self.exploration.candidates
+    def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
+        frontier = state.frontier
+        candidates = state.candidates
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
@@ -277,6 +295,19 @@ class Orchestrator:
             "summary of what was learned so far, and 'final_answer' is the answer to the query if objective is met.\n"
             f"Candidates:\n{candidates_str}"
         )
+
+    def _extract_keywords(self, query: str) -> List[str]:
+        prompt = (
+            "Extract, from the following query, proper entities and keywords that will be used to investigate a potential answer."
+            "Return a JSON array of strings including the extracted entities and keywords."
+            f"query:\n{query}"
+        )
+
+        response = "".join(self.session(prompt))
+        return json.loads(response)
+
+    def _parse_answer(self, response: str) -> Dict[str, Any]:
+        return json.loads(response)
 
 
 class CodexDataLoader:
@@ -519,41 +550,37 @@ def main():
     TRIPLE_LIMIT = None
     # ---------------------
 
+    env = dotenv_values(os.path.join(os.path.dirname(__file__), ".env"))
+    NEO4J_URI = env.get("NEO4J_URI")
+    NEO4J_USER = env.get("NEO4J_USER")
+    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
+
+    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
+        raise ValueError("Neo4j credentials not found in .env file.")
+
+    # data_loader = CodexDataLoader()
+    # triples, entities, relations = data_loader.load_filtered_data(
+    #     size=DATASET_SIZE, limit=TRIPLE_LIMIT
+    # )
+
+    # with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
+    #     importer.clear_database()
+    #     importer.import_graph_data(triples, entities, relations)
+
+    #     node_count = importer.get_node_count()
+    #     print(f"\n✅ Import complete. Total nodes in database: {node_count}")
+
+    user_query = "Which American presidents had a background in law before taking office, like Obama?"
+
+    graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+    orchestrator = Orchestrator(graph)
+
     try:
-        env = dotenv_values(os.path.join(os.path.dirname(__file__), ".env"))
-        NEO4J_URI = env.get("NEO4J_URI")
-        NEO4J_USER = env.get("NEO4J_USER")
-        NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
-
-        if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-            raise ValueError("Neo4j credentials not found in .env file.")
-
-        data_loader = CodexDataLoader()
-        triples, entities, relations = data_loader.load_filtered_data(
-            size=DATASET_SIZE, limit=TRIPLE_LIMIT
-        )
-
-        with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
-            importer.clear_database()
-            importer.import_graph_data(triples, entities, relations)
-
-            node_count = importer.get_node_count()
-            print(f"\n✅ Import complete. Total nodes in database: {node_count}")
-
-        user_query = "Which American presidents had a background in law before taking office, like Obama?"
-
-        graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-        orchestrator = Orchestrator(graph)
-
-        try:
-            final_answer = orchestrator(user_query)
-            print("\n--- Final Answer ---")
-            print(final_answer)
-        finally:
-            graph.close()
-
-    except Exception as e:
-        print(f"\nAn error occurred: {e}")
+        final_answer = orchestrator(user_query)
+        print("\n--- Final Answer ---")
+        print(final_answer)
+    finally:
+        graph.close()
 
 
 if __name__ == "__main__":
