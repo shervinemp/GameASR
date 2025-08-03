@@ -209,6 +209,11 @@ class Orchestrator:
         self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
 
+    def __call__(self, query: str) -> str:
+        return self._execute_query(query)
+
+    def _execute_query(self, query: str) -> str:
+
         self.report = {
             "state": "Starting search with initial nodes...",
             "context": "",
@@ -216,19 +221,14 @@ class Orchestrator:
             "mention_info": [],
         }
 
-    def __call__(self, query: str) -> str:
-        return self._execute_query(query)
-
-    def _execute_query(self, query: str) -> str:
-
         keywords = self._extract_keywords(query)
         embeddings = self.graph.embedding_model.encode(keywords)
 
         initial_results = [
-            a + b
+            a + [n for n in b if n["id"] not in (e["id"] for e in a)]
             for a, b in zip(
-                self.graph.vector_search(embeddings, top_k=3),
-                self.graph.keyword_search(keywords, top_k=2),
+                self.graph.vector_search(embeddings, top_k=4),
+                self.graph.keyword_search(keywords, top_k=3),
             )
         ]
 
@@ -266,7 +266,7 @@ class Orchestrator:
                 if (n := c["node"])["id"] in new_frontier
             ]
 
-            self.report = response.get("report", "")
+            self.report = response.get("report", {})
             final_answer = response.get("answer", None)
             is_verified = response.get("is_verified", False)
 
@@ -281,15 +281,7 @@ class Orchestrator:
             state.expand({"nodes": nodes_to_expand, "relations": None})
             i += 1
 
-        self.logger.info("\n--- Finalizing Answer ---")
-        final_subgraph = self.graph.subgraph([n["id"] for n in state.frontier])
-
-        return {
-            "answer": final_answer,
-            "report": self.report,
-            "subgraph": final_subgraph,
-            "verified": is_verified,
-        }
+        return {"answer": final_answer, "report": self.report}
 
     def _build_expansion_prompt(
         self, query: str, state: Exploration, max_neighbors: int = 12
@@ -343,12 +335,12 @@ class Orchestrator:
             "Consider descriptions, and their connection to our investigation and query. "
             "None of the provided candidates are guaranteed to be relevant, so keep a small footprint, "
             "and rely on your judgment, the query and any past reports for guidance. "
-            "Return a JSON object with four keys:\n1. 'new_frontier': a list containing only the IDs "
+            "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only the IDs "
             "(right side of '::', with the 'Q' prefix) of the most promising new candidate nodes to add to our frontier.\n"
             "2. 'report': a minimal dictionary compiling verified and relevant information gathered so far.\n"
             "3. 'answer': the best-guess human-readable answer to the query (no direct referencing of nodes).\n"
-            "4. 'is_verified': a boolean indicator, strictly true only when the objective is met, "
-            "and the answer to the query is directly and completely verified and cross-referenced with the provided context."
+            "4. 'is_verified': a boolean indicator, strictly true only when the objective is met and the answer "
+            "to the query is directly and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
             f" * Current nodes:\n{nodes_str}\n"
@@ -379,16 +371,19 @@ def main():
     if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
         raise ValueError("Neo4j credentials not found in .env file.")
 
-    # user_query = "Which American presidents had a background in law before taking office, like Obama?"
-    # user_query = "Who are the members of the band Coldplay?"
-    user_query = "Give me all the information you have on Justin Bieber, including his personal life."
+    user_queries = [
+        "Which American presidents had a background in law before taking office, like Obama?",
+        "Who are the members of the band Coldplay?",
+        "Give me all the information you have on Justin Bieber, including his personal life.",
+    ]
 
     graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
     orchestrator = Orchestrator(graph)
 
     try:
-        final_answer = orchestrator(user_query)
-        logger.info(final_answer)
+        for user_query in user_queries:
+            final_answer = orchestrator(user_query)
+            logger.info(final_answer)
     finally:
         graph.close()
 
