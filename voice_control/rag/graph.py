@@ -1,5 +1,6 @@
 from collections import deque
 import os
+import random
 import re
 import sys
 import requests
@@ -25,7 +26,9 @@ class KnowledgeGraph:
 
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.embedding_model = SentenceTransformer(
+            "avsolatorio/GIST-small-Embedding-v0"
+        )
 
     def close(self):
         self._driver.close()
@@ -123,7 +126,7 @@ class Exploration:
 
     def __init__(self, graph: KnowledgeGraph):
         self.graph = graph
-        self.frontier: Deque[Dict[str, Any]] = deque(maxlen=10)
+        self.frontier: Deque[Dict[str, Any]] = deque(maxlen=15)
         self.ancestry: Dict[str, str] = dict()
 
     def start(self, node_ids: List[str]) -> List[Dict[str, Any]]:
@@ -134,7 +137,7 @@ class Exploration:
     def expand(
         self,
         candidates: List[Dict[str, Dict[str, Any]]],
-        flush_frontier: bool = True,
+        flush_frontier: bool = False,
     ) -> None:
         if flush_frontier:
             self.frontier.clear()
@@ -190,15 +193,17 @@ class Orchestrator:
         keywords = self._extract_keywords(query)
         embeddings = self.graph.embedding_model.encode(keywords)
 
-        initial_results = self.graph.vector_search(embeddings)
+        initial_results = self.graph.vector_search(embeddings, top_k=5)
 
         self.logger.debug("Found initial candidates:")
         initial_nodes = []
         for i, kword_arr in enumerate(initial_results):
             self.logger.debug(f"{keywords[i]}:")
             for r in kword_arr:
-                self.logger.debug(f"  - ID: {r['id']}, Score: {r['score']:.4f}")
-            initial_nodes.append(r["id"])
+                self.logger.debug(
+                    f"  - ID: {r['id']}, Label: {r['label']}, Score: {r['score']:.4f}"
+                )
+                initial_nodes.append(r["id"])
 
         if not initial_nodes:
             return "Could not find any relevant information."
@@ -214,9 +219,11 @@ class Orchestrator:
 
             prompt = self._build_expansion_prompt(query, state)
             response = "".join(self.session(prompt))
+            self.logger.debug(f"Response: {response}")
+
             response = json.loads(response)
 
-            nodes_to_expand = response.get("nodes_to_expand", [])
+            nodes_to_expand = response.get("new_frontier", [])
             nodes_to_expand = [
                 n
                 for kword_arr in state.candidates
@@ -226,9 +233,9 @@ class Orchestrator:
 
             self.summary = response.get("investigation_summary", "")
             final_answer = response.get("answer", None)
-            verified = response.get("verified", None)
+            is_verified = response.get("is_verified", False)
 
-            if verified:
+            if is_verified:
                 self.logger.info("Final answer found.")
                 break
 
@@ -246,12 +253,19 @@ class Orchestrator:
             "summary": self.summary,
             "answer": final_answer,
             "subgraph": final_subgraph,
-            "verified": verified,
+            "verified": is_verified,
         }
 
     def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
         frontier = list(state.frontier)
-        candidates = [c for kword_arr in state.candidates for c in kword_arr[:12]]
+        candidates = [
+            kword_arr[i]
+            for kword_arr in state.candidates
+            for i in random.sample(
+                range(len(kword_arr)),
+                min(15, len(kword_arr)),
+            )
+        ]
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
@@ -283,15 +297,18 @@ class Orchestrator:
         candidates_str = "\n".join(triples)
 
         return (
-            f"Investigation Summary: {self.summary}\n\n"
-            f"Original Query: '{query}'\n\n"
-            "Task: Analyze the following frontier of candidate nodes to visit next. "
-            "Consider their description, and their connection to our investigation. "
-            "Return a JSON object with four keys: 1. 'new_frontier', a list containing only the IDs of "
-            "the most promising candidates to add to our evidence board, 2. 'investigation_summary', a new "
-            "one-sentence compressed summary of what was learned so far, 3. 'answer' is the best-guess answer "
-            "thus far. And, 4. 'verified' which is a boolean, strictly true only when the objective is met "
-            "and is completely verifiable directly from the provided context."
+            f" * Query: '{query}'\n"
+            "Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
+            "Consider descriptions, and their connection to our investigation and query. "
+            "None of the provided candidates are guaranteed to be relevant, so rely on your judgment."
+            "Return a JSON object with four keys:\n1. 'new_frontier': a list containing only the IDs "
+            "(right side of '::') of the most promising candidate nodes to add to our frontier.\n"
+            "2. 'investigation_summary': a one-sentence summary of relevant information gathered so far.\n"
+            "3. 'answer': the best-guess answer thus far.\n4. 'is_verified': a boolean indicator, "
+            "strictly true only when the objective is met and the answer to the query is directly "
+            "and completely verified and cross-referenced with the provided context."
+            f" * Query: '{query}'\n"
+            f" * Summary: {self.summary}\n"
             f" * Current nodes:\n{nodes_str}\n"
             f" * Candidates:\n{candidates_str}"
         )
@@ -415,8 +432,10 @@ class Neo4jImporter:
 
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
-        print("Initializing embedding model (all-MiniLM-L6-v2)...")
-        self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        print("Initializing embedding model...")
+        self._embedding_model = SentenceTransformer(
+            "avsolatorio/GIST-small-Embedding-v0"
+        )
         print("Model ready.")
 
     def close(self):
@@ -557,19 +576,20 @@ def main():
     if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
         raise ValueError("Neo4j credentials not found in .env file.")
 
-    # data_loader = CodexDataLoader()
-    # triples, entities, relations = data_loader.load_filtered_data(
-    #     size=DATASET_SIZE, limit=TRIPLE_LIMIT
-    # )
+    data_loader = CodexDataLoader()
+    triples, entities, relations = data_loader.load_filtered_data(
+        size=DATASET_SIZE, limit=TRIPLE_LIMIT
+    )
 
-    # with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
-    #     importer.clear_database()
-    #     importer.import_graph_data(triples, entities, relations)
+    with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
+        importer.clear_database()
+        importer.import_graph_data(triples, entities, relations)
 
-    #     node_count = importer.get_node_count()
-    #     print(f"\n✅ Import complete. Total nodes in database: {node_count}")
+        node_count = importer.get_node_count()
+        print(f"\n✅ Import complete. Total nodes in database: {node_count}")
 
-    user_query = "Which American presidents had a background in law before taking office, like Obama?"
+    # user_query = "Which American presidents had a background in law before taking office, like Obama?"
+    user_query = "What are some of Keanu Reeves's movies?"
 
     graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
     orchestrator = Orchestrator(graph)
