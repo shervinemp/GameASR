@@ -105,7 +105,6 @@ class KnowledgeGraph:
                 relation: apoc.map.merge(properties(r), {head: startNode(r).id, tail: endNode(r).id})
             }) AS results
         """
-        print(frontier_ids)
         with self._driver.session() as session:
             records = session.run(query, frontier=frontier_ids, excluded=excluded_ids)
             result = [r["results"] for r in records]
