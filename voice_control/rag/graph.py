@@ -20,6 +20,8 @@ from ..common.utils import get_logger
 
 
 class KnowledgeGraph:
+    _rel_addendum: str = "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
+
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -83,8 +85,10 @@ class KnowledgeGraph:
             OPTIONAL MATCH (n)-[r]-(m:Entity) WHERE m.id IN $nodes
             WITH COLLECT(DISTINCT n) AS nodes, COLLECT(DISTINCT r) AS rels
             RETURN [n in nodes | apoc.map.removeKey(properties(n), 'embedding')] AS nodes,
-                   [r in rels | apoc.map.merge(properties(r), {head: startNode(r).id, tail: endNode(r).id})] AS relations
-        """
+                   [r in rels | apoc.map.merge(properties(r), {})] AS relations
+        """.format(
+            self._rel_addendum
+        )
         with self._driver.session() as session:
             record = session.run(query, nodes=node_ids).single()
             result = record.data()
@@ -96,15 +100,17 @@ class KnowledgeGraph:
     ) -> List[Dict[str, Dict[str, Any]]]:
         query = """
             UNWIND $frontier AS sourceId
-            MATCH (n:Entity {id: sourceId})
+            MATCH (n:Entity {{id: sourceId}})
             MATCH (n)-[r]-(m:Entity)
             WHERE NOT m.id IN $excluded
-
-            RETURN collect({
+            
+            RETURN collect({{
                 node: apoc.map.removeKey(properties(m), 'embedding'),
-                relation: apoc.map.merge(properties(r), {head: startNode(r).id, tail: endNode(r).id})
-            }) AS results
-        """
+                relation: apoc.map.merge(properties(r), {})
+            }}) AS results
+        """.format(
+            self._rel_addendum
+        )
         with self._driver.session() as session:
             records = session.run(query, frontier=frontier_ids, excluded=excluded_ids)
             result = [r["results"] for r in records]
@@ -248,8 +254,8 @@ class Orchestrator:
         return final_answer
 
     def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
-        frontier = state.frontier
-        candidates = state.candidates
+        frontier = list(state.frontier)
+        candidates = [c for kword_arr in state.candidates for c in kword_arr[:10]]
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
@@ -260,6 +266,8 @@ class Orchestrator:
 
             head = relation["head"]
             tail = relation["tail"]
+
+            rel_type = relation["type"]
 
             ltr = node["id"] == tail
             if not ltr:
@@ -274,7 +282,7 @@ class Orchestrator:
 
             triple_string = (
                 f"({head_label}::{head}{f"|{head_desc}" if head_desc else ""}) "
-                f"{'' if ltr else '<'}- [{relation.label}] -{'>' if ltr else ''}"
+                f"{'' if ltr else '<'}- [{rel_type}] -{'>' if ltr else ''}"
                 f"({tail_label}::{tail}{f"|{tail_desc}" if tail_desc else ""})"
             )
             triples.append(triple_string)
