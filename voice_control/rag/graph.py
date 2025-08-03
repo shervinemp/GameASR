@@ -172,52 +172,10 @@ class Orchestrator:
 
         self.summary = "Starting search with initial nodes..."
 
-    def _build_expansion_prompt(self, query: str) -> str:
-        frontier = self.exploration.frontier
-        candidates = self.exploration.candidates
+    def __call__(self, query: str) -> str:
+        return self._execute_query(query)
 
-        id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
-
-        triples = []
-        for item in candidates:
-            node = item["node"]
-            relation = item["relation"]
-
-            head = relation["head"]
-            tail = relation["tail"]
-
-            ltr = node["id"] == tail
-            if not ltr:
-                head, tail = tail, head
-
-            head_label, head_desc = (n := id_to_node[head])["label"], n.get(
-                "description", ""
-            )
-            tail_label, tail_desc = (n := id_to_node[tail])["label"], n.get(
-                "description", ""
-            )
-
-            triple_string = (
-                f"({head_label}::{head}{f"|{head_desc}" if head_desc else ""}) "
-                f"{'' if ltr else '<'}- [{relation.label}] -{'>' if ltr else ''}"
-                f"({tail_label}::{tail}{f"|{tail_desc}" if tail_desc else ""})"
-            )
-            triples.append(triple_string)
-
-        candidates_str = "\n".join(triples)
-
-        return (
-            f"Investigation Summary: {self.summary}\n\n"
-            f"Original Query: '{query}'\n\n"
-            "Task: Analyze the following frontier of candidate nodes. "
-            "Consider their description, and their connection to our investigation. "
-            "Return a JSON object with three keys: 'new_frontier', a list containing only the IDs of the most "
-            "promising candidates to add to our evidence board, 'investigation_summary', a new one-sentence "
-            "summary of what was learned so far, and 'final_answer' is the answer to the query if objective is met.\n"
-            f"Candidates:\n{candidates_str}"
-        )
-
-    def execute_query(self, query: str) -> str:
+    def _execute_query(self, query: str) -> str:
 
         keywords = self.extract_keywords(query)
         embeddings = self.graph.embedding_model(keywords)
@@ -274,6 +232,51 @@ class Orchestrator:
         # final_answer = self.session.get_final_answer(final_prompt)
 
         return final_answer
+
+    def _build_expansion_prompt(self, query: str) -> str:
+        frontier = self.exploration.frontier
+        candidates = self.exploration.candidates
+
+        id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
+
+        triples = []
+        for item in candidates:
+            node = item["node"]
+            relation = item["relation"]
+
+            head = relation["head"]
+            tail = relation["tail"]
+
+            ltr = node["id"] == tail
+            if not ltr:
+                head, tail = tail, head
+
+            head_label, head_desc = (n := id_to_node[head])["label"], n.get(
+                "description", ""
+            )
+            tail_label, tail_desc = (n := id_to_node[tail])["label"], n.get(
+                "description", ""
+            )
+
+            triple_string = (
+                f"({head_label}::{head}{f"|{head_desc}" if head_desc else ""}) "
+                f"{'' if ltr else '<'}- [{relation.label}] -{'>' if ltr else ''}"
+                f"({tail_label}::{tail}{f"|{tail_desc}" if tail_desc else ""})"
+            )
+            triples.append(triple_string)
+
+        candidates_str = "\n".join(triples)
+
+        return (
+            f"Investigation Summary: {self.summary}\n\n"
+            f"Original Query: '{query}'\n\n"
+            "Task: Analyze the following frontier of candidate nodes. "
+            "Consider their description, and their connection to our investigation. "
+            "Return a JSON object with three keys: 'new_frontier', a list containing only the IDs of the most "
+            "promising candidates to add to our evidence board, 'investigation_summary', a new one-sentence "
+            "summary of what was learned so far, and 'final_answer' is the answer to the query if objective is met.\n"
+            f"Candidates:\n{candidates_str}"
+        )
 
 
 class CodexDataLoader:
@@ -539,22 +542,15 @@ def main():
 
         user_query = "Which American presidents had a background in law before taking office, like Obama?"
 
-        print("\nPerforming initial vector search...")
-        initial_search_results = vector_db.search(user_query, top_k=5)
-        print(f"Found initial candidates: {initial_search_results}")
-
-        graph_manager = KnowledgeGraphManager(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-        llm_interface = LLMInterface(OPENAI_API_KEY)
-        orchestrator = RAGOrchestrator(graph_manager, llm_interface)
+        graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        orchestrator = Orchestrator(graph)
 
         try:
-            final_answer = orchestrator.execute_query(
-                user_query, initial_search_results
-            )
+            final_answer = orchestrator(user_query)
             print("\n--- Final Answer ---")
             print(final_answer)
         finally:
-            graph_manager.close()
+            graph.close()
 
     except Exception as e:
         print(f"\nAn error occurred: {e}")
