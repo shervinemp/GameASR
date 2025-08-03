@@ -1,6 +1,7 @@
 from collections import deque
 import os
 import re
+import sys
 import requests
 import zipfile
 import io
@@ -16,7 +17,7 @@ from neo4j_graphrag.indexes import create_vector_index
 from ..llm.model import LLM
 from ..llm.session import Session
 
-from ..common.utils import get_logger
+from ..common.utils import get_logger, setup_logging
 
 
 class KnowledgeGraph:
@@ -189,7 +190,7 @@ class Orchestrator:
         keywords = self._extract_keywords(query)
         embeddings = self.graph.embedding_model.encode(keywords)
 
-        initial_results = self.graph.vector_search(embeddings, top_k=3)
+        initial_results = self.graph.vector_search(embeddings)
 
         self.logger.debug("Found initial candidates:")
         initial_nodes = []
@@ -213,53 +214,49 @@ class Orchestrator:
 
             prompt = self._build_expansion_prompt(query, state)
             response = "".join(self.session(prompt))
-            response = self._parse_answer(response)
+            response = json.loads(response)
 
             nodes_to_expand = response.get("nodes_to_expand", [])
             nodes_to_expand = [
-                n["node"] for n in state.candidates if n["id"] in nodes_to_expand
+                n
+                for kword_arr in state.candidates
+                for c in kword_arr
+                if (n := c["node"])["id"] in nodes_to_expand
             ]
 
-            new_summary = response.get("investigation_summary", "")
-            final_answer = response.get("final_answer", None)
+            self.summary = response.get("investigation_summary", "")
+            final_answer = response.get("answer", None)
+            verified = response.get("verified", None)
 
-            self.logger.info(f"LLM Summary: {new_summary}")
-            self.logger.info(f"LLM decided to expand: {nodes_to_expand}")
-
-            if not nodes_to_expand:
-                self.logger.info(
-                    "LLM returned no nodes to expand. Halting exploration."
-                )
+            if verified:
+                self.logger.info("Final answer found.")
                 break
 
-            if final_answer:
-                self.logger.info("LLM provided a final answer.")
+            if not nodes_to_expand:
+                self.logger.info("No nodes to expand. Halting exploration.")
                 break
 
             state.expand(nodes_to_expand)
             i += 1
 
-        # print("\n--- Finalizing Answer ---")
-        # final_subgraph_context = self.graph.subgraph(state.frontier)
+        self.logger.info("\n--- Finalizing Answer ---")
+        final_subgraph = self.graph.subgraph([n["id"] for n in state.frontier])
 
-        # final_prompt = (
-        #     f"Answer the following user query based ONLY on the provided knowledge graph context.\n\n"
-        #     f"User Query: '{query}'\n\n"
-        #     f"Knowledge Graph Context:\n{final_subgraph_context}\n\n"
-        #     "Answer:"
-        # )
-
-        # final_answer = self.session.get_final_answer(final_prompt)
-
-        return final_answer
+        return {
+            "summary": self.summary,
+            "answer": final_answer,
+            "subgraph": final_subgraph,
+            "verified": verified,
+        }
 
     def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
         frontier = list(state.frontier)
-        candidates = [c for kword_arr in state.candidates for c in kword_arr[:10]]
+        candidates = [c for kword_arr in state.candidates for c in kword_arr[:12]]
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
         triples = []
+        descs = []
         for item in candidates:
             node = item["node"]
             relation = item["relation"]
@@ -273,31 +270,30 @@ class Orchestrator:
             if not ltr:
                 head, tail = tail, head
 
-            head_label, head_desc = (n := id_to_node[head])["label"], n.get(
-                "description", ""
-            )
-            tail_label, tail_desc = (n := id_to_node[tail])["label"], n.get(
-                "description", ""
-            )
+            head_label = id_to_node[head]["label"]
+            tail_label = id_to_node[tail]["label"]
 
-            triple_string = (
-                f"({head_label}::{head}{f"|{head_desc}" if head_desc else ""}) "
-                f"{'' if ltr else '<'}- [{rel_type}] -{'>' if ltr else ''}"
-                f"({tail_label}::{tail}{f"|{tail_desc}" if tail_desc else ""})"
-            )
+            descs_string = f"({node['label']}::{node['id']}): {node['description']}"
+            descs.append(descs_string)
+
+            triple_string = f"({head_label}::{head}) {'' if ltr else '<'}- [{rel_type}] -{'>' if ltr else ''} ({tail_label}::{tail})"
             triples.append(triple_string)
 
+        nodes_str = "\n".join(descs)
         candidates_str = "\n".join(triples)
 
         return (
             f"Investigation Summary: {self.summary}\n\n"
             f"Original Query: '{query}'\n\n"
-            "Task: Analyze the following frontier of candidate nodes. "
+            "Task: Analyze the following frontier of candidate nodes to visit next. "
             "Consider their description, and their connection to our investigation. "
-            "Return a JSON object with three keys: 'new_frontier', a list containing only the IDs of the most "
-            "promising candidates to add to our evidence board, 'investigation_summary', a new one-sentence "
-            "summary of what was learned so far, and 'final_answer' is the answer to the query if objective is met.\n"
-            f"Candidates:\n{candidates_str}"
+            "Return a JSON object with four keys: 1. 'new_frontier', a list containing only the IDs of "
+            "the most promising candidates to add to our evidence board, 2. 'investigation_summary', a new "
+            "one-sentence compressed summary of what was learned so far, 3. 'answer' is the best-guess answer "
+            "thus far. And, 4. 'verified' which is a boolean, strictly true only when the objective is met "
+            "and is completely verifiable directly from the provided context."
+            f" * Current nodes:\n{nodes_str}\n"
+            f" * Candidates:\n{candidates_str}"
         )
 
     def _extract_keywords(self, query: str) -> List[str]:
@@ -308,9 +304,6 @@ class Orchestrator:
         )
 
         response = "".join(self.session(prompt))
-        return json.loads(response)
-
-    def _parse_answer(self, response: str) -> Dict[str, Any]:
         return json.loads(response)
 
 
@@ -499,11 +492,11 @@ class Neo4jImporter:
         """Imports entity nodes with their properties and a vector embedding."""
         print(f"Importing {len(entities_with_embeddings)} entities with embeddings...")
         query = """
-        UNWIND $entities AS entity
-        MERGE (e:Entity {id: entity.id})
-        SET e.label = entity.label, 
-            e.description = entity.description,
-            e.embedding = entity.embedding
+            UNWIND $entities AS entity
+            MERGE (e:Entity {id: entity.id})
+            SET e.label = entity.label, 
+                e.description = entity.description,
+                e.embedding = entity.embedding
         """
         self._run_query(query, {"entities": entities_with_embeddings})
         print("Entity import complete.")
@@ -530,12 +523,12 @@ class Neo4jImporter:
             )
 
         query = """
-        UNWIND $triples AS triple
-        MATCH (head:Entity {id: triple.head})
-        MATCH (tail:Entity {id: triple.tail})
-        CALL apoc.create.relationship(head, triple.type, {id: triple.id}, tail)
-        YIELD rel
-        RETURN count(rel)
+            UNWIND $triples AS triple
+            MATCH (head:Entity {id: triple.head})
+            MATCH (tail:Entity {id: triple.tail})
+            CALL apoc.create.relationship(head, triple.type, {id: triple.id}, tail)
+            YIELD rel
+            RETURN count(rel)
         """
         print("Importing relationships with dynamic types (using APOC)...")
         self._run_query(query, {"triples": triples_list})
@@ -553,6 +546,8 @@ def main():
     DATASET_SIZE = "s"
     TRIPLE_LIMIT = None
     # ---------------------
+
+    setup_logging("DEBUG", stream=sys.stdout)
 
     env = dotenv_values(os.path.join(os.path.dirname(__file__), ".env"))
     NEO4J_URI = env.get("NEO4J_URI")
