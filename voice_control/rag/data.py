@@ -51,6 +51,7 @@ class DataLoader:
         )
         entities = self._load_json(entities_path)
         relations = self._load_json(relations_path)
+        relations = {rid: {"id": rid, **relations[rid]} for rid in relations}
 
         if limit and limit < len(triples_df):
             triples_subset_df = triples_df.head(limit).copy()
@@ -267,7 +268,7 @@ class Neo4jImporter:
 
 def main():
     # --- CONFIGURATION ---
-    FORCE_DOWNLOAD = False
+    FORCE_DOWNLOAD = True
     DATASET_SIZE = "s"
     TRIPLE_LIMIT = None
     # ---------------------

@@ -211,9 +211,9 @@ class Orchestrator:
 
         self.report = {
             "state": "Starting search with initial nodes...",
-            "compressed_context": "",
+            "context": "",
             "explicit_mention": [],
-            "evidence_vault": [],
+            "mention_context": [],
         }
 
     def __call__(self, query: str) -> str:
@@ -228,7 +228,7 @@ class Orchestrator:
             a + b
             for a, b in zip(
                 self.graph.vector_search(embeddings, top_k=3),
-                self.graph.keyword_search(keywords, top_k=3),
+                self.graph.keyword_search(keywords, top_k=2),
             )
         ]
 
@@ -278,7 +278,7 @@ class Orchestrator:
                 self.logger.info("No nodes to expand. Halting exploration.")
                 break
 
-            state.expand(nodes_to_expand)
+            state.expand({"nodes": nodes_to_expand, "relations": None})
             i += 1
 
         self.logger.info("\n--- Finalizing Answer ---")
@@ -311,22 +311,27 @@ class Orchestrator:
             node = item["node"]
             relation = item["relation"]
 
-            head = relation["head"]
-            tail = relation["tail"]
+            head_id = relation["head"]
+            tail_id = relation["tail"]
 
+            rel_id = relation["id"]
             rel_type = relation["type"]
 
-            ltr = node["id"] == tail
+            ltr = node["id"] == tail_id
             if not ltr:
-                head, tail = tail, head
+                head_id, tail_id = tail_id, head_id
 
-            head_label = id_to_node[head]["label"]
-            tail_label = id_to_node[tail]["label"]
+            head_label = id_to_node[head_id]["label"]
+            tail_label = id_to_node[tail_id]["label"]
 
             descs_string = f"({node['label']}::{node['id']}): {node['description']}"
             descs.append(descs_string)
 
-            triple_string = f"({head_label}::{head}) {'' if ltr else '<'}- [{rel_type}] -{'>' if ltr else ''} ({tail_label}::{tail})"
+            triple_string = (
+                f"({head_label}::{head_id}) {'' if ltr else '<'}- "
+                f"[{rel_type}::{rel_id}]"
+                f" -{'>' if ltr else ''} ({tail_label}::{tail_id})"
+            )
             triples.append(triple_string)
 
         nodes_str = "\n".join(descs)
@@ -336,14 +341,14 @@ class Orchestrator:
             f"Query: '{query}'\n"
             "Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
             "Consider descriptions, and their connection to our investigation and query. "
-            "None of the provided candidates are guaranteed to be relevant, "
-            "so rely on your judgment, the query and any past report."
+            "None of the provided candidates are guaranteed to be relevant, so keep a small footprint, "
+            "and rely on your judgment, the query and any past reports for guidance. "
             "Return a JSON object with four keys:\n1. 'new_frontier': a list containing only the IDs "
             "(right side of '::', with 'Q' prefix) of the most promising new candidate nodes to add to our frontier.\n"
             "2. 'report': a minimal dictionary compiling any verifiable and relevant information gathered so far.\n"
-            "3. 'answer': the best-guess human-readable answer thus far.\n4. 'is_verified': a boolean indicator, "
-            "strictly true only when the objective is met and the answer to the query is directly "
-            "and completely verified and cross-referenced with the provided context."
+            "3. 'answer': the best-guess minimal human-readable answer to the query (no direct referencing of nodes).\n"
+            "4. 'is_verified': a boolean indicator, strictly true only when the objective is met, "
+            "and the answer to the query is directly and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
             f" * Current nodes:\n{nodes_str}\n"
