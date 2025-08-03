@@ -1,4 +1,5 @@
 from collections import deque
+from dataclasses import dataclass
 import os
 import random
 import re
@@ -56,10 +57,7 @@ class KnowledgeGraph:
                 CALL db.index.fulltext.queryNodes("nodes_label_description_fulltext", q_data.keyword + '~', {limit: $top_k})
                 YIELD node, score
                 RETURN collect(
-                    apoc.map.merge(
-                        apoc.map.removeKey(properties(node), 'embedding'),
-                        {score: score}
-                    )
+                    apoc.map.removeKey(properties(node), 'embedding')
                 ) AS result_list
             }
             RETURN q_data.id AS query_id, result_list AS results
@@ -96,10 +94,7 @@ class KnowledgeGraph:
                 CALL db.index.vector.queryNodes('embedding', $top_k, q_data.embedding)
                 YIELD node, score
                 RETURN collect(
-                    apoc.map.merge(
-                        apoc.map.removeKey(properties(node), 'embedding'),
-                        {score: score}
-                    )
+                    apoc.map.removeKey(properties(node), 'embedding')
                 ) AS result_list
             }
             RETURN q_data.id AS query_id, result_list AS results
@@ -163,9 +158,9 @@ class KnowledgeGraph:
 
 class Exploration:
 
-    def __init__(self, graph: KnowledgeGraph):
+    def __init__(self, graph: KnowledgeGraph, frontier_size: int = 12):
         self.graph = graph
-        self.frontier: Deque[Dict[str, Any]] = deque(maxlen=15)
+        self.frontier: Deque[Dict[str, Any]] = deque(maxlen=frontier_size)
         self.ancestry: Dict[str, str] = dict()
 
     def start(self, node_ids: List[str]) -> List[Dict[str, Any]]:
@@ -222,7 +217,7 @@ class Orchestrator:
         self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
 
-        self.summary = "Starting search with initial nodes..."
+        self.report = {"state": "Starting search with initial nodes..."}
 
     def __call__(self, query: str) -> str:
         return self._execute_query(query)
@@ -235,8 +230,8 @@ class Orchestrator:
         initial_results = [
             a + b
             for a, b in zip(
-                self.graph.vector_search(embeddings, top_k=4),
-                self.graph.keyword_search(keywords, top_k=3),
+                self.graph.vector_search(embeddings, top_k=3),
+                self.graph.keyword_search(keywords, top_k=2),
             )
         ]
 
@@ -245,9 +240,7 @@ class Orchestrator:
         for i, kword_arr in enumerate(initial_results):
             self.logger.debug(f"{keywords[i]}:")
             for r in kword_arr:
-                self.logger.debug(
-                    f"  - ID: {r['id']}, Label: {r['label']}, Score: {r['score']:.4f}"
-                )
+                self.logger.debug(f"  - ID: {r['id']}, Label: {r['label']}")
                 initial_nodes.append(r["id"])
 
         if not initial_nodes:
@@ -268,15 +261,15 @@ class Orchestrator:
 
             response = json.loads(response)
 
-            nodes_to_expand = response.get("new_frontier", [])
+            new_frontier = response.get("new_frontier", [])
             nodes_to_expand = [
                 n
                 for kword_arr in state.candidates
                 for c in kword_arr
-                if (n := c["node"])["id"] in nodes_to_expand
+                if (n := c["node"])["id"] in new_frontier
             ]
 
-            self.summary = response.get("investigation_summary", "")
+            self.report = response.get("report", "")
             final_answer = response.get("answer", None)
             is_verified = response.get("is_verified", False)
 
@@ -295,15 +288,23 @@ class Orchestrator:
         final_subgraph = self.graph.subgraph([n["id"] for n in state.frontier])
 
         return {
-            "summary": self.summary,
             "answer": final_answer,
+            "report": self.report,
             "subgraph": final_subgraph,
             "verified": is_verified,
         }
 
-    def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
+    def _build_expansion_prompt(
+        self, query: str, state: Exploration, max_neighbors: int = 12
+    ) -> str:
         frontier = list(state.frontier)
-        candidates = [c for kword_arr in state.candidates for c in kword_arr[:15]]
+        candidates = [
+            kword_arr[i]
+            for kword_arr in state.candidates
+            for i in random.sample(
+                range(len(kword_arr)), min(max_neighbors, len(kword_arr))
+            )
+        ]
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
@@ -335,18 +336,19 @@ class Orchestrator:
         candidates_str = "\n".join(triples)
 
         return (
-            f" * Query: '{query}'\n"
+            f"Query: '{query}'\n"
             "Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
             "Consider descriptions, and their connection to our investigation and query. "
-            "None of the provided candidates are guaranteed to be relevant, so rely on your judgment."
+            "None of the provided candidates are guaranteed to be relevant, "
+            "so rely on your judgment, the query and any past report."
             "Return a JSON object with four keys:\n1. 'new_frontier': a list containing only the IDs "
-            "(right side of '::') of the most promising candidate nodes to add to our frontier.\n"
-            "2. 'investigation_summary': a one-sentence summary of relevant information gathered so far.\n"
+            "(right side of '::', with 'Q' prefix) of the most promising new candidate nodes to add to our frontier.\n"
+            "2. 'report': a minimal dictionary compiling any verifiable and relevant information gathered so far.\n"
             "3. 'answer': the best-guess answer thus far.\n4. 'is_verified': a boolean indicator, "
             "strictly true only when the objective is met and the answer to the query is directly "
             "and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
-            f" * Summary: {self.summary}\n"
+            f" * Report: {self.report}\n"
             f" * Current nodes:\n{nodes_str}\n"
             f" * Candidates:\n{candidates_str}"
         )
@@ -362,30 +364,100 @@ class Orchestrator:
         return json.loads(response)
 
 
-class CodexDataLoader:
-    """
-    Handles downloading the CoDEx repository and loading a filtered dataset into memory.
-    This class is responsible for all file-based data retrieval and preparation.
-    """
+class DataLoader:
 
-    def __init__(self, extract_to: str = "."):
+    @dataclass
+    class KnowledgeData:
+        triples: pd.DataFrame
+        entities: Dict
+        relations: Dict
+
+    def load(
+        self,
+        path: str = ".",
+        limit: Optional[int] = None,
+    ) -> "KnowledgeData":
+        triples_path = os.path.join(path, "triples.txt")
+        entities_path = os.path.join(path, "entities.json")
+        relations_path = os.path.join(path, "relations.json")
+        return self._load_filtered(triples_path, entities_path, relations_path, limit)
+
+    def _load_filtered(
+        self,
+        triples_path: str,
+        entities_path: str,
+        relations_path: str,
+        limit: Optional[int] = None,
+    ) -> "KnowledgeData":
+        triples_df = pd.read_csv(
+            triples_path,
+            sep="\t",
+            header=None,
+            names=["head_id", "relation_id", "tail_id"],
+        )
+        entities = self._load_json(entities_path)
+        relations = self._load_json(relations_path)
+
+        if limit and limit < len(triples_df):
+            triples_subset_df = triples_df.head(limit).copy()
+        else:
+            triples_subset_df = triples_df
+
+        required_entity_ids = set(
+            pd.concat(
+                [triples_subset_df["head_id"], triples_subset_df["tail_id"]]
+            ).unique()
+        )
+        required_relation_ids = set(triples_subset_df["relation_id"].unique())
+
+        filtered_entities = {
+            eid: entities[eid] for eid in required_entity_ids if eid in entities
+        }
+        filtered_relations = {
+            rid: relations[rid] for rid in required_relation_ids if rid in relations
+        }
+
+        return self.KnowledgeData(
+            triples_subset_df,
+            filtered_entities,
+            filtered_relations,
+        )
+
+    def _load_json(self, path: str) -> Dict:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+class CodexDataLoader(DataLoader):
+    def load(
+        self,
+        path: str = ".",
+        size: str = "s",
+        lang: str = "en",
+        limit: Optional[int] = None,
+    ) -> DataLoader.KnowledgeData:
         """
-        Initializes the data loader.
-
-        Args:
-            extract_to (str): The directory where the repository will be extracted.
+        Loads a filtered dataset from the CoDEx repository.
         """
-        self.extract_to = extract_to
-        self.repo_path = os.path.join(self.extract_to, "codex-master")
-        self.data_path = os.path.join(self.repo_path, "data")
+        repo_path = os.path.join(path, "codex-master")
+        data_path = os.path.join(repo_path, "data")
+        triples_path = os.path.join(data_path, "triples", f"codex-{size}", "train.txt")
+        entities_path = os.path.join(data_path, "entities", lang, "entities.json")
+        relations_path = os.path.join(data_path, "relations", lang, "relations.json")
 
-    def _download_and_unzip(self):
+        print(f"\n--- Loading CoDEx-{size.upper()} Dataset ---")
+        self._download_and_unzip(repo_path)
+        data = self._load_filtered(triples_path, entities_path, relations_path, limit)
+
+        return data
+
+    def _download_and_unzip(self, repo_path):
         """
         Downloads and unzips the CoDEx repository from GitHub if it's not already present.
         This is idempotent and will skip downloading if the directory exists.
         """
-        if os.path.exists(self.repo_path):
-            print(f"'{self.repo_path}' already exists. Skipping download.")
+        if os.path.exists(repo_path):
+            print(f"'{repo_path}' already exists. Skipping download.")
             return
 
         print("Downloading CoDEx repository...")
@@ -398,69 +470,6 @@ class CodexDataLoader:
             print("Download and extraction complete.")
         except (requests.exceptions.RequestException, zipfile.BadZipFile) as e:
             raise RuntimeError(f"Failed during download or extraction: {e}")
-
-    def load_filtered_data(
-        self, size: str = "s", lang: str = "en", limit: Optional[int] = None
-    ) -> Tuple[pd.DataFrame, Dict, Dict]:
-        """
-        Loads a specified (and optionally limited) set of triples and intelligently
-        filters the full metadata files to only include entities and relations
-        present in that selected subset.
-        """
-        self._download_and_unzip()
-        print(f"\n--- Loading CoDEx-{size.upper()} Dataset ---")
-
-        triples_file = os.path.join(
-            self.data_path, "triples", f"codex-{size}", "train.txt"
-        )
-        full_triples_df = pd.read_csv(
-            triples_file,
-            sep="\t",
-            header=None,
-            names=["head_id", "relation_id", "tail_id"],
-        )
-        with open(
-            os.path.join(self.data_path, "entities", lang, "entities.json"),
-            "r",
-            encoding="utf-8",
-        ) as f:
-            full_entities_meta = json.load(f)
-        with open(
-            os.path.join(self.data_path, "relations", lang, "relations.json"),
-            "r",
-            encoding="utf-8",
-        ) as f:
-            full_relations_meta = json.load(f)
-
-        if limit and limit < len(full_triples_df):
-            print(f"Applying a limit of {limit} triples.")
-            triples_subset_df = full_triples_df.head(limit).copy()
-        else:
-            triples_subset_df = full_triples_df
-
-        required_entity_ids = set(
-            pd.concat(
-                [triples_subset_df["head_id"], triples_subset_df["tail_id"]]
-            ).unique()
-        )
-        required_relation_ids = set(triples_subset_df["relation_id"].unique())
-
-        filtered_entities = {
-            eid: full_entities_meta[eid]
-            for eid in required_entity_ids
-            if eid in full_entities_meta
-        }
-        filtered_relations = {
-            rid: full_relations_meta[rid]
-            for rid in required_relation_ids
-            if rid in full_relations_meta
-        }
-
-        print(
-            f"Filtered to {len(filtered_entities)} entities and {len(filtered_relations)} relations based on the triple selection."
-        )
-
-        return triples_subset_df, filtered_entities, filtered_relations
 
 
 class Neo4jImporter:
@@ -536,10 +545,12 @@ class Neo4jImporter:
 
         return entities_with_embeddings
 
-    def import_graph_data(
-        self, triples_df: pd.DataFrame, entities_meta: Dict, relations_meta: Dict
-    ):
+    def import_graph_data(self, knowledge_data: DataLoader.KnowledgeData):
         """Orchestrates the entire import process including embedding generation."""
+        triples_df = knowledge_data.triples
+        entities_meta = knowledge_data.entities
+        relations_meta = knowledge_data.relations
+
         self._ensure_indexes()
 
         print("Starting data preparation for Neo4j...")
@@ -603,11 +614,13 @@ class Neo4jImporter:
 def main():
     """Main execution function to run the entire ETL process."""
     # --- CONFIGURATION ---
+    FORCE_DOWNLOAD = False
     DATASET_SIZE = "s"
     TRIPLE_LIMIT = None
     # ---------------------
 
     setup_logging("DEBUG", stream=sys.stdout)
+    logger = get_logger(__file__)
 
     env = dotenv_values(os.path.join(os.path.dirname(__file__), ".env"))
     NEO4J_URI = env.get("NEO4J_URI")
@@ -617,22 +630,22 @@ def main():
     if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
         raise ValueError("Neo4j credentials not found in .env file.")
 
-    data_loader = CodexDataLoader()
-    triples, entities, relations = data_loader.load_filtered_data(
-        size=DATASET_SIZE, limit=TRIPLE_LIMIT
-    )
-    with open("ent.txt", "wt") as f:
-        json.dump(entities, f)
-
     with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
-        importer.clear_database()
-        importer.import_graph_data(triples, entities, relations)
+        if not FORCE_DOWNLOAD and importer.get_node_count():
+            logger.info("Database already contains data. Skipping import.")
+        else:
+            data_loader = CodexDataLoader()
+            knowledge_data = data_loader.load(size=DATASET_SIZE, limit=TRIPLE_LIMIT)
 
-        node_count = importer.get_node_count()
-        print(f"\n✅ Import complete. Total nodes in database: {node_count}")
+            importer.clear_database()
+            importer.import_graph_data(knowledge_data)
 
-    user_query = "Which American presidents had a background in law before taking office, like Obama?"
-    user_query = "Who are the members of the band Coldplay?"
+            node_count = importer.get_node_count()
+            logger.info(f"\n✅ Import complete. Total nodes in database: {node_count}")
+
+    # user_query = "Which American presidents had a background in law before taking office, like Obama?"
+    # user_query = "Who are the members of the band Coldplay?"
+    user_query = "Give me all the information you have on Justin Bieber."
 
     graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
     orchestrator = Orchestrator(graph)
