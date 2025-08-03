@@ -251,7 +251,6 @@ class Orchestrator:
     def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
         frontier = state.frontier
         candidates = state.candidates
-        print(f"{frontier=}", f"{candidates=}")
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
