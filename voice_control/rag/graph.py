@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from collections import deque
 import os
 import re
 import requests
@@ -8,25 +8,13 @@ import pandas as pd
 import json
 from dotenv import dotenv_values
 from sentence_transformers import SentenceTransformer
-from typing import Dict, Tuple, Optional, List, Set
+from typing import Any, Deque, Dict, Tuple, Optional, List
 
 from neo4j import GraphDatabase
 from neo4j_graphrag.indexes import create_vector_index
 
-from ..llm.session import Session
 
-
-class KnowledgeGraph(ABC):
-    @abstractmethod
-    def vector_search(self, query_text: str, top_k: int = 5) -> List[Dict]: ...
-
-    @abstractmethod
-    def vector_search_multi(
-        self, queries: List[str], top_k: int = 5
-    ) -> List[List[Dict]]: ...
-
-
-class KnowledgeGraphManager:
+class KnowledgeGraph:
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -34,7 +22,9 @@ class KnowledgeGraphManager:
     def close(self):
         self._driver.close()
 
-    def search(self, queries: List[str], top_k: int = 5) -> List[List[Dict]]:
+    def vector_search(
+        self, embeddings: List[List[float]], top_k: int = 5
+    ) -> List[List[Dict]]:
         """
         Performs a vector similarity search for a list of query texts efficiently.
 
@@ -46,7 +36,6 @@ class KnowledgeGraphManager:
             A list of lists, where each inner list contains the top-k search
             results (as dictionaries) for the corresponding query text.
         """
-        embeddings = self.embedding_model.encode(queries)
         queries_data = [
             {"id": i, "embedding": emb.tolist()} for i, emb in enumerate(embeddings)
         ]
@@ -59,7 +48,7 @@ class KnowledgeGraphManager:
                 RETURN collect(
                     apoc.map.merge(
                         apoc.map.removeKey(properties(node), 'embedding'),
-                        {match_score: score}
+                        {score: score}
                     )
                 ) AS result_list
             }
@@ -73,7 +62,7 @@ class KnowledgeGraphManager:
 
         return result
 
-    def subgraph(self, node_ids: List[str]) -> Dict[str, List[Dict]]:
+    def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
         """
         Retrieves a subgraph of the graph based on a list of node IDs.
 
@@ -82,7 +71,7 @@ class KnowledgeGraphManager:
             node_ids: A list of node IDs to retrieve the subgraph for.
 
         Returns:
-            A dictionary containing nodes and relations of the subgraph.
+            A tuple containing a list of nodes and a list of connections (relationships).
         """
         if not node_ids:
             return {}
@@ -97,9 +86,11 @@ class KnowledgeGraphManager:
             record = session.run(query, nodes=node_ids).single()
             result = record.data()
 
-        return result
+        return result["nodes"], result["relations"]
 
-    def expand(self, frontier_ids: List[str], excluded_ids: List[str]) -> List[Dict]:
+    def expansion(
+        self, frontier_ids: List[str], excluded_ids: List[str]
+    ) -> List[Dict[str, Dict[str, Any]]]:
         if not frontier_ids:
             return []
         query = """
@@ -108,12 +99,10 @@ class KnowledgeGraphManager:
             MATCH (n)-[r]-(m:Entity)
             WHERE NOT m.id IN $excluded
 
-            WITH m, head(collect({
-                relation: apoc.map.merge(properties(r), {head: startNode(r).id, tail: endNode(r).id}),
-                node: apoc.map.removeKey(properties(m), 'embedding')
-            })) AS result_map
-
-            RETURN result_map AS results
+            RETURN collect({
+                node: apoc.map.removeKey(properties(m), 'embedding'),
+                relation: apoc.map.merge(properties(r), {head: startNode(r).id, tail: endNode(r).id})
+            }) AS results
         """
         with self._driver.session() as session:
             records = session.run(query, frontier=frontier_ids, excluded=excluded_ids)
@@ -122,142 +111,142 @@ class KnowledgeGraphManager:
         return result
 
 
-class ExplorationState:
-    def __init__(self, initial_nodes: List[str]):
-        self.frontier: Set[str] = set(initial_nodes)
-        self.ancestry: Dict[str, str] = {node_id: node_id for node_id in initial_nodes}
-        self.summary: str = "Starting search with initial nodes..."
+class Exploration:
+
+    def __init__(self, graph: KnowledgeGraph):
+        self.graph = graph
+        self.frontier: Deque[Dict[str, Any]] = deque(maxlen=10)
+        self.ancestry: Dict[str, str] = dict()
         self.step: int = 0
 
-    def apply_expansion(
-        self,
-        expansion: List[Dict],
-    ):
-        self.frontier = set()
-        for r, n in zip(expansion["relation"], expansion["node"]):
-            tail = n["id"]
-            self.frontier.add(tail)
-            head = r["head"] if r["head"] != tail else r["tail"]
-            self.ancestry[tail] = self.ancestry[head]
+    def start(self, node_ids: List[str]) -> List[Dict[str, Any]]:
+        subgraph = self.graph.subgraph(node_ids)
+        self._add(subgraph["nodes"], subgraph["relations"])
+        self.n_hops = 0
+        return subgraph
 
+    def expand(
+        self,
+        candidates: List[Dict[str, Dict[str, Any]]],
+        flush_frontier: bool = True,
+    ) -> None:
+        if flush_frontier:
+            self.frontier.clear()
+        self._add(candidates["nodes"], candidates["relations"])
         self.step += 1
 
+    @property
+    def candidates(self) -> List[Dict[str, Dict[str, Any]]]:
+        frontier_ids = [n["id"] for n in self.frontier]
+        candidates = self.graph.expansion(
+            frontier_ids=frontier_ids, excluded_ids=self.ancestry.keys()
+        )
+        return candidates
 
-class RAGOrchestrator:
+    def _add(self, nodes: List[Dict[str, Any]], relations: List[Dict] = None) -> None:
+        self.frontier.extend(nodes)
+
+        for node in nodes:
+            nid = node["id"]
+            if nid not in self.ancestry:
+                self.ancestry[nid] = nid
+
+        if relations is not None:
+            for relation in relations:
+                a, b = relation["head"], relation["tail"]
+                if relation["head"] not in self.ancestry:
+                    a, b = b, a
+                self.ancestry[b] = self.ancestry[a]
+
+
+class Orchestrator:
     def __init__(
         self,
-        graph_manager: KnowledgeGraphManager,
-        session: Session,
+        exploration: Exploration,
+        llm: LLM,
         max_iterations: int = 5,
     ):
-        self.graph = graph_manager
-        self.session = session
+        self.exploration = exploration
+        self.graph = exploration.graph
+        self.llm = llm
         self.max_iterations = max_iterations
+        self.summary = "Starting search with initial nodes..."
 
-    def _build_expansion_prompt(
-        self, query: str, summary: str, frontier_data: List[Dict]
-    ) -> str:
-        candidates_str = "\n\n".join(
-            [
-                f"{i+1}. Node: {{id: '{c['node']['id']}', label: '{c['node']['label']}'}}\n"
-                f"   Connection: {c['connection_path']}\n"
-                f"   Anchor Distances to Active Seeds: {c['distances']}"
-                for i, c in enumerate(frontier_data)
-            ]
-        )
+    def _build_expansion_prompt(self, query: str) -> str:
+        frontier = self.exploration.frontier
+        candidates = self.exploration.candidates
+
+        id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
+
+        triples = []
+        for item in candidates:
+            node = item["node"]
+            relation = item["relation"]
+
+            head = relation["head"]
+            tail = relation["tail"]
+
+            ltr = node["id"] == tail
+            if not ltr:
+                head, tail = tail, head
+
+            head_label, head_desc = (n := id_to_node[head])["label"], n.get(
+                "description", ""
+            )
+            tail_label, tail_desc = (n := id_to_node[tail])["label"], n.get(
+                "description", ""
+            )
+
+            triple_string = (
+                f"({head_label}::{head}{f"|{head_desc}" if head_desc else ""}) "
+                f"{'' if ltr else '<'}- [{relation.label}] -{'>' if ltr else ''}"
+                f"({tail_label}::{tail}{f"|{tail_desc}" if tail_desc else ""})"
+            )
+            triples.append(triple_string)
+
+        candidates_str = "\n".join(triples)
 
         return (
-            f"Investigation Summary: {summary}\n\n"
+            f"Investigation Summary: {self.summary}\n\n"
             f"Original Query: '{query}'\n\n"
-            "Task: Analyze the following frontier of candidate nodes. Consider their description, "
-            "their connection to our investigation, and their community-level distances to our active concepts. "
-            "Return a JSON object with two keys: 'nodes_to_expand', a list containing only the IDs of the most "
-            "promising candidates to add to our evidence board, and 'investigation_summary', a new one-sentence summary of what "
-            "was learned from the candidates you selected.\n\n"
-            f"Frontier Candidates:\n{candidates_str}"
+            "Task: Analyze the following frontier of candidate nodes. "
+            "Consider their description, and their connection to our investigation. "
+            "Return a JSON object with three keys: 'new_frontier', a list containing only the IDs of the most "
+            "promising candidates to add to our evidence board, 'investigation_summary', a new one-sentence "
+            "summary of what was learned so far, and 'final_answer' is the answer to the query if objective is met.\n"
+            f"Candidates:\n{candidates_str}"
         )
 
     def execute_query(self, query: str) -> str:
-        print("\nPerforming initial vector search using Neo4j...")
-        initial_search_results = self.graph.vector_search(query, top_k=5)
+
+        keywords = self.extract_keywords(query)
+        embeddings = self.graph.embedding_model(keywords)
+
+        initial_results = self.graph.vector_search(embeddings, top_k=5)
 
         print("Found initial candidates:")
-        for result in initial_search_results:
-            print(f"  - ID: {result['id']}, Score: {result['score']:.4f}")
+        for r in initial_results:
+            print(f"  - ID: {r['id']}, Score: {r['score']:.4f}")
 
-        initial_nodes = [result["id"] for result in initial_search_results]
+        initial_nodes = [r["id"] for r in initial_results]
         if not initial_nodes:
-            return "Could not find any relevant starting points in the knowledge graph for your query."
+            return "Could not find any relevant information."
 
-        state = ExplorationState(initial_nodes)
-        seed_contexts = self.graph.get_context(list(state.active_seed_nodes))
-        seed_communities = {
-            sid: ctx["communityId"]
-            for sid, ctx in seed_contexts.items()
-            if "communityId" in ctx
-        }
-
+        state = self.exploration
+        state.start(initial_nodes)
         while state.iteration < self.max_iterations:
             print(f"\n--- Iteration {state.iteration + 1} ---")
             if not state.frontier:
                 print("Frontier is empty. Halting exploration.")
                 break
 
-            frontier_contexts = self.graph.get_context(list(state.frontier))
-            enriched_frontier = []
-
-            all_frontier_connections = (
-                self.graph.get_frontier(state.visited) if state.iteration > 0 else []
-            )
-
-            for node_id in state.frontier:
-                if node_id not in frontier_contexts:
-                    continue
-
-                distances = self.graph.get_community_distances(
-                    frontier_contexts[node_id]["communityId"], seed_communities
-                )
-
-                if state.iteration == 0:
-                    connection_path = "Original seed node"
-                else:
-                    connection = next(
-                        (
-                            c
-                            for c in all_frontier_connections
-                            if c["target_id"] == node_id
-                        ),
-                        None,
-                    )
-                    if not connection:
-                        continue
-                    source_context = self.graph.get_context([connection["source_id"]])
-                    source_label = source_context.get(connection["source_id"], {}).get(
-                        "label", "Unknown"
-                    )
-                    connection_path = (
-                        f"via ({source_label}) -[:{connection['rel_label']}]->"
-                    )
-
-                enriched_frontier.append(
-                    {
-                        "node": frontier_contexts[node_id],
-                        "connection_path": connection_path,
-                        "distances": distances,
-                    }
-                )
-
-            if not enriched_frontier:
-                print("Could not enrich any frontier nodes. Halting exploration.")
-                break
-
-            prompt = self._build_expansion_prompt(
-                query, state.investigation_summary, enriched_frontier
-            )
-            response = self.session.get_expansion_decision(prompt)
+            prompt = self._build_expansion_prompt()
+            response = "".join(self.llm(prompt))
+            response = self.parse(response)
 
             nodes_to_expand = response.get("nodes_to_expand", [])
-            new_summary = response.get("investigation_summary", "No summary provided.")
+            new_summary = response.get("investigation_summary", "")
+            final_answer = response.get("final_answer", None)
 
             print(f"LLM Summary: {new_summary}")
             print(f"LLM decided to expand: {nodes_to_expand}")
@@ -266,25 +255,25 @@ class RAGOrchestrator:
                 print("LLM returned no nodes to expand. Halting exploration.")
                 break
 
-            if state.iteration == 0:
-                state.visited = set(nodes_to_expand)
-                state.node_ancestry = {nid: nid for nid in nodes_to_expand}
+            if final_answer:
+                print("LLM provided a final answer.")
+                break
 
-            state.update_after_expansion(
-                nodes_to_expand, new_summary, all_frontier_connections
-            )
+            state.expand(nodes_to_expand)
 
-        print("\n--- Finalizing Answer ---")
-        final_subgraph_context = self.graph.get_subgraph(state.visited)
+        # print("\n--- Finalizing Answer ---")
+        # final_subgraph_context = self.graph.subgraph(state.frontier)
 
-        final_prompt = (
-            f"Answer the following user query based ONLY on the provided knowledge graph context.\n\n"
-            f"User Query: '{query}'\n\n"
-            f"Knowledge Graph Context:\n{final_subgraph_context}\n\n"
-            "Answer:"
-        )
+        # final_prompt = (
+        #     f"Answer the following user query based ONLY on the provided knowledge graph context.\n\n"
+        #     f"User Query: '{query}'\n\n"
+        #     f"Knowledge Graph Context:\n{final_subgraph_context}\n\n"
+        #     "Answer:"
+        # )
 
-        return self.session.get_final_answer(final_prompt)
+        # final_answer = self.session.get_final_answer(final_prompt)
+
+        return final_answer
 
 
 class CodexDataLoader:
