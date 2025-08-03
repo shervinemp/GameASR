@@ -213,7 +213,7 @@ class Orchestrator:
             "state": "Starting search with initial nodes...",
             "context": "",
             "explicit_mention": [],
-            "mention_context": [],
+            "mention_info": [],
         }
 
     def __call__(self, query: str) -> str:
@@ -344,9 +344,9 @@ class Orchestrator:
             "None of the provided candidates are guaranteed to be relevant, so keep a small footprint, "
             "and rely on your judgment, the query and any past reports for guidance. "
             "Return a JSON object with four keys:\n1. 'new_frontier': a list containing only the IDs "
-            "(right side of '::', with 'Q' prefix) of the most promising new candidate nodes to add to our frontier.\n"
-            "2. 'report': a minimal dictionary compiling any verifiable and relevant information gathered so far.\n"
-            "3. 'answer': the best-guess minimal human-readable answer to the query (no direct referencing of nodes).\n"
+            "(right side of '::', with the 'Q' prefix) of the most promising new candidate nodes to add to our frontier.\n"
+            "2. 'report': a minimal dictionary compiling verified and relevant information gathered so far.\n"
+            "3. 'answer': the best-guess human-readable answer to the query (no direct referencing of nodes).\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met, "
             "and the answer to the query is directly and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
@@ -381,7 +381,7 @@ def main():
 
     # user_query = "Which American presidents had a background in law before taking office, like Obama?"
     # user_query = "Who are the members of the band Coldplay?"
-    user_query = "Give me all the information you have on Justin Bieber."
+    user_query = "Give me all the information you have on Justin Bieber, including his personal life."
 
     graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
     orchestrator = Orchestrator(graph)
