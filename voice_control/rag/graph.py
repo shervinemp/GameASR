@@ -78,8 +78,6 @@ class KnowledgeGraph:
         Returns:
             A tuple containing a list of nodes and a list of connections (relationships).
         """
-        if not node_ids:
-            return {}
         query = """
             MATCH (n:Entity) WHERE n.id IN $nodes
             OPTIONAL MATCH (n)-[r]-(m:Entity) WHERE m.id IN $nodes
@@ -96,8 +94,6 @@ class KnowledgeGraph:
     def expansion(
         self, frontier_ids: List[str], excluded_ids: List[str]
     ) -> List[Dict[str, Dict[str, Any]]]:
-        if not frontier_ids:
-            return []
         query = """
             UNWIND $frontier AS sourceId
             MATCH (n:Entity {id: sourceId})
@@ -109,6 +105,7 @@ class KnowledgeGraph:
                 relation: apoc.map.merge(properties(r), {head: startNode(r).id, tail: endNode(r).id})
             }) AS results
         """
+        print(frontier_ids)
         with self._driver.session() as session:
             records = session.run(query, frontier=frontier_ids, excluded=excluded_ids)
             result = [r["results"] for r in records]
@@ -254,6 +251,7 @@ class Orchestrator:
     def _build_expansion_prompt(self, query: str, state: Exploration) -> str:
         frontier = state.frontier
         candidates = state.candidates
+        print(f"{frontier=}", f"{candidates=}")
 
         id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
 
@@ -527,9 +525,9 @@ class Neo4jImporter:
 
         query = """
         UNWIND $triples AS triple
-        MATCH (head:Entity {id: triple.head_id})
-        MATCH (tail:Entity {id: triple.tail_id})
-        CALL apoc.create.relationship(head, triple.rel_type, {id: triple.rel_id}, tail)
+        MATCH (head:Entity {id: triple.head})
+        MATCH (tail:Entity {id: triple.tail})
+        CALL apoc.create.relationship(head, triple.type, {id: triple.id}, tail)
         YIELD rel
         RETURN count(rel)
         """
