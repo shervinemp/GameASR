@@ -200,11 +200,13 @@ class Orchestrator:
         graph: KnowledgeGraph,
         llm: LLM | None = None,
         max_iterations: int = 5,
+        max_retries: int = 3,
     ):
         self.logger = get_logger(__file__)
 
         self.graph = graph
         self.max_iterations = max_iterations
+        self.max_retries = max_retries
 
         self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
@@ -264,7 +266,11 @@ class Orchestrator:
             response = "".join(self.session(prompt))
             self.logger.debug(f"Response: {response}")
 
-            response = json.loads(response)
+            try:
+                response = json.loads(response)
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"Failed to decode JSON: {response}")
+                continue
 
             new_frontier = response.get("new_frontier", [])
             nodes_to_expand = [
@@ -339,19 +345,19 @@ class Orchestrator:
         candidates_str = "\n".join(triples)
 
         return (
-            "Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
-            "Consider descriptions, and their connection to our investigation and query. "
+            " * Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
+            "Consider descriptions, and their connection to the query and investigation. "
             "None of the provided candidates are guaranteed to be relevant. Rely on the query and report for guidance. "
             "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only IDs "
             "(right side of '::' with the 'Q' prefix) of all potentially promising nodes to add to our frontier.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
-            "3. 'answer': the conservative best-guess precise human-readable answer to the query, excluding IDs.\n"
-            "4. 'is_verified': a boolean indicator, strictly true only when the objective is met and the answer "
+            "3. 'answer': the calculated best-guess precise human-readable answer to the query, excluding IDs.\n"
+            "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
             f" * Nodes:\n{nodes_str}\n"
-            f" * Outgoing:\n{candidates_str}"
+            f" * Candidates:\n{candidates_str}"
             f" * Query: '{query}'\n"
         )
 
@@ -390,15 +396,9 @@ def main():
     orchestrator = Orchestrator(graph)
 
     try:
-        i = 0
-        while i < len(user_queries):
-            user_query = user_queries[i]
-            try:
-                final_answer = orchestrator(user_query)
-                logger.info(final_answer)
-                i += 1
-            except Exception as e:
-                logger.warning(e)
+        for user_query in user_queries:
+            final_answer = orchestrator(user_query)
+            logger.info(final_answer)
     finally:
         graph.close()
 
