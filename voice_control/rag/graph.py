@@ -218,7 +218,7 @@ class Orchestrator:
         self.report = {
             "state": "Starting search for clues with initial nodes...",
             "context": "",
-            "explicit_mentions": [
+            "explicit_mention": [
                 {
                     "targeted_part": "{example_query_part}",
                     "relation": "{example_relation}",
@@ -339,20 +339,20 @@ class Orchestrator:
         candidates_str = "\n".join(triples)
 
         return (
-            f"Query: '{query}'\n"
             "Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
             "Consider descriptions, and their connection to our investigation and query. "
             "None of the provided candidates are guaranteed to be relevant. Rely on the query and report for guidance. "
             "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only IDs "
             "(right side of '::' with the 'Q' prefix) of all potentially promising nodes to add to our frontier.\n"
-            "2. 'report': a human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
-            "3. 'answer': the best-guess precise human-readable answer to the query, excluding IDs.\n"
+            "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
+            "3. 'answer': the conservative best-guess precise human-readable answer to the query, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
             f" * Nodes:\n{nodes_str}\n"
             f" * Outgoing:\n{candidates_str}"
+            f" * Query: '{query}'\n"
         )
 
     def _extract_keywords(self, query: str) -> List[str]:
