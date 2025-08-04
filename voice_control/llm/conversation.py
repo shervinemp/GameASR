@@ -66,6 +66,9 @@ class Conversation:
         msg = Message(role=Message.Role.tool, content=content)
         self._messages.append(msg)
 
+    def clear(self):
+        self._messages.clear()
+
     @property
     def messages(self) -> MessageList:
         return self._messages[self._cutoff_idx :]
