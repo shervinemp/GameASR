@@ -214,11 +214,19 @@ class Orchestrator:
 
     def _execute_query(self, query: str) -> str:
 
+        self.answer = ""
         self.report = {
-            "state": "Starting search with initial nodes...",
+            "state": "Starting search for clues with initial nodes...",
             "context": "",
-            "explicit_mention": [],
-            "mention_info": [],
+            "explicit_mentions": [
+                {
+                    "targeted_part": "{example_query_part}",
+                    "relation": "{example_relation}",
+                    "subject": "{example_subject_label}",
+                    "object": "{example_object_label}",
+                    "desc": "{example_description}",
+                }
+            ],
         }
 
         keywords = self._extract_keywords(query)
@@ -228,7 +236,7 @@ class Orchestrator:
             a + [n for n in b if n["id"] not in (e["id"] for e in a)]
             for a, b in zip(
                 self.graph.vector_search(embeddings, top_k=4),
-                self.graph.keyword_search(keywords, top_k=3),
+                self.graph.keyword_search(keywords, top_k=2),
             )
         ]
 
@@ -270,6 +278,8 @@ class Orchestrator:
             final_answer = response.get("answer", None)
             is_verified = response.get("is_verified", False)
 
+            self.answer = final_answer
+
             if is_verified:
                 self.logger.info("Final answer found.")
                 break
@@ -284,7 +294,7 @@ class Orchestrator:
         return {"answer": final_answer, "report": self.report}
 
     def _build_expansion_prompt(
-        self, query: str, state: Exploration, max_neighbors: int = 12
+        self, query: str, state: Exploration, max_neighbors: int = 10
     ) -> str:
         frontier = list(state.frontier)
         candidates = [
@@ -306,7 +316,6 @@ class Orchestrator:
             head_id = relation["head"]
             tail_id = relation["tail"]
 
-            rel_id = relation["id"]
             rel_type = relation["type"]
 
             ltr = node["id"] == tail_id
@@ -321,7 +330,7 @@ class Orchestrator:
 
             triple_string = (
                 f"({head_label}::{head_id}) {'' if ltr else '<'}- "
-                f"[{rel_type}::{rel_id}]"
+                f"[{rel_type}]"
                 f" -{'>' if ltr else ''} ({tail_label}::{tail_id})"
             )
             triples.append(triple_string)
@@ -333,23 +342,23 @@ class Orchestrator:
             f"Query: '{query}'\n"
             "Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
             "Consider descriptions, and their connection to our investigation and query. "
-            "None of the provided candidates are guaranteed to be relevant, so keep a small footprint, "
-            "and rely on your judgment, the query and any past reports for guidance. "
-            "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only the IDs "
-            "(right side of '::', with the 'Q' prefix) of the most promising new candidate nodes to add to our frontier.\n"
-            "2. 'report': a minimal dictionary compiling verified and relevant information gathered so far.\n"
-            "3. 'answer': the best-guess human-readable answer to the query (no direct referencing of nodes).\n"
+            "None of the provided candidates are guaranteed to be relevant. Rely on the query and report for guidance. "
+            "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only IDs "
+            "(right side of '::' with the 'Q' prefix) of all potentially promising nodes to add to our frontier.\n"
+            "2. 'report': a human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
+            "3. 'answer': the best-guess precise human-readable answer to the query, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context."
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
-            f" * Current nodes:\n{nodes_str}\n"
-            f" * Candidates:\n{candidates_str}"
+            f" * Nodes:\n{nodes_str}\n"
+            f" * Outgoing:\n{candidates_str}"
         )
 
     def _extract_keywords(self, query: str) -> List[str]:
         prompt = (
-            "Extract, from the following query, proper entities and keywords that will be used to investigate a potential answer."
+            "Extract, from the following query, proper entities and keywords that will be used to deduce a potential answer."
+            "Make sure the extracted entities and keywords are conceptually meaningful and relevant to the query."
             "Return a JSON array of strings including the extracted entities and keywords."
             f"query:\n{query}"
         )
@@ -381,9 +390,15 @@ def main():
     orchestrator = Orchestrator(graph)
 
     try:
-        for user_query in user_queries:
-            final_answer = orchestrator(user_query)
-            logger.info(final_answer)
+        i = 0
+        while i < len(user_queries):
+            user_query = user_queries[i]
+            try:
+                final_answer = orchestrator(user_query)
+                logger.info(final_answer)
+                i += 1
+            except Exception as e:
+                logger.warning(e)
     finally:
         graph.close()
 
