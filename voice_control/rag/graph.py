@@ -256,6 +256,7 @@ class Orchestrator:
         state = Exploration(self.graph)
         state.start(initial_nodes)
         i = 0
+        errors = 0
         while i < self.max_iterations:
             self.logger.info(f"\n--- Iteration {i + 1} ---")
             if not state.frontier:
@@ -268,8 +269,11 @@ class Orchestrator:
 
             try:
                 response = json.loads(response)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 self.logger.warning(f"Failed to decode JSON: {response}")
+                errors += 1
+                if errors >= self.max_retries:
+                    raise
                 continue
 
             new_frontier = response.get("new_frontier", [])
@@ -345,19 +349,19 @@ class Orchestrator:
         candidates_str = "\n".join(triples)
 
         return (
-            " * Task: Analyze our potential new candidate nodes and their relations with regard to the query. "
-            "Consider descriptions, and their connection to the query and investigation. "
+            "Task: Analyze, through logic, any potential new candidate nodes and their relations to search with regard to the query. "
+            "Consider descriptions, and their connection to our query and investigation. "
             "None of the provided candidates are guaranteed to be relevant. Rely on the query and report for guidance. "
             "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only IDs "
             "(right side of '::' with the 'Q' prefix) of all potentially promising nodes to add to our frontier.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
-            "3. 'answer': the calculated best-guess precise human-readable answer to the query, excluding IDs.\n"
+            "3. 'answer': the direct, calculated, precise, and human-readable best-guess answer to the query, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
-            "to the query is directly and completely verified and cross-referenced with the provided context."
+            "to the query is directly and completely verified and cross-referenced with the provided context.\n"
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
             f" * Nodes:\n{nodes_str}\n"
-            f" * Candidates:\n{candidates_str}"
+            f" * Outgoing:\n{candidates_str}"
             f" * Query: '{query}'\n"
         )
 
