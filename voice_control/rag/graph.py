@@ -200,12 +200,14 @@ class Orchestrator:
         graph: KnowledgeGraph,
         llm: LLM | None = None,
         max_iterations: int = 5,
+        max_keywords: int = 3,
         max_retries: int = 3,
     ):
         self.logger = get_logger(__file__)
 
         self.graph = graph
         self.max_iterations = max_iterations
+        self.max_keywords = max_keywords
         self.max_retries = max_retries
 
         self.session = Session(llm)
@@ -216,7 +218,6 @@ class Orchestrator:
 
     def _execute_query(self, query: str) -> str:
 
-        self.answer = ""
         self.report = {
             "state": "Starting search for clues with initial nodes...",
             "context": "",
@@ -231,7 +232,7 @@ class Orchestrator:
             ],
         }
 
-        keywords = self._extract_keywords(query)
+        keywords = self._extract_keywords(query)[: self.max_keywords]
         embeddings = self.graph.embedding_model.encode(keywords)
 
         initial_results = [
@@ -288,15 +289,13 @@ class Orchestrator:
             final_answer = response.get("answer", None)
             is_verified = response.get("is_verified", False)
 
-            self.answer = final_answer
-
             if is_verified:
                 self.logger.info("Final answer found.")
                 break
 
-            # if not nodes_to_expand:
-            #     self.logger.info("No nodes to expand. Halting exploration.")
-            #     break
+            if not nodes_to_expand:
+                self.logger.info("No nodes to expand. Fast forwarding...")
+                i *= 2
 
             state.expand({"nodes": nodes_to_expand, "relations": None})
             i += 1
@@ -356,7 +355,7 @@ class Orchestrator:
             "Return a JSON object (no comments) with four keys:\n"
             "1. 'new_frontier': a shortlist containing only IDs (right side of '::' with the 'Q' prefix) "
             "of all potentially promising nodes to add to our frontier.\n"
-            "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
+            "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling verifiably-relevant evidence.\n"
             "3. 'answer': the direct, calculated, precise, and human-readable best-guess answer to the query so far, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context.\n"
