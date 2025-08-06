@@ -349,13 +349,15 @@ class Orchestrator:
         candidates_str = "\n".join(triples)
 
         return (
-            "Task: Analyze, through logic, any potential new candidate nodes and their relations to search with regard to the query. "
-            "Consider descriptions, and their connection to our query and investigation. "
-            "None of the provided candidates are guaranteed to be relevant. Rely on the query and report for guidance. "
-            "Return a JSON object with four keys:\n1. 'new_frontier': a shortlist containing only IDs "
-            "(right side of '::' with the 'Q' prefix) of all potentially promising nodes to add to our frontier.\n"
+            "Task: Analyze, through logic, any potential new candidate nodes, their description, "
+            "and their relations to investigate with regard to the query. "
+            "None of the provided candidates are guaranteed to be relevant. "
+            "Rely on the query and report for guidance. "
+            "Return a JSON object with four keys:\n"
+            "1. 'new_frontier': a shortlist containing only IDs (right side of '::' with the 'Q' prefix) "
+            "of all potentially promising nodes to add to our frontier.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
-            "3. 'answer': the direct, calculated, precise, and human-readable best-guess answer to the query, excluding IDs.\n"
+            "3. 'answer': the direct, calculated, precise, and human-readable best-guess answer to the query so far, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context.\n"
             f" * Query: '{query}'\n"
