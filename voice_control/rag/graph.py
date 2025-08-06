@@ -294,9 +294,9 @@ class Orchestrator:
                 self.logger.info("Final answer found.")
                 break
 
-            if not nodes_to_expand:
-                self.logger.info("No nodes to expand. Halting exploration.")
-                break
+            # if not nodes_to_expand:
+            #     self.logger.info("No nodes to expand. Halting exploration.")
+            #     break
 
             state.expand({"nodes": nodes_to_expand, "relations": None})
             i += 1
@@ -353,7 +353,7 @@ class Orchestrator:
             "and their relations to investigate with regard to the query. "
             "None of the provided candidates are guaranteed to be relevant. "
             "Rely on the query and report for guidance. "
-            "Return a JSON object with four keys:\n"
+            "Return a JSON object (no comments) with four keys:\n"
             "1. 'new_frontier': a shortlist containing only IDs (right side of '::' with the 'Q' prefix) "
             "of all potentially promising nodes to add to our frontier.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling relevant and verified evidence.\n"
