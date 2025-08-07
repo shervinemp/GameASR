@@ -321,7 +321,10 @@ class RAG:
                     raise
                 continue
 
-            new_frontier = [c.split("::")[0] for c in response.get("new_frontier", [])]
+            new_frontier = [
+                (c_ := c.split("::"))[0 if c_[0][0] == "Q" else 1]
+                for c in response.get("new_frontier", [])
+            ]
             nodes_to_expand = [
                 n
                 for kword_arr in state.candidates
