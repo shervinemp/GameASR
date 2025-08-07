@@ -321,7 +321,7 @@ class RAG:
                     raise
                 continue
 
-            new_frontier = response.get("new_frontier", [])
+            new_frontier = [c.split("::")[0] for c in response.get("new_frontier", [])]
             nodes_to_expand = [
                 n
                 for kword_arr in state.candidates
@@ -392,20 +392,20 @@ class RAG:
         candidates_str = "\n".join(triples)
 
         return (
-            "Task: Analyze, through logic, any potential new candidate nodes, their description, "
-            "and their relations to investigate with regard to the query. "
+            "Task: Analyze, through logic, any potential candidate nodes, their description, "
+            "and their relations to the investigation with regard to the query. "
             "None of the provided candidates are guaranteed to be relevant. "
             "Rely on the query and report for guidance. "
             "Return a JSON object (no comments) with four keys:\n"
             "1. 'new_frontier': a list containing only IDs (right side of '::' with the 'Q' prefix) of all promising or related nodes.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling verifiably-relevant evidence.\n"
-            "3. 'answer': a calculated, precise, and human-readable best-guess answer to the query so far, excluding IDs.\n"
+            "3. 'answer': the best-guess calculated, precise, and human-readable answer to the query so far, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context.\n"
             f" * Query: '{query}'\n"
             f" * Report: {self.report}\n"
             f" * Nodes:\n{nodes_str}\n"
-            f" * Outgoing:\n{candidates_str}"
+            f" * Candidates:\n{candidates_str}"
             f" * Query: '{query}'\n"
         )
 
