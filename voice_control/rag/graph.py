@@ -1,4 +1,5 @@
-from collections import deque
+from collections import OrderedDict, deque
+import heapq
 import random
 import sys
 import json
@@ -150,10 +151,45 @@ class KnowledgeGraph:
 
 class Exploration:
 
+    class Frontier:
+        def __init__(self, maxlen: int | None = None):
+            self._d = OrderedDict()
+            self._maxlen = maxlen
+
+        def append(self, x):
+            k = x["id"]
+            if k in self._d:
+                self._d.move_to_end(k)
+            self._d[k] = x
+            if self._maxlen and len(self) > self._maxlen:
+                _ = self.pop()
+
+        def extend(self, X):
+            for x in X:
+                self.append(x)
+
+        def pop(self):
+            return self._d.popitem(last=False)
+
+        def clear(self):
+            self._d.clear()
+
+        def __iter__(self):
+            return iter(self._d.values())
+
+        def __repr__(self):
+            return f"Frontier({self._d})"
+
+        def __str__(self):
+            return self._d
+
+        def __len__(self):
+            return len(self._d)
+
     def __init__(self, graph: KnowledgeGraph, frontier_size: int = 12):
         self.graph = graph
-        self.frontier: Deque[Dict[str, Any]] = deque(maxlen=frontier_size)
-        self.ancestry: Dict[str, str] = dict()
+        self.frontier = self.Frontier(frontier_size)
+        self.ancestry = dict()
 
     def start(self, node_ids: List[str]) -> List[Dict[str, Any]]:
         subgraph = self.graph.subgraph(node_ids)
@@ -194,7 +230,7 @@ class Exploration:
                 self.ancestry[b] = self.ancestry[a]
 
 
-class Orchestrator:
+class RAG:
     def __init__(
         self,
         graph: KnowledgeGraph,
@@ -214,6 +250,14 @@ class Orchestrator:
         self.session.conversation._cutoff_idx = -1
 
     def __call__(self, query: str) -> str:
+        """
+        Looks up the answer to the given query through knowledge graph search.
+
+        Args:
+            query: The query to look up.
+        Returns:
+            The answer to the query.
+        """
         return self._execute_query(query)
 
     def _execute_query(self, query: str) -> str:
@@ -353,10 +397,9 @@ class Orchestrator:
             "None of the provided candidates are guaranteed to be relevant. "
             "Rely on the query and report for guidance. "
             "Return a JSON object (no comments) with four keys:\n"
-            "1. 'new_frontier': a shortlist containing only IDs (right side of '::' with the 'Q' prefix) "
-            "of all potentially promising nodes to add to our frontier.\n"
+            "1. 'new_frontier': a list containing only IDs (right side of '::' with the 'Q' prefix) of all promising or related nodes.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling verifiably-relevant evidence.\n"
-            "3. 'answer': the direct, calculated, precise, and human-readable best-guess answer to the query so far, excluding IDs.\n"
+            "3. 'answer': a calculated, precise, and human-readable best-guess answer to the query so far, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
             "to the query is directly and completely verified and cross-referenced with the provided context.\n"
             f" * Query: '{query}'\n"
@@ -398,11 +441,11 @@ def main():
     ]
 
     graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-    orchestrator = Orchestrator(graph)
+    rag = RAG(graph)
 
     try:
         for user_query in user_queries:
-            final_answer = orchestrator(user_query)
+            final_answer = rag(user_query)
             logger.info(final_answer)
     finally:
         graph.close()

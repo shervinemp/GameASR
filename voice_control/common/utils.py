@@ -3,7 +3,7 @@ import logging
 import os
 from huggingface_hub import hf_hub_download
 import requests
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 
 
 def setup_logging(log_level=logging.INFO, log_format=None, stream=None):
@@ -66,63 +66,6 @@ def download_hf_file(repo_id: str, filename: str, directory: str):
     )
 
 
-def load_specs(specs_path: str) -> Dict[str, Any]:
-    with open(specs_path, "r") as f:
-        return json.load(f)
-
-
-def map_json_type_to_python(json_type: str) -> str:
-    """Maps JSON schema types to Python type hints."""
-    type_map = {
-        "string": "str",
-        "number": "float",
-        "integer": "int",
-        "boolean": "bool",
-        "array": "list",
-        "object": "dict",
-    }
-    return type_map.get(json_type, "Any")
-
-
-def map_json_return_to_python(
-    returns_spec: Dict[str, Any], method_name: str
-) -> Tuple[str, str]:
-    """
-    Maps JSON schema return types to Python type hints and result handling logic
-    for client stubs.
-    Assumes Lua-facing methods will return a single string.
-    """
-    return_type = returns_spec["type"]
-
-    if return_type == "string":
-        return (
-            "Tuple[str | None, str | None]",
-            'if isinstance(result, str):\n            return result, None\n        logging.error(f"Unexpected response format for {method_name}: Expected string, got {{type(result).__name__}}.")\n        return None, "Unexpected response format: Expected string."',
-        )
-    elif return_type == "boolean":
-        return (
-            "Tuple[bool | None, str | None]",
-            'if isinstance(result, bool):\n            return result, None\n        logging.error(f"Unexpected response format for {method_name}: Expected boolean, got {{type(result).__name__}}.")\n        return None, "Unexpected response format: Expected boolean."',
-        )
-    elif return_type == "number":
-        return (
-            "Tuple[float | None, str | None]",
-            'if isinstance(result, (int, float)):\n            return float(result), None\n        logging.error(f"Unexpected response format for {method_name}: Expected number, got {{type(result).__name__}}.")\n        return None, "Unexpected response format: Expected number."',
-        )
-    elif return_type == "object":
-        return (
-            "Tuple[dict | None, str | None]",
-            'if isinstance(result, dict):\n            return result, None\n        logging.error(f"Unexpected response format for {method_name}: Expected dict, got {{type(result).__name__}}.")\n        return None, "Unexpected response format: Expected dict."',
-        )
-    elif return_type == "array":
-        return (
-            "Tuple[list | None, str | None]",
-            'if isinstance(result, list):\n            return result, None\n        logging.error(f"Unexpected response format for {method_name}: Expected list, got {{type(result).__name__}}.")\n        return None, "Unexpected response format: Expected list."',
-        )
-    else:
-        return "Tuple[Any | None, str | None]", "return result, error"
-
-
 def download_file(url: str, destination: str):
     """
     Download a file from a URL to a specified destination.
@@ -151,3 +94,8 @@ def download_file(url: str, destination: str):
             f"An unexpected error occurred during download of {url}: {e}", exc_info=True
         )
         raise
+
+
+def load_specs(specs_path: str) -> Dict[str, Any]:
+    with open(specs_path, "r") as f:
+        return json.load(f)

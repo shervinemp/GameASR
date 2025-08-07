@@ -88,7 +88,6 @@ class Tool:
         for arg_name, arg_value in args.items():
             if arg_name in properties:
                 json_type = _get_json_type(properties[arg_name].type)
-                # Convert argument to the correct type based on JSON schema
                 if json_type == "integer":
                     casted_args[arg_name] = int(arg_value)
                 elif json_type == "number":
@@ -96,13 +95,55 @@ class Tool:
                 elif json_type == "boolean":
                     casted_args[arg_name] = bool(arg_value)
                 else:
-                    # Default to string for any other types
                     casted_args[arg_name] = str(arg_value)
             else:
-                # If parameter not found in schema, keep as is
                 casted_args[arg_name] = arg_value
 
         return casted_args
+
+    @staticmethod
+    def from_callable(name: str, fn: Callable) -> "Tool":
+        """
+        Transforms a callable into a Tool instance.
+        """
+        doc_info = _parse_method_docstring(inspect.getdoc(fn))
+        description = doc_info["description"]
+
+        signature = inspect.signature(fn)
+        method_properties: Dict[str, Tool.Parameter] = {}
+        required_property_names: List[str] = []
+
+        for param_name, param_obj in signature.parameters.items():
+            if param_name == "self":
+                continue
+
+            json_type = _get_json_type(param_obj.annotation)
+            param_desc = doc_info["params"].get(param_name, None)
+
+            if param_obj.default is inspect.Parameter.empty:
+                required_property_names.append(param_name)
+
+            method_properties[param_name] = Tool.Parameter(
+                type=json_type,
+                description=param_desc,
+            )
+
+        tool_parameters_obj: Optional[Tool.Parameter] = None
+        if method_properties:
+            tool_parameters_obj = Tool.Parameter(
+                type="object",
+                properties=method_properties,
+                required=(required_property_names if required_property_names else None),
+            )
+
+        tool = Tool(
+            name=name,
+            description=description,
+            parameters=tool_parameters_obj,
+            callback=fn,
+        )
+
+        return tool
 
     @staticmethod
     def from_class(cls: Type) -> Callable[..., List["Tool"]]:
@@ -127,48 +168,7 @@ class Tool:
                     if name.startswith("_"):  # Skip private methods
                         continue
 
-                    doc_info = _parse_method_docstring(inspect.getdoc(member))
-                    description = doc_info["description"]
-
-                    signature = inspect.signature(member)
-                    method_properties: Dict[str, Tool.Parameter] = {}
-                    required_property_names: List[str] = []
-
-                    for param_name, param_obj in signature.parameters.items():
-                        if param_name == "self":
-                            continue
-
-                        json_type = _get_json_type(
-                            param_obj.annotation
-                        )  # Corrected call
-                        param_desc = doc_info["params"].get(param_name, None)
-
-                        if param_obj.default is inspect.Parameter.empty:
-                            required_property_names.append(param_name)
-
-                        method_properties[param_name] = Tool.Parameter(
-                            type=json_type,
-                            description=param_desc,
-                        )
-
-                    tool_parameters_obj: Optional[Tool.Parameter] = None
-                    if method_properties:
-                        tool_parameters_obj = Tool.Parameter(
-                            type="object",
-                            properties=method_properties,
-                            required=(
-                                required_property_names
-                                if required_property_names
-                                else None
-                            ),
-                        )
-
-                    tool = Tool(
-                        name=name,
-                        description=description,
-                        parameters=tool_parameters_obj,
-                        callback=member,
-                    )
+                    tool = self.from_callable(name, member)
                     tools.append(tool)
 
                 return tools

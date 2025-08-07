@@ -2,6 +2,7 @@ import json
 import sys
 from typing import Dict, Any
 
+from ..llm.model import LLM
 from ..llm.session import Session
 
 from ..common.utils import setup_logging
@@ -37,11 +38,12 @@ class KnowledgeExtractor:
         "- Observe all complex interactions and relationships for accuracy and completeness.",
     ]
 
-    def __init__(self):
+    def __init__(self, llm: LLM = None):
         """
         Initializes the extractor with an LLM model instance.
         """
-        self.session = Session()
+        self.session = Session(llm)
+        self.session.conversation._cutoff_idx = -1
 
     def _generate_triplet_prompt(
         self, text: str, existing_schema: Dict = None, retrieval: bool = False
@@ -104,7 +106,7 @@ class KnowledgeExtractor:
         retrieval: bool = False,
     ) -> Dict[str, Any]:
         """
-        Extracts knowledge graph triplets from the given text using the LLM
+        Extracts knowledge graph triplets from the given text using the LLM.
         """
         prompt = self._generate_triplet_prompt(text, existing_schema, retrieval)
         self.session.conversation.messages.clear()

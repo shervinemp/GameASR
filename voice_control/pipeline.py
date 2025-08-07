@@ -1,21 +1,18 @@
-#!/usr/bin/env python3
-"""
-Voice Control Pipeline Module
-
-This module provides the integration between ASR (Automatic Speech Recognition),
-LLM (Language Model), and TTS (Text-to-Speech) components to create a seamless
-voice control pipeline.
-"""
-import re
 import sys
 from typing import Optional
 
-from .common.utils import setup_logging, get_logger
+from dotenv import dotenv_values
 
 from .asr import ParakeetV2
 from .llm import Session
+from .llm.tools import Tool
 from .tts import TTS
+from .rag import RAG
+from .rag.graph import KnowledgeGraph
 from .bridge.rpc_server import LLMService, RpcServer
+
+from .common.base import stream_splitter
+from .common.utils import setup_logging, get_logger
 
 
 class Pipeline:
@@ -31,6 +28,7 @@ class Pipeline:
     def __init__(
         self,
         session: Optional[Session] = None,
+        rag: Optional[RAG] = None,
         rpc_server: str | None = None,
     ):
         """
@@ -45,6 +43,9 @@ class Pipeline:
 
         self.asr = ParakeetV2()
         self.session = session or Session()
+        if rag is not None:
+            rag_tool = Tool.from_callable("rag", rag)
+            self.session.conversation._tools.update({"rag": rag_tool})
         self.tts = TTS()
         self.rpc_server = (
             RpcServer(LLMService(self.session), endpoint=rpc_server)
@@ -59,22 +60,12 @@ class Pipeline:
         """
         if not transcription:
             return
-        boundary = re.compile(r"[^.][.!?]\s+")
-        buffer = ""
+
         interrupt = True
-        for chunk in self.session(transcription):
-            buffer += chunk
-            if len(buffer) > 8:
-                if matches := boundary.finditer(buffer):
-                    for match in matches:
-                        start, end = (match.start() + 2, match.end())
-                        sentence = buffer[:start]
-                        buffer = buffer[end:]
-                        self.tts(sentence.strip(), interrupt=interrupt)
-                        interrupt = False
-        else:
-            if s := buffer.strip():
-                self.tts(s, interrupt=interrupt)
+        out = self.session(transcription)
+        for sentence in stream_splitter(out, min_len=8):
+            self.tts(sentence.strip(), interrupt=interrupt)
+            interrupt = False
 
     def run(self):
         """Start the voice control pipeline."""
@@ -100,8 +91,18 @@ def main():
     setup_logging(log_level="DEBUG")
     logger = get_logger(__name__)
 
+    env = dotenv_values(".env")
+    NEO4J_URI = env.get("NEO4J_URI")
+    NEO4J_USER = env.get("NEO4J_USER")
+    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
+
+    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
+        raise ValueError("Neo4j credentials not found in .env file.")
+
     try:
-        pipe = Pipeline()
+        graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        rag = RAG(graph)
+        pipe = Pipeline(rag=rag)
         logger.info("Starting voice control pipeline...")
         pipe.run()
     except Exception as e:
