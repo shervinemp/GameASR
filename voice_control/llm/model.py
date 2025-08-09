@@ -25,6 +25,8 @@ from ..common.utils import download_hf_file, get_logger
 class LLM:
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename: str = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
+    # hf_repo: str = "Qwen/Qwen3-4B-GGUF"
+    # filename: str = "Qwen3-4B-Q5_K_M.gguf"
     local_dir: str = os.path.join("model_files", "llm")
 
     def __init__(self):
@@ -89,6 +91,8 @@ class LLM:
         beg_marker, end_marker = (" &lt;toolcall&gt;", " &lt;/toolcall&gt;")
         beg_len, end_len = len(beg_marker), len(end_marker)
 
+        # TODO: Skip `think` tags as well
+
         buffer = ""
         is_call = False
         for chunk in stream:
@@ -119,53 +123,3 @@ class LLM:
                 is_call = False
         else:
             yield buffer
-
-    def _parse2(
-        self,
-        stream: Union[
-            CreateChatCompletionResponse, Iterator[CreateChatCompletionStreamResponse]
-        ],
-    ) -> Generator[str | Dict[str, Any], None, None]:
-
-        tool_calls = defaultdict(lambda: defaultdict(str))
-
-        def resolve_and_yield_tools(buffer):
-            """Helper to process the buffer and yield complete tool calls."""
-            for idx in sorted(buffer.keys()):
-                call_data = buffer[idx]
-                try:
-                    yield {
-                        "id": call_data["id"],
-                        "name": call_data["name"],
-                        "arguments": json.loads(call_data["arguments"]),
-                    }
-                except (json.JSONDecodeError, KeyError) as e:
-                    self.logger.error(
-                        f"Failed to parse tool call: {call_data}. Error: {e}"
-                    )
-            buffer.clear()
-
-        for chunk in stream:
-            delta = chunk["choices"][0]["delta"]
-
-            if content := delta.get("content"):
-                if tool_calls:
-                    yield from resolve_and_yield_tools(tool_calls)
-                yield content
-                continue
-
-            if streamed_tool_chunks := delta.get("tool_calls"):
-                for tc_chunk in streamed_tool_chunks:
-                    idx = tc_chunk["index"]
-
-                    if new_id := tc_chunk.get("id"):
-                        tool_calls[idx]["id"] = new_id
-
-                    if func := tc_chunk.get("function"):
-                        if name := func.get("name"):
-                            tool_calls[idx]["name"] += name
-                        if args := func.get("arguments"):
-                            tool_calls[idx]["arguments"] += args
-
-        if tool_calls:
-            yield from resolve_and_yield_tools(tool_calls)

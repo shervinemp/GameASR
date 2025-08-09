@@ -64,8 +64,9 @@ class Pipeline:
         interrupt = True
         out = self.session(transcription)
         for sentence in stream_splitter(out, min_len=8):
-            self.tts(sentence.strip(), interrupt=interrupt)
-            interrupt = False
+            if s := sentence.strip():
+                self.tts(s, interrupt=interrupt)
+                interrupt = False
 
     def run(self):
         """Start the voice control pipeline."""

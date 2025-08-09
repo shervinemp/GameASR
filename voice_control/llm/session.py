@@ -28,6 +28,16 @@ class Session:
         self.conversation.add_user_message(query)
         self.logger.debug(f"{query=}")
 
+        yield from self._generate_response()
+
+        tool_responses = self.tool_caller.gather()
+        if tool_responses:
+            for k, v in tool_responses.items():
+                self.conversation.add_tool_message(f"{k}: {v}")
+
+            yield from self._generate_response(tool_choice="none")
+
+    def _generate_response(self, **kwargs) -> Generator[str, None, None]:
         response = ""
         for chunk in self.llm(self.conversation, **kwargs):
             if isinstance(chunk, dict):
@@ -41,19 +51,6 @@ class Session:
 
         if response:
             self.conversation.add_assistant_message(response)
-
-        tool_responses = self.tool_caller.gather()
-        if tool_responses:
-            for k, v in tool_responses.items():
-                self.conversation.add_tool_message(f"{k}: {v}")
-
-            response = ""
-            for chunk in self.llm(self.conversation, tool_choice="none"):
-                response += chunk
-                yield chunk
-
-            if response:
-                self.conversation.add_assistant_message(response)
 
 
 class ToolCaller:

@@ -321,15 +321,15 @@ class RAG:
                     raise
                 continue
 
-            new_frontier = [
+            frontier = [
                 (c_ := c.split("::"))[0 if c_[0][0] == "Q" else 1]
-                for c in response.get("new_frontier", [])
+                for c in response.get("frontier", [])
             ]
             nodes_to_expand = [
                 n
                 for kword_arr in state.candidates
                 for c in kword_arr
-                if (n := c["node"])["id"] in new_frontier
+                if (n := c["node"])["id"] in frontier
             ]
 
             self.report = response.get("report", {})
@@ -400,7 +400,7 @@ class RAG:
             "None of the provided candidates are guaranteed to be relevant. "
             "Rely on the query and report for guidance. "
             "Return a JSON object (no comments) with four keys:\n"
-            "1. 'new_frontier': a list containing only IDs (right side of '::' with the 'Q' prefix) of all promising or related nodes.\n"
+            "1. 'frontier': a list containing only IDs (right side of '::' with the 'Q' prefix) of all promising or related nodes.\n"
             "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling verifiably-relevant evidence.\n"
             "3. 'answer': the best-guess calculated, precise, and human-readable answer to the query so far, excluding IDs.\n"
             "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
