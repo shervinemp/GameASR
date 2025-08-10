@@ -44,8 +44,9 @@ class Pipeline:
         self.asr = ParakeetV2()
         self.session = session or Session()
         if rag is not None:
-            rag_tool = Tool.from_callable("retrieve", rag)
-            self.session.conversation._tools.update({"rag": rag_tool})
+            name = "retrieve"
+            rag_tool = Tool.from_callable(name, rag)
+            self.session.conversation._tools.update({name: rag_tool})
         self.tts = TTS()
         self.rpc_server = (
             RpcServer(LLMService(self.session), endpoint=rpc_server)
