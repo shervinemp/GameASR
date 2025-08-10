@@ -24,7 +24,7 @@ from ..common.utils import download_hf_file, get_logger
 
 class LLM:
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
-    filename: str = "Nemotron-Mini-4B-Instruct-Q4_K_M.gguf"
+    filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
     # hf_repo: str = "Qwen/Qwen3-4B-GGUF"
     # filename: str = "Qwen3-4B-Q5_K_M.gguf"
     local_dir: str = os.path.join("model_files", "llm")
