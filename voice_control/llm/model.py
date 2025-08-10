@@ -1,13 +1,12 @@
 import json
 import os
-from typing import Any, Dict, Generator
+from typing import Any, Dict, Generator, Union
 
 from llama_cpp import (
     CreateChatCompletionResponse,
     CreateChatCompletionStreamResponse,
     Iterator,
     Llama,
-    Union,
 )
 
 from .conversation import Conversation
