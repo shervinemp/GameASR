@@ -1,6 +1,7 @@
 import json
 import os
 from typing import Any, Dict, Generator, Union
+from threading import Lock
 
 from llama_cpp import (
     CreateChatCompletionResponse,
@@ -26,6 +27,7 @@ class LLM:
         model_path = os.path.join(self.local_dir, self.filename)
         self.max_tokens = 4096
         self.stream_processor = self._parse
+        self._lock = Lock()
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(
@@ -72,7 +74,8 @@ class LLM:
             stream=True,
         )
 
-        yield from self.stream_processor(stream)
+        with self._lock:
+            yield from self.stream_processor(stream)
 
     def _parse(
         self,
