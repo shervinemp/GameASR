@@ -55,6 +55,7 @@ class Session:
 
         if response:
             self.conversation.add_assistant_message(response)
+            self.logger.info(f"{response=}")
 
 
 class ToolCaller:
