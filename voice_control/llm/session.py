@@ -42,7 +42,7 @@ class Session:
         for chunk in self.llm(self.conversation, **kwargs):
             if isinstance(chunk, dict):
                 try:
-                    tool_name = chunk["name"]
+                    tool_name = chunk["function"]
                     tool_args = chunk["arguments"]
                 except Exception as e:
                     self.logger.warning(f"Error parsing tool response: {e}")

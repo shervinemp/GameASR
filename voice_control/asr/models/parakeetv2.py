@@ -54,7 +54,7 @@ class Silero(ConsumerProducer):
     def __init__(
         self,
         vad_threshold: float = 0.35,
-        post_speech_silence_dur: float = 1.1,
+        post_speech_silence_dur: float = 1.25,
         pre_speech_dur: float = 1.0,
     ):
         self.logger = get_logger(__name__)
