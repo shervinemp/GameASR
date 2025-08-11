@@ -55,7 +55,7 @@ class Silero(ConsumerProducer):
         self,
         vad_threshold: float = 0.4,
         leading_silence_duration: float = 0.7,
-        trailing_silence_duration: float = 1.4,
+        trailing_silence_duration: float = 2.0,
         trailing_buffer_duration: float = 0.7,
     ):
         self.logger = get_logger(__name__)
