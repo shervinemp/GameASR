@@ -22,20 +22,23 @@ class Session:
         self.llm = llm or LLM()
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
+        self._lock = threading.Lock()
+
         self.tool_caller.start()
 
     def __call__(self, query: str, **kwargs) -> Generator[str, None, None]:
-        self.conversation.add_user_message(query)
-        self.logger.debug(f"{query=}")
+        with self._lock:
+            self.conversation.add_user_message(query)
+            self.logger.debug(f"{query=}")
 
-        yield from self._generate_response()
+            yield from self._generate_response()
 
-        tool_responses = self.tool_caller.gather()
-        if tool_responses:
-            for k, v in tool_responses.items():
-                self.conversation.add_tool_message(f"{k}: {v}")
+            tool_responses = self.tool_caller.gather()
+            if tool_responses:
+                for k, v in tool_responses.items():
+                    self.conversation.add_tool_message(f"{k}: {v}")
 
-            yield from self._generate_response(tool_choice="none")
+                yield from self._generate_response(tool_choice="none")
 
     def _generate_response(self, **kwargs) -> Generator[str, None, None]:
         response = ""
