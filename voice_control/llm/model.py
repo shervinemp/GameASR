@@ -34,8 +34,8 @@ class NemotronLLM:
         self.logger.info("Loading model...")
         self.model = Llama(
             model_path=model_path,
-            n_ctx=4096,  # Context window size
-            n_gpu_layers=-1,  # Offload all layers to GPU
+            n_ctx=4096,
+            n_gpu_layers=-1,
             flash_attn=True,
             verbose=False,
         )
@@ -146,8 +146,8 @@ class QwenLLM:
         self.logger.info("Loading model...")
         self.model = Llama(
             model_path=model_path,
-            n_ctx=4096,  # Context window size
-            n_gpu_layers=-1,  # Offload all layers to GPU
+            n_ctx=8192,
+            n_gpu_layers=-1,
             flash_attn=True,
             verbose=False,
         )

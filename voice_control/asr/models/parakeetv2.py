@@ -54,8 +54,9 @@ class Silero(ConsumerProducer):
     def __init__(
         self,
         vad_threshold: float = 0.4,
-        post_speech_silence_dur: float = 1.3,
-        pre_speech_dur: float = 1.0,
+        leading_silence_duration: float = 0.7,
+        trailing_silence_duration: float = 1.4,
+        trailing_buffer_duration: float = 0.7,
     ):
         self.logger = get_logger(__name__)
 
@@ -66,8 +67,9 @@ class Silero(ConsumerProducer):
         self._lock = _provider_lock
 
         self.vad_threshold = vad_threshold
-        self.post_speech_silence_dur = post_speech_silence_dur
-        self.pre_speech_dur = pre_speech_dur
+        self.pre_speech_dur = leading_silence_duration
+        self.post_speech_dur = trailing_silence_duration
+        self.post_speech_keep = trailing_buffer_duration
 
         self.reset()
 
@@ -75,17 +77,14 @@ class Silero(ConsumerProducer):
         self._is_speech_segment = False
         self._silence_counter = 0
 
-        pre_speech_chunks = int(
-            self.pre_speech_dur * self._model.SAMPLE_RATE / self._model.HOP_SIZE
-        )
+        coeff_ = self._model.SAMPLE_RATE / self._model.HOP_SIZE
+
+        pre_speech_chunks = int(self.pre_speech_dur * coeff_)
         self._pre_speech_buffer = deque(maxlen=pre_speech_chunks)
 
-        self._trailing_silent_chunks = int(
-            self.post_speech_silence_dur
-            * self._model.SAMPLE_RATE
-            / self._model.HOP_SIZE
-            + 1
-        )
+        self._trailing_silent_chunks = int(self.post_speech_dur * coeff_ + 1)
+
+        self._trailing_buffer_chunks = int(self.post_speech_keep * coeff_ + 1)
 
         self._model_input_frame = np.zeros(
             self._model.CONTEXT_SIZE + self._model.HOP_SIZE, dtype=np.float32
@@ -131,7 +130,8 @@ class Silero(ConsumerProducer):
                 self._pre_speech_buffer.clear()
 
         if self._is_speech_segment:
-            self._queue.put(chunk)
+            if self._silence_counter < self._trailing_buffer_chunks:
+                self._queue.put(chunk)
             if not is_loud:
                 self._silence_counter += 1
                 if self._silence_counter >= self._trailing_silent_chunks:
