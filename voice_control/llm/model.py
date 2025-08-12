@@ -79,9 +79,9 @@ class NemotronLLM:
             CreateChatCompletionResponse, Iterator[CreateChatCompletionStreamResponse]
         ],
     ) -> Generator[str | Dict[str, Any], None, None]:
-        tool_beg, tool_end = ("$lt;toolcall$gt;", "$lt;/toolcall$gt;")
+        tool_beg, tool_end = (" $lt;toolcall$gt;", " $lt;/toolcall$gt;")
         tool_beg_l, tool_end_l = len(tool_beg), len(tool_end)
-        think_beg, think_end = ("$lt;think$gt;", "$lt;/think$gt;")
+        think_beg, think_end = (" $lt;think$gt;", " $lt;/think$gt;")
 
         buffer = ""
         is_call = False

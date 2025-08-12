@@ -54,9 +54,9 @@ class Silero(ConsumerProducer):
     def __init__(
         self,
         vad_threshold: float = 0.4,
-        leading_silence_duration: float = 0.7,
-        trailing_silence_duration: float = 2.0,
-        trailing_buffer_duration: float = 0.7,
+        leading_silence_duration: float = 1.0,
+        trailing_silence_duration: float = 2.4,
+        trailing_buffer_duration: float = 1.2,
     ):
         self.logger = get_logger(__name__)
 
@@ -130,10 +130,13 @@ class Silero(ConsumerProducer):
                 self._pre_speech_buffer.clear()
 
         if self._is_speech_segment:
-            if self._silence_counter < self._trailing_buffer_chunks:
+            if is_loud:
                 self._queue.put(chunk)
-            if not is_loud:
+                self._silence_counter = 0
+            else:
                 self._silence_counter += 1
+                if self._silence_counter <= self._trailing_buffer_chunks:
+                    self._queue.put(chunk)
                 if self._silence_counter >= self._trailing_silent_chunks:
                     self._is_speech_segment = False
                     self._silence_counter = 0
