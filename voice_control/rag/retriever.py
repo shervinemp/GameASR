@@ -6,7 +6,7 @@ from sentence_transformers import util
 from ..llm.model import LLM
 from ..llm.session import Session
 from .triplet import KnowledgeExtractor
-from .graph import KnowledgeGraph
+from .knowledge_base import KnowledgeGraph
 from ..common.utils import get_logger
 
 class RetrievalManager:

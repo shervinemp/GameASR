@@ -1,20 +1,15 @@
 import json
 import random
-from typing import List, Dict, Any
-
-from ..llm.model import LLM
-from ..llm.session import Session
 from collections import OrderedDict
 from typing import Any, Dict, List
 
-from .graph import KnowledgeGraph
-from ..common.utils import get_logger
 from ..llm.model import LLM
 from ..llm.session import Session
+from .knowledge_base import KnowledgeGraph
+from ..common.utils import get_logger
 
 
 class Exploration:
-
     class Frontier:
         def __init__(self, maxlen: int | None = None):
             self._d = OrderedDict()
@@ -50,7 +45,7 @@ class Exploration:
         def __len__(self):
             return len(self._d)
 
-    def __init__(self, graph: KnowledgeGraph, frontier_size: int = 12):
+    def __init__(self, graph: "KnowledgeGraph", frontier_size: int = 12):
         self.graph = graph
         self.frontier = self.Frontier(frontier_size)
         self.ancestry = dict()
@@ -80,12 +75,10 @@ class Exploration:
 
     def _add(self, nodes: List[Dict[str, Any]], relations: List[Dict] = None) -> None:
         self.frontier.extend(nodes)
-
         for node in nodes:
             nid = node["id"]
             if nid not in self.ancestry:
                 self.ancestry[nid] = nid
-
         if relations is not None:
             for relation in relations:
                 a, b = relation["head"], relation["tail"]
@@ -94,7 +87,7 @@ class Exploration:
                 self.ancestry[b] = self.ancestry[a]
 
 class ExplorationEngine:
-    def __init__(self, graph: KnowledgeGraph, llm: LLM, max_iterations: int = 5, max_retries: int = 3):
+    def __init__(self, graph: "KnowledgeGraph", llm: LLM, max_iterations: int = 5, max_retries: int = 3):
         self.logger = get_logger(__file__)
         self.graph = graph
         self.session = Session(llm)
@@ -118,7 +111,6 @@ class ExplorationEngine:
                 self.logger.info("Frontier is empty. Halting exploration.")
                 break
 
-            # Step 1: Score candidates
             scoring_prompt = self._build_scoring_prompt(query, state)
             scoring_response = "".join(self.session(scoring_prompt))
             self.logger.debug(f"Scoring Response: {scoring_response}")
@@ -138,7 +130,6 @@ class ExplorationEngine:
                 n for kword_arr in state.candidates for c in kword_arr if (n := c["node"])["id"] in promising_ids
             ]
 
-            # Step 2: Generate report and answer from promising nodes
             if nodes_to_expand:
                 final_answer, report, is_verified = generation_service.generate(
                     query, report, nodes_to_expand
@@ -161,7 +152,7 @@ class ExplorationEngine:
 
         return final_answer, report
 
-    def _build_scoring_prompt(self, query: str, state: Exploration, max_neighbors: int = 20) -> str:
+    def _build_scoring_prompt(self, query: str, state: "Exploration", max_neighbors: int = 20) -> str:
         candidates = [
             item for kword_arr in state.candidates for item in random.sample(kword_arr, min(max_neighbors, len(kword_arr)))
         ]
