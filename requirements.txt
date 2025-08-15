@@ -5,8 +5,6 @@ onnxruntime-genai
 huggingface-hub
 soundfile
 torch
-torchvision
-torchaudio
 silero-vad
 sounddevice
 simpleaudio
