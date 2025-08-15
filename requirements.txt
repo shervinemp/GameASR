@@ -1,11 +1,22 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 numpy
 onnxruntime
-onnxruntime-genai-directml
+onnxruntime-genai
 huggingface-hub
 soundfile
 torch
+torchvision
+torchaudio
 silero-vad
 sounddevice
 simpleaudio
 grpcio
 pyzmq
+python-dotenv
+onnx-asr
+llama-cpp-python
+kokoro-onnx
+pandas
+sentence-transformers
+neo4j
+neo4j-graphrag
