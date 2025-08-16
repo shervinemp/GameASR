@@ -9,3 +9,5 @@ sounddevice
 simpleaudio
 grpcio
 pyzmq
+langextract
+python-dotenv
