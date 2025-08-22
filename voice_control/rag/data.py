@@ -7,7 +7,6 @@ import io
 import pandas as pd
 import json
 import sys
-from dotenv import dotenv_values
 from typing import Dict, Optional, List
 
 from sentence_transformers import SentenceTransformer
@@ -16,6 +15,7 @@ from neo4j import GraphDatabase
 from neo4j_graphrag.indexes import create_vector_index
 
 from ..common.utils import get_logger, setup_logging
+from ..common.config import config
 
 
 class DataLoader:
@@ -135,9 +135,8 @@ class Neo4jImporter:
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         print("Initializing embedding model...")
-        self._embedding_model = SentenceTransformer(
-            "avsolatorio/GIST-small-Embedding-v0"
-        )
+        embedding_model_name = config.get('llm.models.embedding', 'avsolatorio/GIST-small-Embedding-v0')
+        self._embedding_model = SentenceTransformer(embedding_model_name)
         print("Model ready.")
 
     def close(self):
@@ -276,15 +275,24 @@ def main():
     setup_logging("DEBUG", stream=sys.stdout)
     logger = get_logger(__file__)
 
-    env = dotenv_values(os.path.join(".env"))
-    NEO4J_URI = env.get("NEO4J_URI")
-    NEO4J_USER = env.get("NEO4J_USER")
-    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
+    # Load Neo4j credentials from the central config
+    neo4j_config = config.get('database.neo4j')
+    if not neo4j_config:
+        raise ValueError("Neo4j configuration not found in config file.")
 
-    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-        raise ValueError("Neo4j credentials not found in .env file.")
+    uri = neo4j_config.get('uri')
+    user = neo4j_config.get('user')
+    password_env_var = neo4j_config.get('password_env')
 
-    with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
+    if not password_env_var:
+        raise ValueError("Neo4j password environment variable not specified in config.")
+
+    password = os.getenv(password_env_var)
+
+    if not all([uri, user, password]):
+        raise ValueError(f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable.")
+
+    with Neo4jImporter(uri, user, password) as importer:
         if not FORCE_DOWNLOAD and importer.get_node_count():
             logger.info("Database already contains data. Skipping import.")
         else:

@@ -2,15 +2,16 @@ from typing import Any, Dict, List, Tuple
 from sentence_transformers import SentenceTransformer
 from neo4j import GraphDatabase
 
+from ..common.config import config
+
 
 class KnowledgeGraph:
     _rel_addendum: str = "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
 
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.embedding_model = SentenceTransformer(
-            "avsolatorio/GIST-small-Embedding-v0"
-        )
+        embedding_model_name = config.get('llm.models.embedding', 'avsolatorio/GIST-small-Embedding-v0')
+        self.embedding_model = SentenceTransformer(embedding_model_name)
 
     def close(self):
         self._driver.close()

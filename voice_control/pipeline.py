@@ -1,18 +1,18 @@
+import os
 import sys
 from typing import Optional
-
-from dotenv import dotenv_values
 
 from .asr import ParakeetV2
 from .llm import Session
 from .llm.tools import Tool
 from .tts import TTS
 from .rag import RAG
-from .rag.graph import KnowledgeGraph
+from .rag.knowledge_base import KnowledgeGraph
 from .bridge.rpc_server import LLMService, RpcServer
 
 from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
+from .common.config import config
 
 
 class Pipeline:
@@ -93,16 +93,25 @@ def main():
     setup_logging(log_level="DEBUG")
     logger = get_logger(__name__)
 
-    env = dotenv_values(".env")
-    NEO4J_URI = env.get("NEO4J_URI")
-    NEO4J_USER = env.get("NEO4J_USER")
-    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
+    # Load Neo4j credentials from the central config
+    neo4j_config = config.get('database.neo4j')
+    if not neo4j_config:
+        raise ValueError("Neo4j configuration not found in config file.")
 
-    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-        raise ValueError("Neo4j credentials not found in .env file.")
+    uri = neo4j_config.get('uri')
+    user = neo4j_config.get('user')
+    password_env_var = neo4j_config.get('password_env')
+
+    if not password_env_var:
+        raise ValueError("Neo4j password environment variable not specified in config.")
+
+    password = os.getenv(password_env_var)
+
+    if not all([uri, user, password]):
+        raise ValueError(f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable.")
 
     try:
-        graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        graph = KnowledgeGraph(uri, user, password)
         rag = RAG(graph)
         pipe = Pipeline(rag=rag)
         logger.info("Starting voice control pipeline...")

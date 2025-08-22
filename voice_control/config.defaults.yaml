@@ -1,0 +1,51 @@
+# Default configuration for the Voice Control application
+# This file contains default values and should be checked into version control.
+# Users can override these settings by creating a 'config.yaml' file in the project root.
+
+# --- Database Configuration ---
+database:
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    # The password should be loaded from an environment variable, not stored here.
+    password_env: "NEO4J_PASSWORD"
+
+# --- LLM Configuration ---
+llm:
+  # Default provider to use. Can be 'openai', 'gemini', 'ollama', etc.
+  # This setting can be used to dynamically load the correct LLM class.
+  default_provider: "ollama"
+
+  # --- Model specifications ---
+  models:
+    # Default model for general purpose tasks, chat, etc.
+    default: "llama3"
+    # Model used for the offline knowledge extraction script
+    extraction_heavy: "gemini-1.5-pro"
+    # Embedding model for RAG
+    embedding: "avsolatorio/GIST-small-Embedding-v0"
+
+  # --- Provider-specific settings ---
+  providers:
+    ollama:
+      base_url: "http://localhost:11434"
+    gemini:
+      api_key_env: "GEMINI_API_KEY"
+    openai:
+      api_key_env: "OPENAI_API_KEY"
+
+# --- TTS Configuration ---
+tts:
+  provider: "kokoro"
+  # Base directory for TTS models
+  model_dir: "model_files/tts"
+  models:
+    kokoro:
+      model_file: "kokoro-v1.0.onnx"
+      voices_file: "voices-v1.0.bin"
+
+# --- ASR Configuration ---
+# Placeholder for ASR settings. I haven't investigated this part of the code yet.
+asr:
+  provider: "kyutai"
+  model_dir: "model_files/asr"
