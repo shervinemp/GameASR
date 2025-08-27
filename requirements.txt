@@ -1,6 +1,5 @@
 numpy
 onnxruntime
-onnxruntime-genai-directml
 huggingface-hub
 soundfile
 torch
@@ -12,3 +11,9 @@ pyzmq
 langextract
 python-dotenv
 PyYAML
+ollama
+onnx-asr
+llama-cpp-python
+kokoro-onnx
+sentence-transformers
+neo4j

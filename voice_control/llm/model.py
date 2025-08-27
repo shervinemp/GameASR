@@ -2,6 +2,7 @@ import json
 import os
 from typing import Any, Dict, Generator, Union
 
+import ollama
 from llama_cpp import (
     CreateChatCompletionResponse,
     CreateChatCompletionStreamResponse,
@@ -11,6 +12,7 @@ from llama_cpp import (
 
 from .conversation import Conversation
 
+from ..common.config import config
 from ..common.utils import download_hf_file, get_logger
 
 
@@ -246,8 +248,45 @@ class QwenLLM:
             yield buffer
 
 
+class OllamaLLM:
+    def __init__(self):
+        self.logger = get_logger(__name__)
+        self.client = ollama.Client(
+            host=config.get("llm.providers.ollama.base_url")
+        )
+        self.model = config.get("llm.models.default")
+        self.stream_processor = self._parse
+
+    def __call__(
+        self,
+        conversation: Conversation,
+        tool_choice: str | Dict[str, Any] = "auto",
+    ) -> Generator[str | dict, None, None]:
+        stream = self.client.chat(
+            model=self.model,
+            messages=conversation.messages,
+            stream=True,
+        )
+        yield from self.stream_processor(stream)
+
+    def _parse(self, stream) -> Generator[str | Dict[str, Any], None, None]:
+        for chunk in stream:
+            if "content" in chunk["message"]:
+                yield chunk["message"]["content"]
+
+
 # ----------------------------------------------------------------------
 
-LLM = NemotronLLM
+llm_providers = {
+    "nemotron": NemotronLLM,
+    "qwen": QwenLLM,
+    "ollama": OllamaLLM,
+}
+
+provider = config.get("llm.default_provider", "nemotron")
+LLM = llm_providers.get(provider)
+
+if not LLM:
+    raise ValueError(f"Invalid LLM provider specified in config: {provider}")
 
 # ----------------------------------------------------------------------
