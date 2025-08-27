@@ -6,5 +6,6 @@ package.
 """
 
 from .models import ParakeetV2
+from .model import get_model_class
 
-__all__ = ["ParakeetV2"]
+__all__ = ["ParakeetV2", "get_model_class"]

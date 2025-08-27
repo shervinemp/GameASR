@@ -17,7 +17,7 @@ except ImportError:
     )
 
 
-_provider_lock = threading.Lock()
+_vad_lock = threading.Lock()
 
 
 class ParakeetV2(ModelBase):
@@ -28,7 +28,7 @@ class ParakeetV2(ModelBase):
         )
         self._vad = Silero()
 
-        self._lock = _provider_lock
+        self._lock = threading.Lock()
 
         super().__init__(sound_device)
 
@@ -67,7 +67,7 @@ class Silero(ConsumerProducer):
         self._model = load_vad("silero")
         self._queue = Queue(maxsize=1000)
 
-        self._lock = _provider_lock
+        self._lock = _vad_lock
 
         self.vad_threshold = vad_threshold
         self.pre_speech_dur = leading_silence_duration

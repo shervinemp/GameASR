@@ -2,7 +2,7 @@ import os
 import sys
 from typing import Optional
 
-from .asr import ParakeetV2
+from .asr import get_model_class
 from .llm import Session
 from .llm.tools import Tool
 from .tts import TTS
@@ -41,7 +41,9 @@ class Pipeline:
         """
         self.logger = get_logger(__name__)
 
-        self.asr = ParakeetV2()
+        asr_provider = config.get("asr.provider", "parakeetv2")
+        AsrModel = get_model_class(asr_provider)
+        self.asr = AsrModel()
         self.session = session or Session()
         if rag is not None:
             name = "retrieve"
@@ -78,7 +80,10 @@ class Pipeline:
         try:
             for transcript in self.asr:
                 self.logger.debug(f"{transcript=}")
-                self._callback(transcript)
+                try:
+                    self._callback(transcript)
+                except Exception as e:
+                    self.logger.error(f"Error in callback: {e}", exc_info=True)
         finally:
             if self.rpc_server:
                 self.rpc_server.stop()
