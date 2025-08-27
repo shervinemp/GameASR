@@ -28,7 +28,7 @@ class ParakeetV2(ModelBase):
         )
         self._vad = Silero()
 
-        self._lock = threading.Lock()
+        self._lock = _vad_lock
 
         super().__init__(sound_device)
 
