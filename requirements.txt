@@ -17,3 +17,4 @@ llama-cpp-python
 kokoro-onnx
 sentence-transformers
 neo4j
+neo4j-graphrag

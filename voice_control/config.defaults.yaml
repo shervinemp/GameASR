@@ -33,6 +33,8 @@ llm:
       api_key_env: "GEMINI_API_KEY"
     openai:
       api_key_env: "OPENAI_API_KEY"
+    nemotron: {}
+    qwen: {}
 
 # --- TTS Configuration ---
 tts:
