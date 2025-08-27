@@ -47,7 +47,6 @@ tts:
       voices_file: "voices-v1.0.bin"
 
 # --- ASR Configuration ---
-# Placeholder for ASR settings. I haven't investigated this part of the code yet.
 asr:
-  provider: "kyutai"
+  provider: "parakeetv2"
   model_dir: "model_files/asr"

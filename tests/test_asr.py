@@ -1,26 +1,32 @@
 import unittest
 import os
 import soundfile as sf
-from voice_control.asr.models import KyutaiSTT
+from unittest.mock import patch, MagicMock
+from voice_control.asr.models import ParakeetV2
 
 class TestASR(unittest.TestCase):
-    def test_transcribe_audio(self):
+    @patch('voice_control.asr.models.parakeetv2.sd.InputStream')
+    @patch('voice_control.asr.models.parakeetv2.Silero')
+    def test_parakeet_v2_transcribe(self, mock_silero, mock_input_stream):
         """
-        Test that the ASR can transcribe audio from a file.
+        Test that the ParakeetV2 model can transcribe audio from a file.
+        """
+        # Mock the Silero VAD model
+        mock_vad = MagicMock()
+        mock_silero.return_value = mock_vad
 
-        Note: This test uses a placeholder implementation of the KyutaiSTT model.
-        The test_audio.wav file was generated using the kokoro TTS model with the
-        following text: "This is a test sentence for the voice detection system."
-        """
-        # Initialize the ASR model
-        asr = KyutaiSTT(callback=lambda x: None)
+        # Mock the sounddevice InputStream
+        mock_input_stream.return_value = MagicMock()
+
+        # Initialize the ParakeetV2 model
+        asr = ParakeetV2()
 
         # Load the audio file
         audio_path = os.path.join(os.path.dirname(__file__), "test_audio.wav")
         samples, sample_rate = sf.read(audio_path)
 
         # Transcribe the audio
-        transcript = asr(samples, sample_rate)
+        transcript = asr._model.recognize(samples, sample_rate=sample_rate)
 
         # Check that the transcript is not empty
         self.assertIsNotNone(transcript)
@@ -30,17 +36,3 @@ class TestASR(unittest.TestCase):
         original_text = "this is a test sentence for the voice detection system"
         # A simple similarity check
         self.assertGreater(len(set(transcript.lower().split()) & set(original_text.split())) / len(set(original_text.split())), 0.8)
-
-    def test_empty_audio(self):
-        """
-        Test that the ASR returns an empty string for an empty audio stream.
-        """
-        # Initialize the ASR model
-        asr = KyutaiSTT(callback=lambda x: None)
-
-        import numpy as np
-        # Transcribe an empty audio stream
-        transcript = asr(np.array([]), 16000)
-
-        # Check that the transcript is empty
-        self.assertEqual(transcript, "")

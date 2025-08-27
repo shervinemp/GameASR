@@ -16,15 +16,16 @@ from ..common.config import config
 from ..common.utils import download_hf_file, get_logger
 
 
-class NemotronLLM:
-    hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
-    filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
+class GGUFLLM:
+    hf_repo: str = ""
+    filename: str = ""
     local_dir: str = os.path.join("model_files", "llm")
+    n_ctx: int = 4096
+    max_tokens: int = 4096
 
     def __init__(self):
-        self.logger = get_logger(__name__)
+        self.logger = get_logger(self.__class__.__name__)
         model_path = os.path.join(self.local_dir, self.filename)
-        self.max_tokens = 4096
         self.stream_processor = self._parse
 
         if not os.path.exists(model_path):
@@ -36,7 +37,7 @@ class NemotronLLM:
         self.logger.info("Loading model...")
         self.model = Llama(
             model_path=model_path,
-            n_ctx=4096,
+            n_ctx=self.n_ctx,
             n_gpu_layers=-1,
             flash_attn=True,
             verbose=False,
@@ -74,6 +75,10 @@ class NemotronLLM:
         )
 
         yield from self.stream_processor(stream)
+
+class NemotronLLM(GGUFLLM):
+    hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
+    filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
 
     def _parse(
         self,
@@ -128,64 +133,10 @@ class NemotronLLM:
             yield buffer
 
 
-class QwenLLM:
+class QwenLLM(GGUFLLM):
     hf_repo: str = "Qwen/Qwen3-4B-GGUF"
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
-    local_dir: str = os.path.join("model_files", "llm")
-
-    def __init__(self):
-        self.logger = get_logger(__name__)
-        model_path = os.path.join(self.local_dir, self.filename)
-        self.max_tokens = 4096
-        self.stream_processor = self._parse
-
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Model not found at {model_path}. "
-                "Please run the download script first."
-            )
-
-        self.logger.info("Loading model...")
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=8192,
-            n_gpu_layers=-1,
-            flash_attn=True,
-            verbose=False,
-        )
-        self.logger.info("Model loaded successfully.")
-
-    @classmethod
-    def download(cls):
-        os.makedirs(cls.local_dir, exist_ok=True)
-        download_hf_file(
-            repo_id=cls.hf_repo,
-            filename=cls.filename,
-            directory=cls.local_dir,
-        )
-
-    def __call__(
-        self,
-        conversation: Conversation,
-        tool_choice: str | Dict[str, Any] = "auto",
-    ) -> Generator[str | dict, None, None]:
-        """
-        Generate text from the language model using a streaming approach.
-
-        This version yields tool calls as soon as they are considered complete,
-        allowing for earlier execution. A tool call is considered complete when
-        the model begins generating text content or the stream ends.
-        """
-
-        stream = self.model.create_chat_completion(
-            messages=conversation.messages,
-            tools=[t.to_dict() for t in conversation.tools.values()],
-            tool_choice=tool_choice,
-            max_tokens=self.max_tokens,
-            stream=True,
-        )
-
-        yield from self.stream_processor(stream)
+    n_ctx: int = 8192
 
     def _parse(
         self,
@@ -284,9 +235,11 @@ llm_providers = {
 }
 
 provider = config.get("llm.default_provider", "nemotron")
-LLM = llm_providers.get(provider)
+llm_class = llm_providers.get(provider)
 
-if not LLM:
+if not llm_class:
     raise ValueError(f"Invalid LLM provider specified in config: {provider}")
+
+LLM = llm_class()
 
 # ----------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import json
 from dotenv import dotenv_values
 from sentence_transformers import SentenceTransformer
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from neo4j import GraphDatabase
 
@@ -17,7 +17,7 @@ class RAG:
     def __init__(
         self,
         graph: KnowledgeGraph,
-        llm: LLM | None = None,
+        llm: Union[LLM, None] = None,
         max_iterations: int = 5,
         max_keywords: int = 3,
         max_retries: int = 3,
