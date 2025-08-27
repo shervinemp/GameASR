@@ -27,18 +27,18 @@ class Config:
         return cls._instance
 
     def __init__(self, default_config_path=None, user_config_path=None):
-        # The __init__ will be called every time Config() is invoked,
-        # but we use a flag to ensure the loading logic runs only once.
         if hasattr(self, "_initialized") and self._initialized:
             return
 
         if default_config_path is None:
-            # Look for the default config relative to this file's location
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            default_config_path = os.path.join(base_dir, "config.defaults.yaml")
+            base_dir = os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))
+            )
+            default_config_path = os.path.join(
+                base_dir, "config.defaults.yaml"
+            )
 
         if user_config_path is None:
-            # Look for user config in the current working directory
             user_config_path = os.path.join(os.getcwd(), "config.yaml")
 
         self.config = self._load_config(default_config_path)
@@ -55,9 +55,6 @@ class Config:
             with open(path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            # This should only happen if the default config is missing,
-            # which is a package error. For user configs, we check for
-            # existence first.
             raise RuntimeError(f"Configuration file not found at {path}")
         except yaml.YAMLError as e:
             raise RuntimeError(f"Error parsing YAML file at {path}: {e}")
@@ -96,6 +93,4 @@ class Config:
             return default
 
 
-# Create a single, global instance of the Config object
-# Other modules can simply `from .config import config`
 config = Config()

@@ -86,13 +86,16 @@ class NemotronLLM(GGUFLLM):
             Iterator[CreateChatCompletionStreamResponse],
         ],
     ) -> Generator[str | Dict[str, Any], None, None]:
-        tool_beg, tool_end = (" $lt;toolcall$gt;", " $lt;/toolcall$gt;")
-        tool_beg_l, tool_end_l = len(tool_beg), len(tool_end)
-        think_beg, think_end = (" $lt;think$gt;", " $lt;/think$gt;")
+        tag_beg, tag_end = ("&lt;", "&gt;")
+        tool_beg, tool_end = ("toolcall", "/toolcall")
+        think_beg, think_end = ("think", "/think")
 
         buffer = ""
+        tag_body = ""
+        is_tag = False
         is_call = False
         is_thought = False
+
         for chunk in stream:
             delta = chunk["choices"][0]["delta"]
 
@@ -102,34 +105,38 @@ class NemotronLLM(GGUFLLM):
             else:
                 continue
 
-            if not is_thought:
-                is_thought = b_.startswith(think_beg[: len(b_)])
-
-            if is_thought:
-                if b_.endswith(think_end):
+            is_tag = is_tag or b_.startswith(tag_beg[: len(b_)])
+            if is_tag:
+                if b_.endswith(tag_end):
+                    inner = b_[len(tag_beg) : -len(tag_end)]
                     buffer = ""
-                    is_thought = False
-                continue
+                    is_tag = None
+                    if inner == think_beg:
+                        is_thought = True
+                    elif inner == tool_beg:
+                        is_call = True
+                    elif inner == think_end:
+                        is_thought = False
+                    elif inner == tool_end:
+                        try:
+                            tool_call = json.loads(tag_body)
+                            tag_body = ""
+                            yield tool_call
+                        except (json.JSONDecodeError, KeyError) as e:
+                            self.logger.error(
+                                f"Failed to parse tool call: {tool_call}. Error: {e}"
+                            )
 
-            if not is_call:
-                is_call = b_.startswith(tool_beg[: len(b_)])
-                if not is_call:
-                    yield buffer
+                        buffer = ""
+                        is_call = False
+            else:
+                if is_call or is_thought:
+                    tag_body += buffer
                     buffer = ""
-
-            if is_call and b_.endswith(tool_end):
-                tool_call = b_[tool_beg_l:-tool_end_l]
-                try:
-                    tool_call = json.loads(tool_call)
-                    yield tool_call
-                except (json.JSONDecodeError, KeyError) as e:
-                    self.logger.error(
-                        f"Failed to parse tool call: {tool_call}. Error: {e}"
-                    )
-
+                    continue
+                yield buffer
                 buffer = ""
-                is_call = False
-        else:
+        if b_:
             yield buffer
 
 
@@ -241,6 +248,6 @@ llm_class = llm_providers.get(provider)
 if not llm_class:
     raise ValueError(f"Invalid LLM provider specified in config: {provider}")
 
-LLM = llm_class()
+LLM = llm_class
 
 # ----------------------------------------------------------------------

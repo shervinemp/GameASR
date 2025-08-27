@@ -14,7 +14,7 @@ database:
 llm:
   # Default provider to use. Can be 'openai', 'gemini', 'ollama', etc.
   # This setting can be used to dynamically load the correct LLM class.
-  default_provider: "ollama"
+  default_provider: "nemotron"
 
   # --- Model specifications ---
   models:

@@ -45,10 +45,12 @@ class Session:
         for chunk in self.llm(self.conversation, **kwargs):
             if isinstance(chunk, dict):
                 try:
-                    tool_name = chunk["function"]
+                    tool_name = chunk.get("name", None) or chunk["function"]
                     tool_args = chunk["arguments"]
                 except Exception as e:
-                    self.logger.warning(f"Error parsing tool response: {e}")
+                    self.logger.warning(
+                        f"Error parsing tool response: {repr(e)}"
+                    )
                     continue
                 tool = self.conversation.tools[tool_name]
                 self.tool_caller(tool, **tool_args)
