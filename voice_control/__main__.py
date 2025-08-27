@@ -9,7 +9,9 @@ from .common.utils import load_specs, setup_logging, get_logger
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the voice-control pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Run the voice-control pipeline."
+    )
     parser.add_argument(
         "specs_path",
         type=str,
@@ -86,7 +88,9 @@ def main():
         pipe.session.conversation.tools = tools
         logger.info("Pipeline instance created.")
     except Exception as e:
-        logger.critical(f"Failed to initialize Pipeline: {e}. Exiting.", exc_info=True)
+        logger.critical(
+            f"Failed to initialize Pipeline: {e}. Exiting.", exc_info=True
+        )
         sys.exit(1)
 
     pipe.run()

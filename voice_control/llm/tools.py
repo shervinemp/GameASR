@@ -29,12 +29,19 @@ class Tool:
                 type=data["type"],
                 description=data.get("description"),
                 properties=(
-                    {k: cls.from_dict(v) for k, v in data.get("properties", {}).items()}
+                    {
+                        k: cls.from_dict(v)
+                        for k, v in data.get("properties", {}).items()
+                    }
                     if data.get("type") == "object" and data.get("properties")
                     else None
                 ),
                 enum=data.get("enum"),
-                required=data.get("required") if data.get("type") == "object" else None,
+                required=(
+                    data.get("required")
+                    if data.get("type") == "object"
+                    else None
+                ),
             )
 
         def to_dict(self) -> Dict[str, Any]:
@@ -133,7 +140,11 @@ class Tool:
             tool_parameters_obj = Tool.Parameter(
                 type="object",
                 properties=method_properties,
-                required=(required_property_names if required_property_names else None),
+                required=(
+                    required_property_names
+                    if required_property_names
+                    else None
+                ),
             )
 
         tool = Tool(
@@ -206,7 +217,9 @@ class Tool:
             name=function_data.get("name"),
             description=function_data.get("description"),
             parameters=(
-                cls.Parameter.from_dict(parameters_data) if parameters_data else None
+                cls.Parameter.from_dict(parameters_data)
+                if parameters_data
+                else None
             ),
         )
 
@@ -295,7 +308,9 @@ def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
 def _get_json_type(py_type) -> str:
     """Converts a Python type hint to a JSON schema type string."""
     if hasattr(py_type, "__origin__") and py_type.__origin__ is Union:
-        non_none_types = [arg for arg in py_type.__args__ if arg is not type(None)]
+        non_none_types = [
+            arg for arg in py_type.__args__ if arg is not type(None)
+        ]
         if non_none_types:
             py_type = non_none_types[0]
         else:

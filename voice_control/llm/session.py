@@ -121,7 +121,9 @@ class ToolCaller:
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._loop_thread.join(timeout=5)
             if self._loop_thread.is_alive():
-                self.logger.warning("Background loop thread did not stop gracefully.")
+                self.logger.warning(
+                    "Background loop thread did not stop gracefully."
+                )
             self._loop_thread = None
 
     def __enter__(self):

@@ -4,21 +4,20 @@ import soundfile as sf
 from voice_control.tts.model import TTS
 from unittest.mock import patch
 
+
 class TestTTS(unittest.TestCase):
-    @patch('voice_control.tts.model.AudioPlayer')
+    @patch("voice_control.tts.model.AudioPlayer")
     def test_generate_audio(self, mock_audio_player):
         """
         Test that the TTS can generate audio and save it to a file.
         """
         # Download the TTS models
         TTS.download()
-
         # Initialize the TTS
         tts = TTS()
 
         # Generate audio for a sample sentence
         text = "This is a test sentence for the voice detection system."
-
         # We need to manually call the __call__ method to get the samples
         # because the tts object itself is a callable that plays the audio
         phonemes = tts.tokenizer.phonemize(text, lang="en-us")

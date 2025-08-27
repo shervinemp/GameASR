@@ -91,7 +91,8 @@ def download_file(url: str, destination: str):
         raise
     except Exception as e:
         logger.error(
-            f"An unexpected error occurred during download of {url}: {e}", exc_info=True
+            f"An unexpected error occurred during download of {url}: {e}",
+            exc_info=True,
         )
         raise
 

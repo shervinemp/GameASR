@@ -25,7 +25,8 @@ def main():
                     "type": "function",
                     "function": {
                         "name": "get_current_weather",
-                        "description": "Get the current weather in a given location",
+                        "description": "Get the current weather in a given "
+                        "location",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -35,7 +36,8 @@ def main():
                                 },
                                 "unit": {
                                     "type": "string",
-                                    "description": "The temperature unit to use. Infer this from the users location.",
+                                    "description": "The temperature unit to use. "
+                                    "Infer this from the users location.",
                                     "enum": ["celsius", "fahrenheit"],
                                 },
                             },
@@ -78,9 +80,7 @@ def main():
     session = Session(llm=llm, conversation=conversation)
     logger.info("Session initialized successfully.")
 
-    prompt = (
-        "What is the weather like in Beijing now and what's the stock price of NVDA?"
-    )
+    prompt = "What is the weather like in Beijing now and what's the stock price of NVDA?"
     logger.info(f"Prompt: {prompt}")
 
     response = "".join(session(prompt))

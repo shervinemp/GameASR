@@ -3,18 +3,19 @@ from unittest.mock import patch, MagicMock
 from voice_control.llm.model import NemotronLLM, QwenLLM, OllamaLLM
 from voice_control.llm.conversation import Conversation
 
+
 class TestLLM(unittest.TestCase):
-    @patch('voice_control.llm.model.os.path.exists', return_value=True)
-    @patch('voice_control.llm.model.Llama')
+    @patch("voice_control.llm.model.os.path.exists", return_value=True)
+    @patch("voice_control.llm.model.Llama")
     def test_nemotron_llm(self, mock_llama, mock_exists):
         """
         Test the NemotronLLM.
         """
         # Mock the Llama model
         mock_model = MagicMock()
-        mock_model.create_chat_completion.return_value = iter([
-            {'choices': [{'delta': {'content': 'This is a test.'}}]}
-        ])
+        mock_model.create_chat_completion.return_value = iter(
+            [{"choices": [{"delta": {"content": "This is a test."}}]}]
+        )
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
@@ -30,7 +31,7 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
 
-    @patch('voice_control.llm.model.ollama.Client')
+    @patch("voice_control.llm.model.ollama.Client")
     def test_empty_conversation(self, mock_ollama_client):
         """
         Test that the LLM returns an empty string for an empty conversation.
@@ -52,17 +53,17 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "")
 
-    @patch('voice_control.llm.model.os.path.exists', return_value=True)
-    @patch('voice_control.llm.model.Llama')
+    @patch("voice_control.llm.model.os.path.exists", return_value=True)
+    @patch("voice_control.llm.model.Llama")
     def test_qwen_llm(self, mock_llama, mock_exists):
         """
         Test the QwenLLM.
         """
         # Mock the Llama model
         mock_model = MagicMock()
-        mock_model.create_chat_completion.return_value = iter([
-            {'choices': [{'delta': {'content': 'This is a test.'}}]}
-        ])
+        mock_model.create_chat_completion.return_value = iter(
+            [{"choices": [{"delta": {"content": "This is a test."}}]}]
+        )
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
@@ -78,16 +79,16 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
 
-    @patch('voice_control.llm.model.ollama.Client')
+    @patch("voice_control.llm.model.ollama.Client")
     def test_ollama_llm(self, mock_ollama_client):
         """
         Test the OllamaLLM.
         """
         # Mock the Ollama client
         mock_client = MagicMock()
-        mock_client.chat.return_value = iter([
-            {'message': {'content': 'This is a test.'}}
-        ])
+        mock_client.chat.return_value = iter(
+            [{"message": {"content": "This is a test."}}]
+        )
         mock_ollama_client.return_value = mock_client
 
         # Initialize the LLM

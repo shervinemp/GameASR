@@ -6,17 +6,23 @@ from ..common.config import config
 
 
 class KnowledgeGraph:
-    _rel_addendum: str = "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
+    _rel_addendum: str = (
+        "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
+    )
 
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
-        embedding_model_name = config.get('llm.models.embedding', 'avsolatorio/GIST-small-Embedding-v0')
+        embedding_model_name = config.get(
+            "llm.models.embedding", "avsolatorio/GIST-small-Embedding-v0"
+        )
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
     def close(self):
         self._driver.close()
 
-    def keyword_search(self, keywords: List[str], top_k: int = 5) -> List[List[Dict]]:
+    def keyword_search(
+        self, keywords: List[str], top_k: int = 5
+    ) -> List[List[Dict]]:
         queries_data = [
             {"id": i, "keyword": keyword} for i, keyword in enumerate(keywords)
         ]
@@ -34,7 +40,9 @@ class KnowledgeGraph:
             ORDER BY query_id ASC
         """
         with self._driver.session() as session:
-            records = session.run(query, queries_data=queries_data, top_k=top_k)
+            records = session.run(
+                query, queries_data=queries_data, top_k=top_k
+            )
             result = [record["results"] for record in records]
         return result
 
@@ -42,7 +50,8 @@ class KnowledgeGraph:
         self, embeddings: List[List[float]], top_k: int = 5
     ) -> List[List[Dict]]:
         queries_data = [
-            {"id": i, "embedding": emb.tolist()} for i, emb in enumerate(embeddings)
+            {"id": i, "embedding": emb.tolist()}
+            for i, emb in enumerate(embeddings)
         ]
         query = """
             UNWIND $queries_data AS q_data
@@ -57,7 +66,9 @@ class KnowledgeGraph:
             ORDER BY query_id ASC
         """
         with self._driver.session() as session:
-            records = session.run(query, queries_data=queries_data, top_k=top_k)
+            records = session.run(
+                query, queries_data=queries_data, top_k=top_k
+            )
             result = [record["results"] for record in records]
         return result
 
@@ -93,12 +104,18 @@ class KnowledgeGraph:
             self._rel_addendum
         )
         with self._driver.session() as session:
-            records = session.run(query, frontier=frontier_ids, excluded=excluded_ids)
+            records = session.run(
+                query, frontier=frontier_ids, excluded=excluded_ids
+            )
             result = [r["results"] for r in records]
         return result
 
     def triplet_search(self, triplet: Dict) -> List[Dict]:
-        s, p, o = triplet.get("subject"), triplet.get("predicate"), triplet.get("object")
+        s, p, o = (
+            triplet.get("subject"),
+            triplet.get("predicate"),
+            triplet.get("object"),
+        )
         if not p or not p.get("name"):
             return []
         query_parts = []
@@ -124,5 +141,9 @@ class KnowledgeGraph:
         query = f"MATCH {''.join(query_parts)} {return_clause} LIMIT 10"
         with self._driver.session() as session:
             records = session.run(query, **params)
-            results = [record.data()[key] for record in records for key in record.keys()]
+            results = [
+                record.data()[key]
+                for record in records
+                for key in record.keys()
+            ]
         return results

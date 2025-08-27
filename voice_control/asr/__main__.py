@@ -24,14 +24,16 @@ def parse_asr_args():
         "--model-name",
         type=str,
         default="parakeetv2",
-        help="The name of the ASR model to use. Available models include 'parakeetv2' and 'kyutai'.",
+        help="The name of the ASR model to use. "
+        "Available models include 'parakeetv2' and 'kyutai'.",
     )
 
     parser.add_argument(
         "--sound-device",
         type=int,
         default=0,
-        help="Specific audio input device ID. Use `python -m sounddevice` to list devices.",
+        help="Specific audio input device ID. "
+        "Use `python -m sounddevice` to list devices.",
     )
     return parser.parse_args()
 
@@ -52,8 +54,12 @@ def main():
     logger.info("Starting ASR...")
     model.start()
 
-    for text in model:
-        logger.info(text)
+    try:
+        for text in model:
+            logger.info(text)
+    except KeyboardInterrupt:
+        logger.info("Stopping ASR...")
+        model.stop()
 
 
 if __name__ == "__main__":

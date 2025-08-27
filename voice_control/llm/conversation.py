@@ -26,7 +26,9 @@ class Message:
 
 class MessageList(List):
 
-    def __getitem__(self, key: int | slice) -> Dict[str, str] | List[Dict[str, str]]:
+    def __getitem__(
+        self, key: int | slice
+    ) -> Dict[str, str] | List[Dict[str, str]]:
         if isinstance(key, slice):
             return list(map(self.__getitem__, range(len(self))[key]))
         else:

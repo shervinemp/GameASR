@@ -9,6 +9,7 @@ import os
 import yaml
 from typing import Any
 
+
 class Config:
     """
     A singleton class to manage application configuration.
@@ -17,6 +18,7 @@ class Config:
     and then overrides it with a user-provided configuration file if one exists
     in the project root.
     """
+
     _instance = None
 
     def __new__(cls, *args, **kwargs):
@@ -27,17 +29,17 @@ class Config:
     def __init__(self, default_config_path=None, user_config_path=None):
         # The __init__ will be called every time Config() is invoked,
         # but we use a flag to ensure the loading logic runs only once.
-        if hasattr(self, '_initialized') and self._initialized:
+        if hasattr(self, "_initialized") and self._initialized:
             return
 
         if default_config_path is None:
             # Look for the default config relative to this file's location
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            default_config_path = os.path.join(base_dir, 'config.defaults.yaml')
+            default_config_path = os.path.join(base_dir, "config.defaults.yaml")
 
         if user_config_path is None:
             # Look for user config in the current working directory
-            user_config_path = os.path.join(os.getcwd(), 'config.yaml')
+            user_config_path = os.path.join(os.getcwd(), "config.yaml")
 
         self.config = self._load_config(default_config_path)
 
@@ -50,11 +52,12 @@ class Config:
     def _load_config(self, path: str) -> dict:
         """Loads a YAML configuration file."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            # This should only happen if the default config is missing, which is a package error.
-            # For user configs, we check for existence first.
+            # This should only happen if the default config is missing,
+            # which is a package error. For user configs, we check for
+            # existence first.
             raise RuntimeError(f"Configuration file not found at {path}")
         except yaml.YAMLError as e:
             raise RuntimeError(f"Error parsing YAML file at {path}: {e}")
@@ -83,7 +86,7 @@ class Config:
         Returns:
             The configuration value or the default.
         """
-        keys = key.split('.')
+        keys = key.split(".")
         value = self.config
         try:
             for k in keys:
@@ -91,6 +94,7 @@ class Config:
             return value
         except (TypeError, KeyError):
             return default
+
 
 # Create a single, global instance of the Config object
 # Other modules can simply `from .config import config`

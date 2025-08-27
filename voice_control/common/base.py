@@ -18,11 +18,10 @@ class ConsumerProducer(ABC):
     def _produce(self) -> Generator: ...
 
 
-def stream_splitter(
-    text_stream: Iterable[str], min_len: int = 0
-) -> Generator[str, None, None]:
+def stream_splitter(text_stream: Iterable[str], min_len: int = 0) -> Generator[str, None, None]:
     """
-    Splits a text into sentences, ensuring each sentence is at least `min_len` characters long.
+    Splits a text into sentences, ensuring each sentence is at least `min_len`
+    characters long.
     """
     sentences = re.compile(r"[^.][.!?]\s+")
     buffer = ""

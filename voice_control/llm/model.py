@@ -61,9 +61,7 @@ class GGUFLLM:
         """
         Generate text from the language model using a streaming approach.
 
-        This version yields tool calls as soon as they are considered complete,
-        allowing for earlier execution. A tool call is considered complete when
-        the model begins generating text content or the stream ends.
+        This version yields tool calls as soon as they are considered complete, allowing for earlier execution. A tool call is considered complete when the model begins generating text content or the stream ends.
         """
 
         stream = self.model.create_chat_completion(
@@ -76,6 +74,7 @@ class GGUFLLM:
 
         yield from self.stream_processor(stream)
 
+
 class NemotronLLM(GGUFLLM):
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
@@ -83,7 +82,8 @@ class NemotronLLM(GGUFLLM):
     def _parse(
         self,
         stream: Union[
-            CreateChatCompletionResponse, Iterator[CreateChatCompletionStreamResponse]
+            CreateChatCompletionResponse,
+            Iterator[CreateChatCompletionStreamResponse],
         ],
     ) -> Generator[str | Dict[str, Any], None, None]:
         tool_beg, tool_end = (" $lt;toolcall$gt;", " $lt;/toolcall$gt;")
@@ -141,7 +141,8 @@ class QwenLLM(GGUFLLM):
     def _parse(
         self,
         stream: Union[
-            CreateChatCompletionResponse, Iterator[CreateChatCompletionStreamResponse]
+            CreateChatCompletionResponse,
+            Iterator[CreateChatCompletionStreamResponse],
         ],
     ) -> Generator[str | Dict[str, Any], None, None]:
         tool_beg, tool_end = (

@@ -96,7 +96,9 @@ def main():
 
     player = AudioPlayer()
 
-    logger.info("--- Testing interrupt playback with a generated sine wave ---")
+    logger.info(
+        "--- Testing interrupt playback with a generated sine wave ---"
+    )
     sample_rate = 44100
     frequency = 440  # A4 note
     duration = 2.0  # seconds

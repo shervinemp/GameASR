@@ -1,9 +1,5 @@
-import json
 from dotenv import dotenv_values
-from sentence_transformers import SentenceTransformer
-from typing import Any, Dict, List, Tuple, Union
-
-from neo4j import GraphDatabase
+from typing import Union
 
 from ..llm.model import LLM
 from .retriever import RetrievalManager
@@ -24,7 +20,9 @@ class RAG:
     ):
         self.logger = get_logger(__file__)
         self.retrieval_manager = RetrievalManager(graph, llm, max_keywords)
-        self.exploration_engine = ExplorationEngine(graph, llm, max_iterations, max_retries)
+        self.exploration_engine = ExplorationEngine(
+            graph, llm, max_iterations, max_retries
+        )
         self.generation_service = GenerationService(llm)
 
     def __call__(self, query: str) -> str:

@@ -16,16 +16,18 @@ except ImportError:
         "ONNX-ASR is not installed. Please install it using: pip install onnx-asr"
     )
 
+
 _provider_lock = threading.Lock()
 
 
 class ParakeetV2(ModelBase):
 
     def __init__(self, sound_device: int = 0):
-        self._model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
+        self._model = load_model(
+            "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
+        )
         self._vad = Silero()
 
-        global _provider_lock
         self._lock = _provider_lock
 
         super().__init__(sound_device)
@@ -37,7 +39,9 @@ class ParakeetV2(ModelBase):
         for e in self._vad:
             r = None
             with self._lock:
-                r = self._model.recognize(e, sample_rate=self._vad._model.SAMPLE_RATE)
+                r = self._model.recognize(
+                    e, sample_rate=self._vad._model.SAMPLE_RATE
+                )
             yield r
 
     def _inputstream(self, sound_device: int, callback: Callable):
@@ -63,7 +67,6 @@ class Silero(ConsumerProducer):
         self._model = load_vad("silero")
         self._queue = Queue(maxsize=1000)
 
-        global _provider_lock
         self._lock = _provider_lock
 
         self.vad_threshold = vad_threshold

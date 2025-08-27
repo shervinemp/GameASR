@@ -7,6 +7,7 @@ from ..llm.model import LLM
 from ..llm.session import Session
 from .knowledge_base import KnowledgeGraph
 from ..common.utils import get_logger
+from .generator import GenerationService
 
 
 class Exploration:
@@ -73,7 +74,9 @@ class Exploration:
         )
         return candidates
 
-    def _add(self, nodes: List[Dict[str, Any]], relations: List[Dict] = None) -> None:
+    def _add(
+        self, nodes: List[Dict[str, Any]], relations: List[Dict] = None
+    ) -> None:
         self.frontier.extend(nodes)
         for node in nodes:
             nid = node["id"]
@@ -86,8 +89,15 @@ class Exploration:
                     a, b = b, a
                 self.ancestry[b] = self.ancestry[a]
 
+
 class ExplorationEngine:
-    def __init__(self, graph: "KnowledgeGraph", llm: LLM, max_iterations: int = 5, max_retries: int = 3):
+    def __init__(
+        self,
+        graph: "KnowledgeGraph",
+        llm: LLM,
+        max_iterations: int = 5,
+        max_retries: int = 3,
+    ):
         self.logger = get_logger(__file__)
         self.graph = graph
         self.session = Session(llm)
@@ -95,7 +105,13 @@ class ExplorationEngine:
         self.max_iterations = max_iterations
         self.max_retries = max_retries
 
-    def explore(self, query: str, initial_nodes: List[str], initial_report: Dict, generation_service: "GenerationService"):
+    def explore(
+        self,
+        query: str,
+        initial_nodes: List[str],
+        initial_report: Dict,
+        generation_service: "GenerationService",
+    ):
         state = Exploration(self.graph)
         state.start(initial_nodes)
 
@@ -117,9 +133,13 @@ class ExplorationEngine:
 
             try:
                 scored_candidates = json.loads(scoring_response)
-                promising_ids = [c["id"] for c in scored_candidates if c.get("score", 0) > 5]
+                promising_ids = [
+                    c["id"] for c in scored_candidates if c.get("score", 0) > 5
+                ]
             except (json.JSONDecodeError, TypeError):
-                self.logger.warning(f"Failed to decode scoring JSON: {scoring_response}")
+                self.logger.warning(
+                    f"Failed to decode scoring JSON: {scoring_response}"
+                )
                 errors += 1
                 if errors >= self.max_retries:
                     break
@@ -127,12 +147,15 @@ class ExplorationEngine:
                 continue
 
             nodes_to_expand = [
-                n for kword_arr in state.candidates for c in kword_arr if (n := c["node"])["id"] in promising_ids
+                n
+                for kword_arr in state.candidates
+                for c in kword_arr
+                if (n := c["node"])["id"] in promising_ids
             ]
 
             if nodes_to_expand:
-                final_answer, report, is_verified = generation_service.generate(
-                    query, report, nodes_to_expand
+                final_answer, report, is_verified = (
+                    generation_service.generate(query, report, nodes_to_expand)
                 )
             else:
                 final_answer = None
@@ -152,9 +175,15 @@ class ExplorationEngine:
 
         return final_answer, report
 
-    def _build_scoring_prompt(self, query: str, state: "Exploration", max_neighbors: int = 20) -> str:
+    def _build_scoring_prompt(
+        self, query: str, state: "Exploration", max_neighbors: int = 20
+    ) -> str:
         candidates = [
-            item for kword_arr in state.candidates for item in random.sample(kword_arr, min(max_neighbors, len(kword_arr)))
+            item
+            for kword_arr in state.candidates
+            for item in random.sample(
+                kword_arr, min(max_neighbors, len(kword_arr))
+            )
         ]
         candidate_descs = [
             f"ID: {item['node']['id']}, Label: {item['node']['label']}, Description: {item['node'].get('description', 'N/A')}"

@@ -12,7 +12,9 @@ class GenerationService:
         self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
 
-    def generate(self, query: str, report: Dict, nodes: List[Dict]) -> Tuple[str, Dict, bool]:
+    def generate(
+        self, query: str, report: Dict, nodes: List[Dict]
+    ) -> Tuple[str, Dict, bool]:
         prompt = self._build_generation_prompt(query, report, nodes)
         response = "".join(self.session(prompt))
         self.logger.debug(f"Generation Response: {response}")
@@ -24,7 +26,9 @@ class GenerationService:
             is_verified = generation_data.get("is_verified", False)
             return final_answer, new_report, is_verified
         except (json.JSONDecodeError, TypeError):
-            self.logger.warning(f"Failed to decode generation JSON: {response}")
+            self.logger.warning(
+                f"Failed to decode generation JSON: {response}"
+            )
             return None, report, False
 
     def verify(self, answer: str, report: Dict) -> str:
@@ -34,8 +38,13 @@ class GenerationService:
             return "I found some relevant information, but could not form a confident answer based on the facts."
         return answer
 
-    def _build_generation_prompt(self, query: str, report: Dict, nodes: List[Dict]) -> str:
-        nodes_info = [f"- {node['label']} ({node['id']}): {node.get('description', 'N/A')}" for node in nodes]
+    def _build_generation_prompt(
+        self, query: str, report: Dict, nodes: List[Dict]
+    ) -> str:
+        nodes_info = [
+            f"- {node['label']} ({node['id']}): {node.get('description', 'N/A')}"
+            for node in nodes
+        ]
         nodes_str = "\n".join(nodes_info)
         return (
             "Task: Based on the provided evidence, update the report and provide the best possible answer to the user's query. "
@@ -59,4 +68,4 @@ class GenerationService:
         )
         response = "".join(self.session(prompt)).strip().lower()
         self.logger.debug(f"Verification response: {response}")
-        return response == 'true'
+        return response == "true"
