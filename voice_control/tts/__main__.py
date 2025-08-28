@@ -21,6 +21,7 @@ def main():
 
     try:
         tts = TTS()
+        tts.start()
 
         logger.info("Starting continuous TTS loop. Type 'exit' to quit.")
         while True:
