@@ -105,18 +105,11 @@ def main():
 
     uri = neo4j_config.get("uri")
     user = neo4j_config.get("user")
-    password_env_var = neo4j_config.get("password_env")
-
-    if not password_env_var:
-        raise ValueError(
-            "Neo4j password environment variable not specified in config."
-        )
-
-    password = os.getenv(password_env_var)
+    password = neo4j_config.get("password")
 
     if not all([uri, user, password]):
         raise ValueError(
-            f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
+            "Neo4j credentials not fully configured. Check your config file."
         )
 
     try:

@@ -8,7 +8,7 @@ database:
     uri: "bolt://localhost:7687"
     user: "neo4j"
     # The password should be loaded from an environment variable, not stored here.
-    password_env: "NEO4J_PASSWORD"
+    password: "password"
 
 # --- LLM Configuration ---
 llm:
