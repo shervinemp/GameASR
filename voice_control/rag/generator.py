@@ -129,7 +129,10 @@ class GenerationService:
 
             critique = self._critique_answer(query, summarized_context, answer)
             self.logger.debug(f"Iteration {i+1} Critique: {critique}")
-            if "the answer is correct" in critique.lower():
+
+            # Make the check more robust to punctuation and capitalization.
+            processed_critique = critique.lower().strip().rstrip('.!')
+            if processed_critique == "the answer is correct":
                 self.logger.info("Answer deemed correct by critique. Halting iterations.")
                 last_answer = answer
                 break
