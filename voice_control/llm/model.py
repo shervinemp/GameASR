@@ -1,11 +1,10 @@
+from abc import ABC, abstractmethod
 import json
 import os
-from typing import Any, Dict, Generator, Union
+from typing import Any, Dict, Generator
 
 import ollama
 from llama_cpp import (
-    CreateChatCompletionResponse,
-    CreateChatCompletionStreamResponse,
     Iterator,
     Llama,
 )
@@ -16,7 +15,80 @@ from ..common.config import config
 from ..common.utils import download_hf_file, get_logger
 
 
-class GGUFLLM:
+class LLM(ABC):
+    def __call__(
+        self, conversation: Conversation, *args, **kwargs
+    ) -> Generator[str | dict, None, None]:
+        yield from self._parse(self._infer(conversation, *args, **kwargs))
+
+    @abstractmethod
+    def _infer(
+        self, conversation: Conversation, *args, **kwargs
+    ) -> Generator[str, None, None]: ...
+
+    def _parse(
+        self,
+        stream: Iterator[str],
+    ) -> Generator[str | Dict[str, Any], None, None]:
+        tag_pairs = [
+            ("<", ">"),
+            ("&lt;", "&gt;"),
+        ]
+        tool_beg, tool_end = ("toolcall", "/toolcall")
+        think_beg, think_end = ("think", "/think")
+
+        buffer = ""
+        tag_body = ""
+        bound_pair = None
+        is_tag = False
+        is_call = False
+        is_thought = False
+
+        for content in stream:
+            buffer += content
+            b_ = buffer.strip()
+
+            bound_pair = next(
+                filter(lambda t_: b_.startswith(t_[: len(b_)]), tag_pairs),
+                None,
+            )
+
+            is_tag = is_tag or bound_pair
+            if is_tag:
+                if b_.endswith(bound_pair[1]):
+                    inner = b_[len(bound_pair[0]) : -len(bound_pair[1])]
+                    buffer = ""
+                    is_tag = None
+                    if inner == think_beg:
+                        is_thought = True
+                    elif inner == tool_beg:
+                        is_call = True
+                    elif inner == think_end:
+                        is_thought = False
+                    elif inner == tool_end:
+                        try:
+                            tool_call = json.loads(tag_body)
+                            tag_body = ""
+                            yield tool_call
+                        except (json.JSONDecodeError, KeyError) as e:
+                            self.logger.error(
+                                f"Failed to parse tool call: {tool_call}. Error: {e}"
+                            )
+
+                        buffer = ""
+                        is_call = False
+            else:
+                if is_call or is_thought:
+                    tag_body += buffer
+                    buffer = ""
+                    continue
+                yield buffer
+                buffer = ""
+        if b_:
+            yield buffer
+
+
+class GGUFLLM(LLM):
     hf_repo: str = ""
     filename: str = ""
     local_dir: str = os.path.join("model_files", "llm")
@@ -53,16 +125,11 @@ class GGUFLLM:
             directory=cls.local_dir,
         )
 
-    def __call__(
+    def _infer(
         self,
         conversation: Conversation,
         tool_choice: str | Dict[str, Any] = "auto",
-    ) -> Generator[str | dict, None, None]:
-        """
-        Generate text from the language model using a streaming approach.
-
-        This version yields tool calls as soon as they are considered complete, allowing for earlier execution. A tool call is considered complete when the model begins generating text content or the stream ends.
-        """
+    ) -> Generator[str, None, None]:
 
         stream = self.model.create_chat_completion(
             messages=conversation.messages,
@@ -72,72 +139,14 @@ class GGUFLLM:
             stream=True,
         )
 
-        yield from self.stream_processor(stream)
+        for chunk in stream:
+            if (k := "content") in (delta := chunk["choices"][0]["delta"]):
+                yield delta[k]
 
 
 class NemotronLLM(GGUFLLM):
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
-
-    def _parse(
-        self,
-        stream: Union[
-            CreateChatCompletionResponse,
-            Iterator[CreateChatCompletionStreamResponse],
-        ],
-    ) -> Generator[str | Dict[str, Any], None, None]:
-        tag_beg, tag_end = ("&lt;", "&gt;")
-        tool_beg, tool_end = ("toolcall", "/toolcall")
-        think_beg, think_end = ("think", "/think")
-
-        buffer = ""
-        tag_body = ""
-        is_tag = False
-        is_call = False
-        is_thought = False
-
-        for chunk in stream:
-            delta = chunk["choices"][0]["delta"]
-
-            if content := delta.get("content"):
-                buffer += content
-                b_ = buffer.strip()
-            else:
-                continue
-
-            is_tag = is_tag or b_.startswith(tag_beg[: len(b_)])
-            if is_tag:
-                if b_.endswith(tag_end):
-                    inner = b_[len(tag_beg) : -len(tag_end)]
-                    buffer = ""
-                    is_tag = None
-                    if inner == think_beg:
-                        is_thought = True
-                    elif inner == tool_beg:
-                        is_call = True
-                    elif inner == think_end:
-                        is_thought = False
-                    elif inner == tool_end:
-                        try:
-                            tool_call = json.loads(tag_body)
-                            tag_body = ""
-                            yield tool_call
-                        except (json.JSONDecodeError, KeyError) as e:
-                            self.logger.error(
-                                f"Failed to parse tool call: {tool_call}. Error: {e}"
-                            )
-
-                        buffer = ""
-                        is_call = False
-            else:
-                if is_call or is_thought:
-                    tag_body += buffer
-                    buffer = ""
-                    continue
-                yield buffer
-                buffer = ""
-        if b_:
-            yield buffer
 
 
 class QwenLLM(GGUFLLM):
@@ -145,90 +154,25 @@ class QwenLLM(GGUFLLM):
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
     n_ctx: int = 8192
 
-    def _parse(
-        self,
-        stream: Union[
-            CreateChatCompletionResponse,
-            Iterator[CreateChatCompletionStreamResponse],
-        ],
-    ) -> Generator[str | Dict[str, Any], None, None]:
-        tool_beg, tool_end = (
-            "<tool_call>",
-            "</tool_call>",
-        )
-        tool_beg_l, tool_end_l = len(tool_beg), len(tool_end)
-        think_beg, think_end = ("<think>", "</think>")
 
-        buffer = ""
-        is_call = False
-        is_thought = False
-        for chunk in stream:
-            delta = chunk["choices"][0]["delta"]
-
-            if content := delta.get("content"):
-                buffer += content
-                b_ = buffer.strip()
-                if not b_:
-                    continue
-            else:
-                continue
-
-            if not is_thought:
-                is_thought = b_.startswith(think_beg[: len(b_)])
-
-            if is_thought:
-                if b_.endswith(think_end):
-                    buffer = ""
-                    is_thought = False
-                continue
-
-            if not is_call:
-                is_call = b_.startswith(tool_beg[: len(b_)])
-                if not is_call:
-                    yield buffer
-                    buffer = ""
-
-            if is_call and b_.endswith(tool_end):
-                tool_call = b_[tool_beg_l:-tool_end_l]
-                try:
-                    tool_call = json.loads(tool_call)
-                    if "name" in tool_call:
-                        tool_call["function"] = tool_call["name"]
-                        del tool_call["name"]
-                    yield tool_call
-                except (json.JSONDecodeError, KeyError) as e:
-                    self.logger.error(
-                        f"Failed to parse tool call: {tool_call}. Error: {e}"
-                    )
-
-                buffer = ""
-                is_call = False
-        else:
-            yield buffer
-
-
-class OllamaLLM:
+class OllamaLLM(LLM):
     def __init__(self):
         self.logger = get_logger(__name__)
         self.client = ollama.Client(
             host=config.get("llm.providers.ollama.base_url")
         )
         self.model = config.get("llm.models.default")
-        self.stream_processor = self._parse
 
-    def __call__(
-        self,
-        conversation: Conversation,
-        tool_choice: str | Dict[str, Any] = "auto",
-    ) -> Generator[str | dict, None, None]:
+    def _infer(
+        self, conversation: Conversation
+    ) -> Generator[str | Dict[str, Any], None, None]:
+
         stream = self.client.chat(
             model=self.model,
             messages=conversation.messages,
             stream=True,
         )
-        yield from self.stream_processor(stream)
 
-    def _parse(self, stream) -> Generator[str | Dict[str, Any], None, None]:
         for chunk in stream:
             if "content" in chunk["message"]:
                 yield chunk["message"]["content"]
