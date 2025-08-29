@@ -3,6 +3,7 @@ from sentence_transformers import SentenceTransformer
 from neo4j import GraphDatabase
 
 from ..common.config import config
+from ..common.utils import get_logger
 
 
 class KnowledgeGraph:
@@ -11,6 +12,7 @@ class KnowledgeGraph:
     )
 
     def __init__(self, uri: str, user: str, password: str):
+        self.logger = get_logger(__file__)
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         embedding_model_name = config.get(
             "llm.models.embedding", "avsolatorio/GIST-small-Embedding-v0"
@@ -88,25 +90,30 @@ class KnowledgeGraph:
         return result
 
     def expansion(
-        self, frontier_ids: List[str], excluded_ids: List[str]
+        self, frontier_ids: List[str], excluded_ids: List[str], max_hops: int = 1
     ) -> List[Dict[str, Dict[str, Any]]]:
-        query = """
+        # Ensure max_hops is within a reasonable range to prevent performance issues
+        max_hops = max(1, min(max_hops, 3))
+
+        query = f"""
             UNWIND $frontier AS sourceId
             MATCH (n:Entity {{id: sourceId}})
-            MATCH (n)-[r]-(m:Entity)
-            WHERE NOT m.id IN $excluded
-
+            CALL apoc.path.subgraphNodes(n, {{
+                maxLevel: {max_hops},
+                relationshipFilter: ">",
+                labelFilter: "+Entity"
+            }})
+            YIELD node
+            WHERE NOT node.id IN $excluded
             RETURN collect({{
-                node: apoc.map.removeKey(properties(m), 'embedding'),
-                relation: apoc.map.merge(properties(r), {})
+                node: apoc.map.removeKey(properties(node), 'embedding')
             }}) AS results
-        """.format(
-            self._rel_addendum
-        )
+        """
         with self._driver.session() as session:
             records = session.run(
                 query, frontier=frontier_ids, excluded=excluded_ids
             )
+            # The query returns a single list of all nodes found across all paths
             result = [r["results"] for r in records]
         return result
 
@@ -147,3 +154,30 @@ class KnowledgeGraph:
                 for key in record.keys()
             ]
         return results
+
+    def add_triplets(self, triplets: List[Dict[str, str]]):
+        """
+        Adds new triplets to the knowledge graph.
+        This method will create nodes if they don't exist and add the relationship between them.
+        """
+        if not triplets:
+            return
+
+        query = """
+        UNWIND $triplets AS triplet
+        // Use MERGE for both nodes to avoid creating duplicates
+        MERGE (s:Entity {label: triplet.subject})
+        ON CREATE SET s.id = apoc.create.uuid(), s.description = 'Created by RAG agent'
+
+        MERGE (o:Entity {label: triplet.object})
+        ON CREATE SET o.id = apoc.create.uuid(), o.description = 'Created by RAG agent'
+
+        // Use MERGE for the relationship to avoid duplicates
+        // The relationship type is created dynamically from the predicate
+        CALL apoc.merge.relationship(s, upper(replace(triplet.predicate, ' ', '_')), {}, {}, o)
+        YIELD rel
+        RETURN count(rel) AS created_relationships
+        """
+        with self._driver.session() as session:
+            result = session.run(query, triplets=triplets)
+            self.logger.info(f"Added {result.single()['created_relationships']} new relationships to the graph.")

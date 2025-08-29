@@ -9,46 +9,46 @@ class ExplorationEngine:
         self.logger = get_logger(__file__)
         self.graph = graph
 
-    def explore(self, initial_nodes: List[str]) -> List[Dict[str, Any]]:
+    def explore(self, initial_node_ids: List[str], max_hops: int = 2) -> List[Dict[str, Any]]:
         """
-        Performs a single-step graph expansion.
+        Performs a multi-hop graph expansion from a set of initial node IDs.
 
         1. Retrieves the full data for the initial nodes.
-        2. Finds the immediate neighbors of the initial nodes (1-hop expansion).
+        2. Finds neighbors up to `max_hops` away.
         3. Combines the initial nodes and their neighbors, ensuring no duplicates.
         """
-        if not initial_nodes:
+        if not initial_node_ids:
             return []
 
-        self.logger.info(f"Starting exploration from {len(initial_nodes)} initial nodes.")
+        self.logger.info(f"Starting {max_hops}-hop exploration from {len(initial_node_ids)} initial nodes.")
 
-        # 1. Get the initial nodes' data from the graph
-        initial_subgraph = self.graph.subgraph(initial_nodes)
+        # 1. Get the initial nodes' data from the graph to ensure they are included.
+        initial_subgraph = self.graph.subgraph(initial_node_ids)
         initial_node_data = initial_subgraph.get('nodes', [])
 
-        # 2. Expand to find neighbors
-        # The 'expansion' method returns a list of lists of neighbors.
-        # We need to flatten it and extract the node data.
-        neighbor_data_list = self.graph.expansion(
-            frontier_ids=initial_nodes,
-            excluded_ids=initial_nodes  # Exclude initial nodes from being "neighbors"
+        # 2. Expand to find neighbors up to max_hops away.
+        # `expansion` now returns a list of lists, so we need to flatten it.
+        neighbor_data_lists = self.graph.expansion(
+            frontier_ids=initial_node_ids,
+            excluded_ids=initial_node_ids,
+            max_hops=max_hops
         )
 
-        # Flatten the list of lists and get the 'node' dictionary from each item
+        # Flatten the list of lists and get the node dictionary from each item
         neighbor_nodes = [
-            neighbor['node']
-            for neighbors in neighbor_data_list
-            for neighbor in neighbors
+            item['node']
+            for sublist in neighbor_data_lists
+            for item in sublist
         ]
 
-        self.logger.info(f"Found {len(neighbor_nodes)} neighbors.")
+        self.logger.info(f"Found {len(neighbor_nodes)} unique neighbors within {max_hops} hops.")
 
-        # 3. Combine initial nodes and their neighbors
+        # 3. Combine initial nodes and their neighbors, ensuring no duplicates.
         combined_nodes = {node['id']: node for node in initial_node_data}
         for node in neighbor_nodes:
             if node['id'] not in combined_nodes:
                 combined_nodes[node['id']] = node
 
-        self.logger.info(f"Total nodes after expansion: {len(combined_nodes)}")
+        self.logger.info(f"Total unique nodes after expansion: {len(combined_nodes)}")
 
         return list(combined_nodes.values())
