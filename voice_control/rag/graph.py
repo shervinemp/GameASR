@@ -1,4 +1,3 @@
-from dotenv import dotenv_values
 from typing import Union
 
 from ..llm.model import LLM
@@ -6,77 +5,63 @@ from .retriever import RetrievalManager
 from .explorer import ExplorationEngine
 from .generator import GenerationService
 from .knowledge_base import KnowledgeGraph
-from ..common.utils import get_logger, setup_logging
+from ..common.utils import get_logger
 
 
 class RAG:
+    """
+    Implements the simplified Retrieve-Expand-Generate RAG pipeline with an
+    optional web search capability.
+    """
     def __init__(
         self,
         graph: KnowledgeGraph,
         llm: Union[LLM, None] = None,
-        max_iterations: int = 5,
-        max_keywords: int = 3,
-        max_retries: int = 3,
+        use_web_search: bool = True,
     ):
         self.logger = get_logger(__file__)
-        self.retrieval_manager = RetrievalManager(graph, llm, max_keywords)
-        self.exploration_engine = ExplorationEngine(
-            graph, llm, max_iterations, max_retries
-        )
-        self.generation_service = GenerationService(llm)
+        self.retriever = RetrievalManager(graph, llm)
+        self.explorer = ExplorationEngine(graph)
+        self.generator = GenerationService(llm)
+        self.use_web_search = use_web_search
 
     def __call__(self, query: str) -> str:
-        return self._execute_query(query)
+        """
+        Executes the RAG pipeline for a given query.
 
-    def _execute_query(self, query: str) -> str:
-        report = {
-            "state": "Starting search for clues with initial nodes...",
-            "context": "",
-            "explicit_mention": [],
-        }
+        Args:
+            query: The user's query.
 
-        initial_nodes = self.retrieval_manager.retrieve_initial_nodes(query)
-
+        Returns:
+            The generated answer.
+        """
+        # 1. Retrieve: Get initial nodes from the knowledge graph
+        initial_nodes = self.retriever.retrieve_initial_nodes(query)
         if not initial_nodes:
-            return "Could not find any relevant information."
+            self.logger.info("No initial nodes found in the knowledge graph.")
 
-        final_answer, report = self.exploration_engine.explore(
-            query, initial_nodes, report, self.generation_service
+        # 2. Expand: Perform a single-hop expansion on the initial nodes
+        graph_context_nodes = self.explorer.explore(initial_nodes)
+        if not graph_context_nodes:
+            self.logger.info("Exploration did not yield any graph context.")
+
+        # 3. Web Search: Optionally perform a web search for additional context
+        web_context = None
+        if self.use_web_search:
+            web_context = self.retriever.search_web(query)
+            if not web_context:
+                self.logger.info("Web search did not yield any context.")
+
+        # Check if any context was found at all
+        if not graph_context_nodes and not web_context:
+            self.logger.warning("No context found from any source.")
+            return "I could not find any relevant information to answer your query."
+
+        # 4. Generate: Create a final answer based on the combined context
+        final_answer = self.generator.generate_answer(
+            query,
+            context_nodes=graph_context_nodes,
+            web_context=web_context
         )
 
-        final_answer = self.generation_service.verify(final_answer, report)
-
-        return {"answer": final_answer, "report": report}
-
-
-def main():
-    setup_logging("DEBUG")
-    logger = get_logger(__file__)
-
-    env = dotenv_values(".env")
-    NEO4J_URI = env.get("NEO4J_URI")
-    NEO4J_USER = env.get("NEO4J_USER")
-    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
-
-    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-        raise ValueError("Neo4j credentials not found in .env file.")
-
-    user_queries = [
-        "Which American presidents had a background in law before taking office, like Obama?",
-        "Who are the members of the band Coldplay?",
-        "Give me all the information you have on Justin Bieber, including his personal life.",
-    ]
-
-    graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-    rag = RAG(graph)
-
-    try:
-        for user_query in user_queries:
-            final_answer = rag(user_query)
-            logger.info(final_answer)
-    finally:
-        graph.close()
-
-
-if __name__ == "__main__":
-    main()
+        return final_answer

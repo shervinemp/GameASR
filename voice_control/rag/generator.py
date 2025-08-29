@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional
 
 from ..llm.model import LLM
 from ..llm.session import Session
@@ -12,60 +12,68 @@ class GenerationService:
         self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
 
-    def generate(
-        self, query: str, report: Dict, nodes: List[Dict]
-    ) -> Tuple[str, Dict, bool]:
-        prompt = self._build_generation_prompt(query, report, nodes)
-        response = "".join(self.session(prompt))
-        self.logger.debug(f"Generation Response: {response}")
+    def generate_answer(
+        self,
+        query: str,
+        context_nodes: List[Dict],
+        web_context: Optional[str] = None,
+    ) -> str:
+        """
+        Generates a final answer based on the provided context,
+        using an in-context reasoning prompt.
+        """
+        prompt = self._build_reasoning_prompt(query, context_nodes, web_context)
+        response_str = "".join(self.session(prompt))
+        self.logger.debug(f"LLM Reasoning Response: {response_str}")
 
         try:
-            generation_data = json.loads(response)
-            new_report = generation_data.get("report", report)
-            final_answer = generation_data.get("answer", None)
-            is_verified = generation_data.get("is_verified", False)
-            return final_answer, new_report, is_verified
-        except (json.JSONDecodeError, TypeError):
-            self.logger.warning(
-                f"Failed to decode generation JSON: {response}"
-            )
-            return None, report, False
+            # The response is expected to be a JSON object with a 'reasoning'
+            # and 'final_answer' field. We only need the final answer.
+            response_json = json.loads(response_str)
+            final_answer = response_json.get("final_answer", "I could not find a confident answer.")
+            self.logger.info(f"Generated Answer: {final_answer}")
+            return final_answer
+        except (json.JSONDecodeError, TypeError) as e:
+            self.logger.error(f"Failed to decode LLM response: {e}")
+            # Fallback in case of malformed JSON
+            return "I encountered an issue while formulating the response."
 
-    def verify(self, answer: str, report: Dict) -> str:
-        if not answer:
-            return None
-        if not self._verify_answer(answer, report):
-            return "I found some relevant information, but could not form a confident answer based on the facts."
-        return answer
-
-    def _build_generation_prompt(
-        self, query: str, report: Dict, nodes: List[Dict]
+    def _build_reasoning_prompt(
+        self,
+        query: str,
+        nodes: List[Dict],
+        web_context: Optional[str] = None,
     ) -> str:
-        nodes_info = [
-            f"- {node['label']} ({node['id']}): {node.get('description', 'N/A')}"
-            for node in nodes
-        ]
-        nodes_str = "\n".join(nodes_info)
-        return (
-            "Task: Based on the provided evidence, update the report and provide the best possible answer to the user's query. "
-            "Return a JSON object with three keys:\n"
-            "1. 'report': A dictionary compiling the most relevant evidence found so far.\n"
-            "2. 'answer': The best-guess, human-readable answer. Can be null if the answer is not yet known.\n"
-            "3. 'is_verified': A boolean that is true only if the answer is completely verified by the evidence.\n"
-            f" * User Query: '{query}'\n"
-            f" * Current Report: {report}\n"
-            f" * New Evidence (Promising Nodes):\n{nodes_str}\n"
-            "Please provide the updated JSON object."
+        """
+        Builds a prompt that encourages the LLM to reason before answering,
+        using context from both the knowledge graph and a web search.
+        """
+        if not nodes and not web_context:
+            self.logger.warning("No context provided for generation.")
+            return "No context provided to answer the query."
+
+        # Format the knowledge graph context
+        graph_context_str = "\n".join(
+            [
+                f"- Node ID: {node.get('id', 'N/A')}, Label: {node.get('label', 'N/A')}, Description: {node.get('description', 'N/A')}"
+                for node in nodes
+            ]
         )
 
-    def _verify_answer(self, answer: str, report: Dict) -> bool:
+        # Combine contexts
+        full_context = ""
+        if graph_context_str:
+            full_context += f"**Knowledge Graph Context:**\n{graph_context_str}\n\n"
+        if web_context:
+            full_context += f"**Web Search Context:**\n{web_context}\n\n"
+
         prompt = (
-            "You are a fact-checker. Your task is to determine if the provided 'Answer' is fully supported by the 'Evidence'. "
-            "Respond with only 'true' or 'false'.\n"
-            f" * Evidence: {json.dumps(report, indent=2)}\n"
-            f" * Answer: {answer}\n"
-            "Is the answer fully and directly supported by the evidence? (true/false)"
+            "Based on the following context, please perform two steps:\n"
+            "1. First, provide a brief 'reasoning' of how the combined context can be used to answer the user's query.\n"
+            "2. Second, based on your reasoning, provide a 'final_answer' to the query.\n\n"
+            "Your response MUST be a JSON object with two keys: 'reasoning' and 'final_answer'.\n\n"
+            f"{full_context}"
+            f"**Query:**\n{query}\n\n"
+            "**JSON Response:**"
         )
-        response = "".join(self.session(prompt)).strip().lower()
-        self.logger.debug(f"Verification response: {response}")
-        return response == "true"
+        return prompt
