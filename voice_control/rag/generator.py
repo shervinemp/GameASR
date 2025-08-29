@@ -68,17 +68,29 @@ class GenerationService:
         )
         return "".join(self.session(prompt)).strip()
 
-    def _critique_answer(self, query: str, context: str, answer: str) -> str:
-        """Critiques a given answer based on the context, checking for factual accuracy and completeness."""
+    def _critique_answer(self, query: str, context: str, answer: str) -> Dict:
+        """
+        Critiques a given answer and provides a structured JSON response.
+
+        Returns:
+            A dictionary with 'is_correct' (bool) and 'explanation' (str).
+        """
         prompt = (
-            "You are a fact-checker. Your task is to determine if the 'Proposed Answer' is fully supported by the 'Evidence'. "
-            "If it is not, explain what is wrong or missing. If it is correct, simply respond with 'The answer is correct'.\n\n"
+            "You are a fact-checker. Your task is to critique the 'Proposed Answer' based on the 'Evidence'.\n"
+            "Please return a JSON object with two keys:\n"
+            "1. `is_correct`: A boolean (true/false) indicating if the answer is fully supported by the evidence.\n"
+            "2. `explanation`: A string containing your reasoning. If the answer is incorrect, explain what is wrong or missing. If it is correct, this can be a simple confirmation (e.g., 'The answer is fully supported.').\n\n"
             f"**Evidence:**\n{context}\n\n"
             f"**Query:**\n{query}\n\n"
             f"**Proposed Answer:**\n{answer}\n\n"
-            "**Critique:**"
+            "**JSON Response:**"
         )
-        return "".join(self.session(prompt)).strip()
+        response_str = "".join(self.session(prompt)).strip()
+        try:
+            return json.loads(response_str)
+        except (json.JSONDecodeError, TypeError):
+            self.logger.error(f"Could not parse critique JSON: {response_str}")
+            return {"is_correct": False, "explanation": "Failed to get a valid critique from the model."}
 
     def _extract_new_triplets(self, query: str, context: str, answer: str) -> List[Dict[str, str]]:
         """Extracts new, high-confidence facts from the web context that are supported by the final answer."""
@@ -117,25 +129,25 @@ class GenerationService:
 
         self.logger.info("Starting iterative self-correction for answer generation.")
         last_answer = ""
-        critique = None
+        critique_explanation = None
         for i in range(self.max_iterations):
             self.logger.info(f"Self-correction iteration {i + 1}/{self.max_iterations}")
-            answer = self._generate_standalone_answer(query, summarized_context, critique)
+            answer = self._generate_standalone_answer(query, summarized_context, critique_explanation)
             self.logger.debug(f"Iteration {i+1} Answer: {answer}")
 
             if i == self.max_iterations - 1:
                 last_answer = answer
                 break
 
-            critique = self._critique_answer(query, summarized_context, answer)
-            self.logger.debug(f"Iteration {i+1} Critique: {critique}")
+            critique_result = self._critique_answer(query, summarized_context, answer)
+            self.logger.debug(f"Iteration {i+1} Critique: {critique_result}")
 
-            # Make the check more robust to punctuation and capitalization.
-            processed_critique = critique.lower().strip().rstrip('.!')
-            if processed_critique == "the answer is correct":
+            if critique_result.get("is_correct", False):
                 self.logger.info("Answer deemed correct by critique. Halting iterations.")
                 last_answer = answer
                 break
+
+            critique_explanation = critique_result.get("explanation", "")
             last_answer = answer
 
         self.logger.info(f"Final Answer after self-correction: {last_answer}")
