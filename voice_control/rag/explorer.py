@@ -5,34 +5,13 @@ from ..common.utils import get_logger
 
 
 class ExplorationEngine:
-    """
-    Manages the exploration of the knowledge graph from a set of starting nodes.
-
-    This engine performs a multi-hop traversal to gather a rich, contextual
-    subgraph of information surrounding the initial nodes, which can then be
-    used by the generator.
-    """
+    """Manages the exploration of the knowledge graph from a set of starting nodes."""
     def __init__(self, graph: "KnowledgeGraph"):
         self.logger = get_logger(__file__)
         self.graph = graph
 
     def explore(self, initial_node_ids: List[str], max_hops: int = 2) -> List[Dict[str, Any]]:
-        """
-        Performs a multi-hop graph expansion from a set of initial node IDs.
-
-        This method gathers a subgraph containing the initial nodes and all unique
-        neighbor nodes up to `max_hops` away.
-
-        Args:
-            initial_node_ids (List[str]): A list of IDs for the starting nodes.
-            max_hops (int, optional): The maximum number of hops to traverse from
-                the initial nodes. Defaults to 2.
-
-        Returns:
-            List[Dict[str, Any]]: A list of unique node dictionaries found
-                                  during the exploration, including the initial
-                                  nodes and their neighbors.
-        """
+        """Performs a multi-hop graph expansion from a set of initial node IDs."""
         if not initial_node_ids:
             return []
 

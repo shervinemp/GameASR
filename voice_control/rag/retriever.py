@@ -10,16 +10,7 @@ from ..common.utils import get_logger
 
 
 class RetrievalManager:
-    """
-    Manages the retrieval of information from the knowledge graph and the web.
-
-    This class is responsible for:
-    - Extracting keywords from a user query.
-    - Performing vector and keyword searches against the knowledge graph.
-    - Reranking search results for relevance using a cross-encoder model.
-    - Transforming user queries for optimal web search performance.
-    - Augmenting context with information from web searches (placeholder).
-    """
+    """Manages the retrieval of information from the knowledge graph and the web."""
     def __init__(self, graph: KnowledgeGraph, llm: LLM, max_keywords: int = 5, top_k_rerank: int = 5):
         self.logger = get_logger(__file__)
         self.graph = graph
@@ -36,9 +27,7 @@ class RetrievalManager:
             self.reranker = None
 
     def _transform_query_for_web(self, query: str) -> str:
-        """
-        Transforms a conversational query into a keyword-based search engine query.
-        """
+        """Transforms a conversational query into a keyword-based search engine query."""
         prompt = (
             "Transform the following conversational query into a concise, keyword-based search engine query. "
             "For example, 'Can you tell me who the members of the band Coldplay are?' should become 'Coldplay band members'."
@@ -54,13 +43,7 @@ class RetrievalManager:
             return query
 
     def search_web(self, query: str) -> str:
-        """
-        [Placeholder] Performs an enhanced web search for the given query.
-
-        This method transforms the query for better search results and then
-        simulates fetching content from the top 3-5 search results. A full
-        implementation would require a search API and web scraping.
-        """
+        """[Placeholder] Performs an enhanced web search for the given query."""
         self.logger.info(f"Web search called for original query: '{query}'")
         search_query = self._transform_query_for_web(query)
         self.logger.warning("Web search is not implemented. Returning placeholder multi-source context.")
@@ -73,12 +56,7 @@ class RetrievalManager:
         return placeholder_content
 
     def _rerank_nodes(self, query: str, nodes: List[Dict]) -> List[Dict]:
-        """
-        Reranks a list of nodes based on their relevance to the query using a cross-encoder.
-
-        If the cross-encoder model failed to load during initialization, this
-        method will gracefully degrade to simply truncating the list.
-        """
+        """Reranks a list of nodes based on their relevance to the query using a cross-encoder."""
         if not nodes:
             return []
 
@@ -107,19 +85,7 @@ class RetrievalManager:
         return sorted_nodes[:self.top_k_rerank]
 
     def retrieve_and_rerank_nodes(self, query: str) -> List[Dict]:
-        """
-        Retrieves and reranks initial nodes from the knowledge graph.
-
-        This process involves:
-        1. Extracting keywords from the query.
-        2. Performing parallel vector and keyword searches.
-        3. Combining and deduplicating the search results.
-        4. Reranking the combined results for relevance using a cross-encoder.
-
-        Returns:
-            List[Dict]: A list of the top 'k' reranked node dictionaries,
-                        including their content and relevance scores.
-        """
+        """Retrieves and reranks initial nodes from the knowledge graph."""
         self.logger.debug(f"Original query for node retrieval: {query}")
 
         keywords = self._extract_keywords(query)[: self.max_keywords]
@@ -150,9 +116,7 @@ class RetrievalManager:
         return reranked_nodes
 
     def _extract_keywords(self, query: str) -> List[str]:
-        """
-        Extracts key entities and keywords from a query using the LLM.
-        """
+        """Extracts key entities and keywords from a query using the LLM."""
         prompt = (
             "Extract key entities and keywords from the following query. "
             "Focus on the most important terms that represent the core of the user's intent. "

@@ -92,20 +92,7 @@ class KnowledgeGraph:
     def expansion(
         self, frontier_ids: List[str], excluded_ids: List[str], max_hops: int = 1
     ) -> List[Dict[str, Dict[str, Any]]]:
-        """
-        Performs a multi-hop expansion from a set of frontier nodes.
-
-        Uses the APOC path expander to efficiently find all unique nodes up to
-        `max_hops` away from the frontier, excluding any nodes in the `excluded_ids` list.
-
-        Args:
-            frontier_ids (List[str]): The IDs of nodes to expand from.
-            excluded_ids (List[str]): A list of node IDs to exclude from the expansion results.
-            max_hops (int, optional): The maximum number of hops to traverse. Defaults to 1.
-
-        Returns:
-            List[Dict[str, Dict[str, Any]]]: A list containing the collected neighbor nodes.
-        """
+        """Performs a multi-hop expansion from a set of frontier nodes."""
         # Ensure max_hops is within a reasonable range to prevent performance issues
         max_hops = max(1, min(max_hops, 3))
 
@@ -170,17 +157,7 @@ class KnowledgeGraph:
         return results
 
     def add_triplets(self, triplets: List[Dict[str, str]]):
-        """
-        Adds new triplets to the knowledge graph, creating nodes and relationships as needed.
-
-        This method uses `MERGE` to avoid creating duplicate nodes for the same
-        entity label and `apoc.merge.relationship` to avoid creating duplicate
-        relationships. New nodes are assigned a UUID and a default description.
-
-        Args:
-            triplets (List[Dict[str, str]]): A list of triplet dictionaries, where
-                each dictionary must have 'subject', 'predicate', and 'object' keys.
-        """
+        """Adds new triplets to the knowledge graph, creating nodes and relationships as needed."""
         if not triplets:
             return
 
