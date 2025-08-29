@@ -69,12 +69,7 @@ class GenerationService:
         return "".join(self.session(prompt)).strip()
 
     def _critique_answer(self, query: str, context: str, answer: str) -> Dict:
-        """
-        Critiques a given answer and provides a structured JSON response.
-
-        Returns:
-            A dictionary with 'is_correct' (bool) and 'explanation' (str).
-        """
+        """Critiques a given answer and provides a structured JSON response."""
         prompt = (
             "You are a fact-checker. Your task is to critique the 'Proposed Answer' based on the 'Evidence'.\n"
             "Please return a JSON object with two keys:\n"
@@ -85,11 +80,11 @@ class GenerationService:
             f"**Proposed Answer:**\n{answer}\n\n"
             "**JSON Response:**"
         )
-        response_str = "".join(self.session(prompt)).strip()
         try:
+            response_str = "".join(self.session(prompt)).strip()
             return json.loads(response_str)
-        except (json.JSONDecodeError, TypeError):
-            self.logger.error(f"Could not parse critique JSON: {response_str}")
+        except Exception as e:
+            self.logger.error(f"Could not parse critique JSON or critique call failed: {e}", exc_info=True)
             return {"is_correct": False, "explanation": "Failed to get a valid critique from the model."}
 
     def _extract_new_triplets(self, query: str, context: str, answer: str) -> List[Dict[str, str]]:
@@ -111,8 +106,8 @@ class GenerationService:
             if triplets:
                 self.logger.info(f"Extracted {len(triplets)} new triplets to be added to the graph.")
             return triplets
-        except (json.JSONDecodeError, TypeError) as e:
-            self.logger.error(f"Failed to extract triplets from LLM response: {e}")
+        except Exception as e:
+            self.logger.error(f"Failed to extract triplets from LLM response: {e}", exc_info=True)
             return []
 
     def generate_answer(

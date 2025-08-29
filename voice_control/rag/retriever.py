@@ -127,8 +127,8 @@ class RetrievalManager:
             response = "".join(self.session(prompt))
             keywords = json.loads(response)
             return keywords
-        except (json.JSONDecodeError, TypeError) as e:
+        except Exception as e:
             self.logger.warning(
-                f"Failed to extract keywords, using original query as a keyword. Error: {e}"
+                f"Failed to extract keywords due to an error. Using original query as a keyword. Error: {e}"
             )
             return [query]
