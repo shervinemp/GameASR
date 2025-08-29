@@ -7,10 +7,80 @@ from ..common.utils import get_logger
 
 
 class GenerationService:
-    def __init__(self, llm: LLM):
+    def __init__(self, llm: LLM, max_iterations: int = 2):
         self.logger = get_logger(__file__)
         self.session = Session(llm)
         self.session.conversation._cutoff_idx = -1
+        self.max_iterations = max_iterations
+
+    def _summarize_context(
+        self,
+        query: str,
+        context_nodes: List[Dict],
+        web_context: Optional[str] = None,
+    ) -> str:
+        """
+        Summarizes the combined context from the graph and web search
+        with a focus on the user's query.
+        """
+        self.logger.info("Summarizing context for the generator...")
+        if not context_nodes and not web_context:
+            self.logger.warning("No context provided for summarization.")
+            return ""
+
+        graph_context_str = "\n".join(
+            [f"- {node.get('label', 'N/A')}: {node.get('description', 'N/A')} (Score: {node.get('relevance_score', 0):.2f})" for node in context_nodes]
+        )
+        full_context = ""
+        if graph_context_str:
+            full_context += f"**Knowledge Graph Context:**\n{graph_context_str}\n\n"
+        if web_context:
+            full_context += f"**Web Search Context:**\n{web_context}\n\n"
+
+        prompt = (
+            "You are a helpful assistant. Your job is to synthesize and summarize the provided context "
+            "to help answer a user's query. Focus only on the information that is directly relevant to the query.\n\n"
+            f"**User Query:**\n{query}\n\n"
+            f"**Context to Summarize:**\n{full_context}\n\n"
+            "**Concise Summary:**"
+        )
+        try:
+            summary = "".join(self.session(prompt)).strip()
+            self.logger.debug(f"Generated summary: {summary}")
+            return summary
+        except Exception as e:
+            self.logger.error(f"Failed to summarize context: {e}", exc_info=True)
+            return "Could not summarize the provided context."
+
+    def _generate_standalone_answer(self, query: str, context: str, critique: Optional[str] = None) -> str:
+        """Generates a single, standalone answer based on the context and an optional critique."""
+        critique_section = ""
+        if critique:
+            critique_section = (
+                "\n\nPlease improve the previous answer based on the following critique:\n"
+                f"**Critique:** {critique}\n"
+            )
+
+        prompt = (
+            "You are a helpful assistant. Based on the context below, provide the best possible answer to the user's query.\n\n"
+            f"**Context:**\n{context}\n\n"
+            f"**Query:**\n{query}\n"
+            f"{critique_section}\n\n"
+            "**Answer:**"
+        )
+        return "".join(self.session(prompt)).strip()
+
+    def _critique_answer(self, query: str, context: str, answer: str) -> str:
+        """Critiques a given answer based on the context, checking for factual accuracy and completeness."""
+        prompt = (
+            "You are a fact-checker. Your task is to determine if the 'Proposed Answer' is fully supported by the 'Evidence'. "
+            "If it is not, explain what is wrong or missing. If it is correct, simply respond with 'The answer is correct'.\n\n"
+            f"**Evidence:**\n{context}\n\n"
+            f"**Query:**\n{query}\n\n"
+            f"**Proposed Answer:**\n{answer}\n\n"
+            "**Critique:**"
+        )
+        return "".join(self.session(prompt)).strip()
 
     def generate_answer(
         self,
@@ -19,61 +89,38 @@ class GenerationService:
         web_context: Optional[str] = None,
     ) -> str:
         """
-        Generates a final answer based on the provided context,
-        using an in-context reasoning prompt.
+        Generates a final answer by summarizing context and then iteratively
+        generating and critiquing the answer.
         """
-        prompt = self._build_reasoning_prompt(query, context_nodes, web_context)
-        response_str = "".join(self.session(prompt))
-        self.logger.debug(f"LLM Reasoning Response: {response_str}")
+        summarized_context = self._summarize_context(query, context_nodes, web_context)
+        if not summarized_context or "Could not summarize" in summarized_context:
+             return "I could not find enough information to formulate an answer."
 
-        try:
-            # The response is expected to be a JSON object with a 'reasoning'
-            # and 'final_answer' field. We only need the final answer.
-            response_json = json.loads(response_str)
-            final_answer = response_json.get("final_answer", "I could not find a confident answer.")
-            self.logger.info(f"Generated Answer: {final_answer}")
-            return final_answer
-        except (json.JSONDecodeError, TypeError) as e:
-            self.logger.error(f"Failed to decode LLM response: {e}")
-            # Fallback in case of malformed JSON
-            return "I encountered an issue while formulating the response."
+        self.logger.info("Starting iterative self-correction for answer generation.")
 
-    def _build_reasoning_prompt(
-        self,
-        query: str,
-        nodes: List[Dict],
-        web_context: Optional[str] = None,
-    ) -> str:
-        """
-        Builds a prompt that encourages the LLM to reason before answering,
-        using context from both the knowledge graph and a web search.
-        """
-        if not nodes and not web_context:
-            self.logger.warning("No context provided for generation.")
-            return "No context provided to answer the query."
+        last_answer = ""
+        critique = None
+        for i in range(self.max_iterations):
+            self.logger.info(f"Self-correction iteration {i + 1}/{self.max_iterations}")
 
-        # Format the knowledge graph context
-        graph_context_str = "\n".join(
-            [
-                f"- Node ID: {node.get('id', 'N/A')}, Label: {node.get('label', 'N/A')}, Description: {node.get('description', 'N/A')}"
-                for node in nodes
-            ]
-        )
+            answer = self._generate_standalone_answer(query, summarized_context, critique)
+            self.logger.debug(f"Iteration {i+1} Answer: {answer}")
 
-        # Combine contexts
-        full_context = ""
-        if graph_context_str:
-            full_context += f"**Knowledge Graph Context:**\n{graph_context_str}\n\n"
-        if web_context:
-            full_context += f"**Web Search Context:**\n{web_context}\n\n"
+            # If it's the last iteration, we don't need to critique the final answer.
+            if i == self.max_iterations - 1:
+                last_answer = answer
+                break
 
-        prompt = (
-            "Based on the following context, please perform two steps:\n"
-            "1. First, provide a brief 'reasoning' of how the combined context can be used to answer the user's query.\n"
-            "2. Second, based on your reasoning, provide a 'final_answer' to the query.\n\n"
-            "Your response MUST be a JSON object with two keys: 'reasoning' and 'final_answer'.\n\n"
-            f"{full_context}"
-            f"**Query:**\n{query}\n\n"
-            "**JSON Response:**"
-        )
-        return prompt
+            critique = self._critique_answer(query, summarized_context, answer)
+            self.logger.debug(f"Iteration {i+1} Critique: {critique}")
+
+            # If the answer is deemed correct, we can break early.
+            if "the answer is correct" in critique.lower():
+                self.logger.info("Answer deemed correct by critique. Halting iterations.")
+                last_answer = answer
+                break
+
+            last_answer = answer # Keep the last generated answer in case the loop finishes
+
+        self.logger.info(f"Final Answer after {self.max_iterations} iterations: {last_answer}")
+        return last_answer
