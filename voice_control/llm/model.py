@@ -49,7 +49,9 @@ class LLM(ABC):
             b_ = buffer.strip()
 
             bound_pair = next(
-                filter(lambda t_: b_.startswith(t_[: len(b_)]), tag_pairs),
+                filter(
+                    lambda p: b_ and b_.startswith(p[0][: len(b_)]), tag_pairs
+                ),
                 None,
             )
 
@@ -72,7 +74,7 @@ class LLM(ABC):
                             yield tool_call
                         except (json.JSONDecodeError, KeyError) as e:
                             self.logger.error(
-                                f"Failed to parse tool call: {tool_call}. Error: {e}"
+                                f"Failed to parse tool call: {tag_body}. Error: {e}"
                             )
 
                         buffer = ""
