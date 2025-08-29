@@ -43,6 +43,12 @@ class RAG:
             self.logger.info("Exploration did not yield any additional graph context.")
             graph_context_nodes = reranked_nodes
 
+        # Create a lookup for scores and merge them back into the explored context
+        score_map = {node['id']: node.get('relevance_score', 0) for node in reranked_nodes}
+        for node in graph_context_nodes:
+            if node['id'] in score_map:
+                node['relevance_score'] = score_map[node['id']]
+
         # 3. Web Search
         web_context = None
         if self.use_web_search:
