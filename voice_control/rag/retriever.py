@@ -48,9 +48,13 @@ class RetrievalManager:
         vector_results = self.graph.vector_search(embeddings, top_k=5)
         keyword_results = self.graph.keyword_search(keywords, top_k=5)
 
+        # Flatten the lists of lists into a single list of nodes
+        flat_vector_results = [node for sublist in vector_results for node in sublist]
+        flat_keyword_results = [node for sublist in keyword_results for node in sublist]
+
         # Combine and deduplicate results
-        combined_results = {item['id']: item for item in vector_results}
-        for item in keyword_results:
+        combined_results = {item['id']: item for item in flat_vector_results}
+        for item in flat_keyword_results:
             if item['id'] not in combined_results:
                 combined_results[item['id']] = item
 
