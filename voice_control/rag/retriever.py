@@ -18,8 +18,12 @@ class RetrievalManager:
         self.max_keywords = max_keywords
         self.top_k_rerank = top_k_rerank
 
-        # Initialize the cross-encoder model for reranking
-        self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        # Initialize the cross-encoder model for reranking, with error handling
+        try:
+            self.reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        except Exception as e:
+            self.logger.error(f"Failed to load CrossEncoder model. Reranking will be disabled. Error: {e}")
+            self.reranker = None
 
     def _transform_query_for_web(self, query: str) -> str:
         """
@@ -62,11 +66,16 @@ class RetrievalManager:
             return []
 
         self.logger.info(f"Reranking {len(nodes)} nodes...")
+
+        if not self.reranker:
+            self.logger.warning("Reranker not available. Returning top nodes without reranking.")
+            return nodes[:self.top_k_rerank]
+
         # Create pairs of [query, node_description] for the cross-encoder
         pairs = [[query, f"{node.get('label', '')}: {node.get('description', '')}"] for node in nodes]
 
         # Get scores from the model
-        scores = self.reranker.predict(pairs)
+        scores = self.reranker.predict(pairs, show_progress_bar=False)
 
         # Add scores to the nodes and sort
         for i, node in enumerate(nodes):
