@@ -30,8 +30,7 @@ class KnowledgeGraph:
         ]
         query = """
             UNWIND $queries_data AS q_data
-            CALL {
-                WITH q_data
+            CALL (q_data) {
                 CALL db.index.fulltext.queryNodes("nodes_label_description_fulltext", q_data.keyword + '~', {limit: $top_k})
                 YIELD node, score
                 RETURN collect(
@@ -90,7 +89,10 @@ class KnowledgeGraph:
         return result
 
     def expansion(
-        self, frontier_ids: List[str], excluded_ids: List[str], max_hops: int = 1
+        self,
+        frontier_ids: List[str],
+        excluded_ids: List[str],
+        max_hops: int = 1,
     ) -> List[Dict[str, Dict[str, Any]]]:
         """Performs a multi-hop expansion from a set of frontier nodes."""
         # Ensure max_hops is within a reasonable range to prevent performance issues
@@ -178,4 +180,6 @@ class KnowledgeGraph:
         """
         with self._driver.session() as session:
             result = session.run(query, triplets=triplets)
-            self.logger.info(f"Added {result.single()['created_relationships']} new relationships to the graph.")
+            self.logger.info(
+                f"Added {result.single()['created_relationships']} new relationships to the graph."
+            )
