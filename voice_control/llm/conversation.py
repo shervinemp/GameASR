@@ -104,11 +104,12 @@ class Conversation:
         self._messages.clear()
 
     @property
+    def system(self) -> Message:
+        return Message(role=Message.Role.system, content=self._system)
+
+    @property
     def messages(self) -> MessageList:
-        self._cutoff_idx = range(len(self._messages))[self.cutoff_idx]
-        return [
-            Message(role=Message.Role.system, content=self._system)
-        ] + self._messages[self._cutoff_idx :]
+        return self._messages[self.cutoff_idx :]
 
     @property
     def tools(self) -> Dict[str, Tool]:

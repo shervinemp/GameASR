@@ -151,6 +151,35 @@ class GGUFLLM(LLM):
             if (k := "content") in (delta := chunk["choices"][0]["delta"]):
                 yield delta[k]
 
+    def _kv_cache_seq_ltrim(self, n_keep: int, n_discard: int):
+        """
+        Implementation comes from this GitHub repository:
+            https://github.com/Limour-dev/llama-python-streamingllm/blob/main/llama_cpp_python_streamingllm.py
+
+        Args:
+            n_keep(int): number of first tokens to keep.
+            n_discard(int) number of tokens to discard.
+        Returns:
+            None
+        Schema:
+            n_keep(3)  n_keep(3)+n_discard(3)
+                |        |
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # Initial state.
+        [0, 1, 2, -, -, -, 6, 7, 8, 9] # kv_cache_seq_rm
+        [0, 1, 2, 6, 7, 8, 9] # kv_cache_seq_shift
+        """
+        n_tokens = self.model.n_tokens
+
+        self.model._ctx.kv_cache_seq_rm(-1, n_keep, n_keep + n_discard)
+        self.model._ctx.kv_cache_seq_shift(
+            0, n_keep + n_discard, n_tokens, -n_discard
+        )
+
+        self.model.input_ids[n_keep : n_tokens - n_discard] = (
+            self.model.input_ids[n_keep + n_discard : n_tokens]
+        )
+        self.model.n_tokens = n_tokens - n_discard
+
 
 class NemotronMini(GGUFLLM):
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
