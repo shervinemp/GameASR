@@ -23,6 +23,7 @@ class LLM(ABC):
     def _parse(
         self,
         stream: Iterator[str],
+        flush: bool = False,
     ) -> Generator[str | Dict[str, Any], None, None]:
         tag_pairs = [
             ("<", ">"),
@@ -80,7 +81,7 @@ class LLM(ABC):
                     continue
                 yield buffer
                 buffer = ""
-        if b_:
+        if flush and b_:
             yield buffer
 
 
