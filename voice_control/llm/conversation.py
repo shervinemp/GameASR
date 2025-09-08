@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, List, Dict
@@ -24,7 +25,20 @@ class Message:
         return Message(Message.Role(data["role"]), data["content"])
 
 
-class MessageList(List):
+class MessageList(list):
+    def __init__(self, other: list | None = None):
+        super().__init__()
+        if other:
+            for item in other:
+                self.append(item)
+
+    def append(self, x: Message | Dict[str, str]):
+        if isinstance(x, Message):
+            super().append(x)
+        elif isinstance(x, dict):
+            super().append(Message.from_dict(x))
+        else:
+            raise NotImplementedError
 
     def __getitem__(
         self, key: int | slice
@@ -34,27 +48,43 @@ class MessageList(List):
         else:
             return Message.asdict(super().__getitem__(key))
 
-    def __setitem__(self, key: int | slice, value: Dict[str, str]):
+    def __setitem__(self, key: int | slice, value: Message | Dict[str, str]):
         if isinstance(key, slice):
             for i in range(len(self))[key]:
                 self.__setitem__(i, value)
         else:
-            self._message_list[key] = Message.from_dict(value)
+            v = (
+                value
+                if isinstance(Message, value)
+                else Message.from_dict(value)
+            )
+            super().__setitem__(key, v)
 
     def __iter__(self) -> Iterable[Dict[str, str]]:
         return map(Message.asdict, super().__iter__())
+
+    def __add__(self, other):
+        if isinstance(other, list):
+            return MessageList(super().__add__(other))
+        return NotImplemented
+
+    def __radd__(self, other):
+        if isinstance(other, list):
+            return MessageList(other.__add__(self))
+        return NotImplemented
 
 
 class Conversation:
 
     def __init__(self):
         self._messages: MessageList = MessageList()
+        self._system: str = ""
         self._cutoff_idx: int = 0
         self._tools: Dict[str, Tool] = {}
+        self._state: Dict[str, Dict] = defaultdict({}, dict)
 
-    def add_system_message(self, content: str):
-        msg = Message(role=Message.Role.system, content=content)
-        self._messages.append(msg)
+    def set_system_message(self, content: str):
+        self._system = content
 
     def add_user_message(self, content: str):
         msg = Message(role=Message.Role.user, content=content)

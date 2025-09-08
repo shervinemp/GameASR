@@ -130,6 +130,15 @@ class GGUFLLM(LLM):
         tool_choice: str | Dict[str, Any] = "auto",
     ) -> Generator[str, None, None]:
 
+        if (k := "cache") in (state := conversation._state[id(self)]):
+            cache = state[k]
+        else:
+            from llama_cpp import LlamaCache
+
+            cache = LlamaCache()
+            state[k] = cache
+
+        self.model.set_cache(cache)
         stream = self.model.create_chat_completion(
             messages=conversation.messages,
             tools=[t.to_dict() for t in conversation.tools.values()],
