@@ -3,7 +3,6 @@ onnxruntime==1.22.1
 huggingface-hub==0.32.4
 soundfile==0.13.1
 torch==2.7.1
-silero-vad==5.1.2
 sounddevice==0.5.2
 simpleaudio==1.0.4
 grpcio==1.73.0
@@ -13,7 +12,7 @@ python-dotenv==1.1.1
 PyYAML==6.0.2
 ollama==0.5.3
 onnx-asr==0.6.1
-llama-cpp-python==0.3.13
+llama-cpp-python==0.3.16
 kokoro-onnx==0.4.9
 sentence-transformers==5.0.0
 neo4j==5.28.1

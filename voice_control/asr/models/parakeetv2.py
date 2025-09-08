@@ -1,5 +1,6 @@
 from queue import Empty, Queue
 import threading
+from time import sleep
 from typing import Callable, Generator, Iterable
 from collections import deque
 import numpy as np
@@ -103,7 +104,7 @@ class Silero(ConsumerProducer):
                     yield np.concatenate(buffer)
                     buffer.clear()
             except Empty:
-                pass
+                sleep(0.01)
 
     def _consume(self, chunk: Iterable[np.ndarray]):
         acquired = self._lock.acquire(timeout=2)

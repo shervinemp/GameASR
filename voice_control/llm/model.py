@@ -1,13 +1,7 @@
 from abc import ABC, abstractmethod
 import json
 import os
-from typing import Any, Dict, Generator
-
-import ollama
-from llama_cpp import (
-    Iterator,
-    Llama,
-)
+from typing import Any, Dict, Generator, Iterator
 
 from .conversation import Conversation
 
@@ -55,12 +49,12 @@ class LLM(ABC):
                 None,
             )
 
-            is_tag = is_tag or bound_pair
+            is_tag = is_tag or bound_pair  # TODO: FIX
             if is_tag:
                 if b_.endswith(bound_pair[1]):
                     inner = b_[len(bound_pair[0]) : -len(bound_pair[1])]
                     buffer = ""
-                    is_tag = None
+                    is_tag = False
                     if inner == think_beg:
                         is_thought = True
                     elif inner == tool_beg:
@@ -94,10 +88,12 @@ class GGUFLLM(LLM):
     hf_repo: str = ""
     filename: str = ""
     local_dir: str = os.path.join("model_files", "llm")
-    n_ctx: int = 4096
-    max_tokens: int = 4096
+    n_ctx: int = 8192
+    max_tokens: int = 8192
 
     def __init__(self):
+        from llama_cpp import Llama
+
         self.logger = get_logger(self.__class__.__name__)
         model_path = os.path.join(self.local_dir, self.filename)
         self.stream_processor = self._parse
@@ -146,24 +142,27 @@ class GGUFLLM(LLM):
                 yield delta[k]
 
 
-class NemotronLLM(GGUFLLM):
+class NemotronMini(GGUFLLM):
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
 
 
-class QwenLLM(GGUFLLM):
+class Qwen3(GGUFLLM):
     hf_repo: str = "Qwen/Qwen3-4B-GGUF"
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
-    n_ctx: int = 8192
 
 
-class OllamaLLM(LLM):
-    def __init__(self):
+class OllamaModel(LLM):
+    def __init__(
+        self,
+        host: str = config.get("llm.providers.ollama.base_url"),
+        model: str = config.get("llm.models.default"),
+    ):
+        from ollama import Client
+
         self.logger = get_logger(__name__)
-        self.client = ollama.Client(
-            host=config.get("llm.providers.ollama.base_url")
-        )
-        self.model = config.get("llm.models.default")
+        self.client = Client(host=host)
+        self.model = model
 
     def _infer(
         self, conversation: Conversation
@@ -183,9 +182,9 @@ class OllamaLLM(LLM):
 # ----------------------------------------------------------------------
 
 llm_providers = {
-    "nemotron": NemotronLLM,
-    "qwen": QwenLLM,
-    "ollama": OllamaLLM,
+    "nemotron": NemotronMini,
+    "qwen3": Qwen3,
+    "ollama": OllamaModel,
 }
 
 provider = config.get("llm.default_provider", "nemotron")
