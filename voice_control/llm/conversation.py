@@ -26,7 +26,7 @@ class Message:
 
 
 class MessageList(list):
-    def __init__(self, other: list | None = None):
+    def __init__(self, other: Iterable | None = None):
         super().__init__()
         if other:
             for item in other:
@@ -44,7 +44,7 @@ class MessageList(list):
         self, key: int | slice
     ) -> Dict[str, str] | List[Dict[str, str]]:
         if isinstance(key, slice):
-            return list(map(self.__getitem__, range(len(self))[key]))
+            return MessageList(super().__getitem__(key))
         else:
             return Message.asdict(super().__getitem__(key))
 
@@ -78,6 +78,8 @@ class Conversation:
 
     def __init__(self):
         self._messages: MessageList = MessageList()
+        self.cutoff_idx: int = 0
+
         self._system: str = ""
         self._cutoff_idx: int = 0
         self._tools: Dict[str, Tool] = {}
@@ -103,7 +105,10 @@ class Conversation:
 
     @property
     def messages(self) -> MessageList:
-        return self._messages[self._cutoff_idx :]
+        self._cutoff_idx = range(len(self._messages))[self.cutoff_idx]
+        return [
+            Message(role=Message.Role.system, content=self._system)
+        ] + self._messages[self._cutoff_idx :]
 
     @property
     def tools(self) -> Dict[str, Tool]:

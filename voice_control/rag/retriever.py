@@ -26,7 +26,7 @@ class RetrievalManager:
         self.logger = get_logger(__file__)
         self.graph = graph
         self.session = Session(llm)
-        self.session.conversation._cutoff_idx = -1
+        self.session.conversation.cutoff_idx = -1
         self.max_keywords = max_keywords
         self.top_k_rerank = top_k_rerank
         self.top_k_web = top_k_web
