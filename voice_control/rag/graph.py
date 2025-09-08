@@ -10,20 +10,23 @@ from ..common.utils import get_logger
 
 class RAG:
     """Implements the advanced RAG pipeline."""
+
     def __init__(
         self,
         graph: KnowledgeGraph,
         llm: Union[LLM, None] = None,
         use_web_search: bool = True,
-        use_graph_writer: bool = False, # Default to off
+        use_graph_writer: bool = False,  # Default to off
         max_iterations: int = 2,
-        max_hops: int = 2,
+        max_hops: int = 1,
     ):
         """Initializes the RAG pipeline and its components."""
         self.logger = get_logger(__file__)
         self.retriever = RetrievalManager(graph, llm)
         self.explorer = ExplorationEngine(graph)
-        self.generator = GenerationService(llm, graph, max_iterations=max_iterations)
+        self.generator = GenerationService(
+            llm, graph, max_iterations=max_iterations
+        )
         self.use_web_search = use_web_search
         self.use_graph_writer = use_graph_writer
         self.max_hops = max_hops
@@ -36,18 +39,25 @@ class RAG:
             self.logger.info("No initial nodes found in the knowledge graph.")
 
         # 2. Expand
-        reranked_node_ids = [node['id'] for node in reranked_nodes]
-        graph_context_nodes = self.explorer.explore(reranked_node_ids, max_hops=self.max_hops)
+        reranked_node_ids = [node["id"] for node in reranked_nodes]
+        graph_context_nodes = self.explorer.explore(
+            reranked_node_ids, max_hops=self.max_hops
+        )
 
         if not graph_context_nodes:
-            self.logger.info("Exploration did not yield any additional graph context.")
+            self.logger.info(
+                "Exploration did not yield any additional graph context."
+            )
             graph_context_nodes = reranked_nodes
 
         # Create a lookup for scores and merge them back into the explored context
-        score_map = {node['id']: node.get('relevance_score', 0) for node in reranked_nodes}
+        score_map = {
+            node["id"]: node.get("relevance_score", 0)
+            for node in reranked_nodes
+        }
         for node in graph_context_nodes:
-            if node['id'] in score_map:
-                node['relevance_score'] = score_map[node['id']]
+            if node["id"] in score_map:
+                node["relevance_score"] = score_map[node["id"]]
 
         # 3. Web Search
         web_context = None
@@ -65,7 +75,7 @@ class RAG:
             query,
             context_nodes=graph_context_nodes,
             web_context=web_context,
-            write_to_graph=self.use_graph_writer
+            write_to_graph=self.use_graph_writer,
         )
 
         return final_answer
