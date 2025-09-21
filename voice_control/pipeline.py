@@ -2,7 +2,7 @@ import sys
 from typing import Optional
 
 from .asr import get_model_class
-from .llm import Session, LLM
+from .llm import Session, default_llm_class
 from .llm.tools import Tool
 from .tts import TTS
 from .rag import RAG
@@ -112,10 +112,10 @@ def main():
         )
 
     try:
-        llm = LLM()
         graph = KnowledgeGraph(uri, user, password)
+        llm = default_llm_class()
         rag = RAG(graph, llm=llm)
-        session = Session(llm)
+        session = Session(llm=llm)
         pipe = Pipeline(session=session, rag=rag)
         logger.info("Starting voice control pipeline...")
         pipe.run()

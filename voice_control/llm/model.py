@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import json
 import os
+from threading import Lock
 from typing import Any, Dict, Generator, Iterator
 
 from .conversation import Conversation
@@ -11,13 +12,23 @@ from ..common.utils import download_hf_file, get_logger
 
 class LLM(ABC):
     def __call__(
-        self, conversation: Conversation, *args, **kwargs
+        self,
+        conversation: Conversation,
+        session_state: dict | None = None,
+        **kwargs,
     ) -> Generator[str | dict, None, None]:
-        yield from self._parse(self._infer(conversation, *args, **kwargs))
+        session_state = session_state or dict()
+        yield from self._parse(
+            self._infer(
+                conversation=conversation,
+                session_state=session_state,
+                **kwargs,
+            )
+        )
 
     @abstractmethod
     def _infer(
-        self, conversation: Conversation, *args, **kwargs
+        self, conversation: Conversation, *, session_state: dict, **kwargs
     ) -> Generator[str, None, None]: ...
 
     def _parse(
@@ -25,7 +36,7 @@ class LLM(ABC):
         stream: Iterator[str],
         flush: bool = False,
     ) -> Generator[str | Dict[str, Any], None, None]:
-        tag_pairs = [
+        tag_boundaries = [
             ("<", ">"),
             ("&lt;", "&gt;"),
         ]
@@ -34,8 +45,7 @@ class LLM(ABC):
 
         buffer = ""
         tag_body = ""
-        bound_pair = None
-        is_tag = False
+        bounds = None
         is_call = False
         is_thought = False
 
@@ -43,26 +53,29 @@ class LLM(ABC):
             buffer += content
             b_ = buffer.strip()
 
-            bound_pair = next(
+            bounds = bounds or next(
                 filter(
-                    lambda p: b_ and b_.startswith(p[0][: len(b_)]), tag_pairs
+                    lambda p: b_ and b_.startswith(p[0][: len(b_)]),
+                    tag_boundaries,
                 ),
                 None,
             )
 
-            is_tag = is_tag or bound_pair  # TODO: FIX
-            if is_tag:
-                if b_.endswith(bound_pair[1]):
-                    inner = b_[len(bound_pair[0]) : -len(bound_pair[1])]
-                    buffer = ""
-                    is_tag = False
+            if bounds:
+                if b_.endswith(bounds[1]):
+                    inner = b_[len(bounds[0]) : -len(bounds[1])]
                     if inner == think_beg:
                         is_thought = True
+                        buffer = ""
                     elif inner == tool_beg:
                         is_call = True
-                    elif inner == think_end:
+                        buffer = ""
+                    elif inner == think_end and is_thought:
                         is_thought = False
-                    elif inner == tool_end:
+                        buffer = ""
+                    elif inner == tool_end and is_call:
+                        is_call = False
+                        buffer = ""
                         try:
                             tool_call = json.loads(tag_body)
                             tag_body = ""
@@ -71,17 +84,16 @@ class LLM(ABC):
                             self.logger.error(
                                 f"Failed to parse tool call: {tag_body}. Error: {e}"
                             )
+                    bounds = None
 
-                        buffer = ""
-                        is_call = False
-            else:
+            if buffer and not bounds:
                 if is_call or is_thought:
                     tag_body += buffer
-                    buffer = ""
-                    continue
-                yield buffer
+                else:
+                    yield buffer
                 buffer = ""
-        if flush and b_:
+
+        if buffer and flush:
             yield buffer
 
 
@@ -115,6 +127,9 @@ class GGUFLLM(LLM):
         )
         self.logger.info("Model loaded successfully.")
 
+        self._last_state = dict()
+        self._lock = Lock()
+
     @classmethod
     def download(cls):
         os.makedirs(cls.local_dir, exist_ok=True)
@@ -127,58 +142,34 @@ class GGUFLLM(LLM):
     def _infer(
         self,
         conversation: Conversation,
+        *,
+        session_state: dict,
         tool_choice: str | Dict[str, Any] = "auto",
     ) -> Generator[str, None, None]:
+        with self._lock:
+            k_ = "model_state"
+            new_state = session_state.get(k_)
+            if (
+                old_state := self._last_state.get(k_)
+            ) and old_state != new_state:
+                self._last_state[k_] = self.model.save_state()
+                self.model.reset()
+                if new_state:
+                    self.model.load_state(new_state)
 
-        if (k := "cache") in (state := conversation._state[id(self)]):
-            cache = state[k]
-        else:
-            from llama_cpp import LlamaCache
+            self._last_state = session_state
 
-            cache = LlamaCache()
-            state[k] = cache
+            stream = self.model.create_chat_completion(
+                messages=conversation.messages,
+                tools=[t.to_dict() for t in conversation.tools.values()],
+                tool_choice=tool_choice,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
 
-        self.model.set_cache(cache)
-        stream = self.model.create_chat_completion(
-            messages=conversation.messages,
-            tools=[t.to_dict() for t in conversation.tools.values()],
-            tool_choice=tool_choice,
-            max_tokens=self.max_tokens,
-            stream=True,
-        )
-
-        for chunk in stream:
-            if (k := "content") in (delta := chunk["choices"][0]["delta"]):
-                yield delta[k]
-
-    def _kv_cache_seq_ltrim(self, n_keep: int, n_discard: int):
-        """
-        Implementation comes from this GitHub repository:
-            https://github.com/Limour-dev/llama-python-streamingllm/blob/main/llama_cpp_python_streamingllm.py
-
-        Args:
-            n_keep(int): number of first tokens to keep.
-            n_discard(int) number of tokens to discard.
-        Returns:
-            None
-        Schema:
-            n_keep(3)  n_keep(3)+n_discard(3)
-                |        |
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # Initial state.
-        [0, 1, 2, -, -, -, 6, 7, 8, 9] # kv_cache_seq_rm
-        [0, 1, 2, 6, 7, 8, 9] # kv_cache_seq_shift
-        """
-        n_tokens = self.model.n_tokens
-
-        self.model._ctx.kv_cache_seq_rm(-1, n_keep, n_keep + n_discard)
-        self.model._ctx.kv_cache_seq_shift(
-            0, n_keep + n_discard, n_tokens, -n_discard
-        )
-
-        self.model.input_ids[n_keep : n_tokens - n_discard] = (
-            self.model.input_ids[n_keep + n_discard : n_tokens]
-        )
-        self.model.n_tokens = n_tokens - n_discard
+            for chunk in stream:
+                if (k := "content") in (delta := chunk["choices"][0]["delta"]):
+                    yield delta[k]
 
 
 class NemotronMini(GGUFLLM):
@@ -208,7 +199,7 @@ class OllamaModel(LLM):
         self.model = model
 
     def _infer(
-        self, conversation: Conversation
+        self, conversation: Conversation, *, session_state: dict
     ) -> Generator[str | Dict[str, Any], None, None]:
 
         stream = self.client.chat(
@@ -231,11 +222,6 @@ llm_providers = {
 }
 
 provider = config.get("llm.default_provider", "nemotron")
-llm_class = llm_providers.get(provider)
-
-if not llm_class:
-    raise ValueError(f"Invalid LLM provider specified in config: {provider}")
-
-LLM = llm_class
+default_llm_class = llm_providers.get(provider)
 
 # ----------------------------------------------------------------------

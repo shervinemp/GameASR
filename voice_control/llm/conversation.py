@@ -78,12 +78,11 @@ class Conversation:
 
     def __init__(self):
         self._messages: MessageList = MessageList()
-        self.cutoff_idx: int = 0
 
         self._system: str = ""
-        self._cutoff_idx: int = 0
         self._tools: Dict[str, Tool] = {}
-        self._state: Dict[str, Dict] = defaultdict({}, dict)
+        self._state: Dict[str, Dict] = defaultdict(dict)
+        self._cutoff_idx: int = 0
 
     def set_system_message(self, content: str):
         self._system = content
@@ -104,12 +103,12 @@ class Conversation:
         self._messages.clear()
 
     @property
-    def system(self) -> Message:
-        return Message(role=Message.Role.system, content=self._system)
+    def messages(self) -> MessageList:
+        return self._messages[self._cutoff_idx :]
 
     @property
-    def messages(self) -> MessageList:
-        return self._messages[self.cutoff_idx :]
+    def system(self) -> Message:
+        return Message(role=Message.Role.system, content=self._system)
 
     @property
     def tools(self) -> Dict[str, Tool]:
@@ -120,3 +119,11 @@ class Conversation:
         if not isinstance(tools, dict):
             tools = {t.name: t for t in tools}
         self._tools = tools
+
+    @property
+    def cutoff_idx(self):
+        return range(len(self._messages))[self._cutoff_idx]
+
+    @cutoff_idx.setter
+    def cutoff_idx(self, value):
+        self._cutoff_idx = value

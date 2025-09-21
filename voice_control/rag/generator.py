@@ -9,11 +9,17 @@ from .knowledge_base import KnowledgeGraph
 
 class GenerationService:
     """Handles the final answer generation process."""
-    def __init__(self, llm: LLM, graph: KnowledgeGraph, max_iterations: int = 2):
+
+    def __init__(
+        self,
+        llm: LLM,
+        graph: KnowledgeGraph,
+        max_iterations: int = 2,
+    ):
         self.logger = get_logger(__file__)
         self.session = Session(llm)
         self.graph = graph
-        self.session.conversation._cutoff_idx = -1
+        self.session.conversation.cutoff_idx = -1
         self.max_iterations = max_iterations
 
     def _summarize_context(
@@ -29,11 +35,16 @@ class GenerationService:
             return ""
 
         graph_context_str = "\n".join(
-            [f"- {node.get('label', 'N/A')}: {node.get('description', 'N/A')} (Score: {node.get('relevance_score', 0):.2f})" for node in context_nodes]
+            [
+                f"- {node.get('label', 'N/A')}: {node.get('description', 'N/A')} (Score: {node.get('relevance_score', 0):.2f})"
+                for node in context_nodes
+            ]
         )
         full_context = ""
         if graph_context_str:
-            full_context += f"**Knowledge Graph Context:**\n{graph_context_str}\n\n"
+            full_context += (
+                f"**Knowledge Graph Context:**\n{graph_context_str}\n\n"
+            )
         if web_context:
             full_context += f"**Web Search Context:**\n{web_context}\n\n"
 
@@ -51,10 +62,14 @@ class GenerationService:
             self.logger.debug(f"Generated summary: {summary}")
             return summary
         except Exception as e:
-            self.logger.error(f"Failed to summarize context: {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to summarize context: {e}", exc_info=True
+            )
             return "Could not summarize the provided context."
 
-    def _generate_standalone_answer(self, query: str, context: str, critique: Optional[str] = None) -> str:
+    def _generate_standalone_answer(
+        self, query: str, context: str, critique: Optional[str] = None
+    ) -> str:
         """Generates a single, standalone answer based on the context and an optional critique."""
         critique_section = ""
         if critique:
@@ -84,12 +99,22 @@ class GenerationService:
             response_str = "".join(self.session(prompt)).strip()
             return json.loads(response_str)
         except Exception as e:
-            self.logger.error(f"Could not parse critique JSON or critique call failed: {e}", exc_info=True)
-            return {"is_correct": False, "explanation": "Failed to get a valid critique from the model."}
+            self.logger.error(
+                f"Could not parse critique JSON or critique call failed: {e}",
+                exc_info=True,
+            )
+            return {
+                "is_correct": False,
+                "explanation": "Failed to get a valid critique from the model.",
+            }
 
-    def _extract_new_triplets(self, query: str, context: str, answer: str) -> List[Dict[str, str]]:
+    def _extract_new_triplets(
+        self, query: str, context: str, answer: str
+    ) -> List[Dict[str, str]]:
         """Extracts new, high-confidence facts from the web context that are supported by the final answer."""
-        self.logger.info("Extracting new triplets from the answer and context...")
+        self.logger.info(
+            "Extracting new triplets from the answer and context..."
+        )
         prompt = (
             "You are a knowledge graph expert. Your task is to extract new, high-confidence facts from the 'Web Search Context' that are supported by the final 'Verified Answer'. "
             "Do not extract facts that are already present in the 'Knowledge Graph Context'.\n"
@@ -104,10 +129,15 @@ class GenerationService:
             response = "".join(self.session(prompt))
             triplets = json.loads(response)
             if triplets:
-                self.logger.info(f"Extracted {len(triplets)} new triplets to be added to the graph.")
+                self.logger.info(
+                    f"Extracted {len(triplets)} new triplets to be added to the graph."
+                )
             return triplets
         except Exception as e:
-            self.logger.error(f"Failed to extract triplets from LLM response: {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to extract triplets from LLM response: {e}",
+                exc_info=True,
+            )
             return []
 
     def generate_answer(
@@ -118,27 +148,44 @@ class GenerationService:
         write_to_graph: bool = False,
     ) -> str:
         """Generates a final answer using a summarize -> self-correct -> write pipeline."""
-        summarized_context = self._summarize_context(query, context_nodes, web_context)
-        if not summarized_context or "Could not summarize" in summarized_context:
-             return "I could not find enough information to formulate an answer."
+        summarized_context = self._summarize_context(
+            query, context_nodes, web_context
+        )
+        if (
+            not summarized_context
+            or "Could not summarize" in summarized_context
+        ):
+            return (
+                "I could not find enough information to formulate an answer."
+            )
 
-        self.logger.info("Starting iterative self-correction for answer generation.")
+        self.logger.info(
+            "Starting iterative self-correction for answer generation."
+        )
         last_answer = ""
         critique_explanation = None
         for i in range(self.max_iterations):
-            self.logger.info(f"Self-correction iteration {i + 1}/{self.max_iterations}")
-            answer = self._generate_standalone_answer(query, summarized_context, critique_explanation)
+            self.logger.info(
+                f"Self-correction iteration {i + 1}/{self.max_iterations}"
+            )
+            answer = self._generate_standalone_answer(
+                query, summarized_context, critique_explanation
+            )
             self.logger.debug(f"Iteration {i+1} Answer: {answer}")
 
             if i == self.max_iterations - 1:
                 last_answer = answer
                 break
 
-            critique_result = self._critique_answer(query, summarized_context, answer)
+            critique_result = self._critique_answer(
+                query, summarized_context, answer
+            )
             self.logger.debug(f"Iteration {i+1} Critique: {critique_result}")
 
             if critique_result.get("is_correct", False):
-                self.logger.info("Answer deemed correct by critique. Halting iterations.")
+                self.logger.info(
+                    "Answer deemed correct by critique. Halting iterations."
+                )
                 last_answer = answer
                 break
 
@@ -149,7 +196,9 @@ class GenerationService:
 
         # Optional: Write new knowledge back to the graph
         if write_to_graph:
-            new_triplets = self._extract_new_triplets(query, summarized_context, last_answer)
+            new_triplets = self._extract_new_triplets(
+                query, summarized_context, last_answer
+            )
             if new_triplets:
                 self.graph.add_triplets(new_triplets)
 

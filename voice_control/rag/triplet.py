@@ -59,7 +59,7 @@ class KnowledgeExtractor:
         Initializes the extractor with an LLM model instance.
         """
         self.session = Session(llm)
-        self.session.conversation._cutoff_idx = -1
+        self.session.conversation.cutoff_idx = -1
 
     def _generate_triplet_prompt(
         self, text: str, existing_schema: Dict = None, retrieval: bool = False
