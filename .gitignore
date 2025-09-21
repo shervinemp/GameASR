@@ -48,3 +48,6 @@ __pycache__
 *.sqlite3
 
 model_files/
+
+# Environment variables
+.env

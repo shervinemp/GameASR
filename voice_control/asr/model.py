@@ -1,6 +1,6 @@
 from typing import Literal
 
-model_types = Literal["parakeetv2", "kyutai"]
+model_types = Literal["parakeetv2"]
 
 
 def get_model_class(model_name: model_types) -> type:
@@ -8,7 +8,3 @@ def get_model_class(model_name: model_types) -> type:
         from .models import ParakeetV2
 
         return ParakeetV2
-    elif model_name == "kyutai":
-        from .models import KyutaiSTT
-
-        return KyutaiSTT

@@ -30,12 +30,11 @@ class AudioPlayer:
     def _run(self):
         while self._running:
             try:
-                audio_data, sample_rate = self._queue.get(timeout=0.85)
+                audio_data, sample_rate = self._queue.get(timeout=1.0)
                 self.play(audio_data, sample_rate)
             except Empty:
+                # No new audio in the queue, just continue waiting
                 pass
-            finally:
-                sleep(0.15)
 
     def __call__(
         self,
@@ -97,7 +96,9 @@ def main():
 
     player = AudioPlayer()
 
-    logger.info("--- Testing interrupt playback with a generated sine wave ---")
+    logger.info(
+        "--- Testing interrupt playback with a generated sine wave ---"
+    )
     sample_rate = 44100
     frequency = 440  # A4 note
     duration = 2.0  # seconds

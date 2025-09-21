@@ -7,7 +7,6 @@ import io
 import pandas as pd
 import json
 import sys
-from dotenv import dotenv_values
 from typing import Dict, Optional, List
 
 from sentence_transformers import SentenceTransformer
@@ -16,6 +15,7 @@ from neo4j import GraphDatabase
 from neo4j_graphrag.indexes import create_vector_index
 
 from ..common.utils import get_logger, setup_logging
+from ..common.config import config
 
 
 class DataLoader:
@@ -34,7 +34,9 @@ class DataLoader:
         triples_path = os.path.join(path, "triples.txt")
         entities_path = os.path.join(path, "entities.json")
         relations_path = os.path.join(path, "relations.json")
-        return self._load_filtered(triples_path, entities_path, relations_path, limit)
+        return self._load_filtered(
+            triples_path, entities_path, relations_path, limit
+        )
 
     def _load_filtered(
         self,
@@ -66,10 +68,14 @@ class DataLoader:
         required_relation_ids = set(triples_subset_df["relation_id"].unique())
 
         filtered_entities = {
-            eid: entities[eid] for eid in required_entity_ids if eid in entities
+            eid: entities[eid]
+            for eid in required_entity_ids
+            if eid in entities
         }
         filtered_relations = {
-            rid: relations[rid] for rid in required_relation_ids if rid in relations
+            rid: relations[rid]
+            for rid in required_relation_ids
+            if rid in relations
         }
 
         return self.KnowledgeData(
@@ -96,13 +102,21 @@ class CodexDataLoader(DataLoader):
         """
         repo_path = os.path.join(path, "codex-master")
         data_path = os.path.join(repo_path, "data")
-        triples_path = os.path.join(data_path, "triples", f"codex-{size}", "train.txt")
-        entities_path = os.path.join(data_path, "entities", lang, "entities.json")
-        relations_path = os.path.join(data_path, "relations", lang, "relations.json")
+        triples_path = os.path.join(
+            data_path, "triples", f"codex-{size}", "train.txt"
+        )
+        entities_path = os.path.join(
+            data_path, "entities", lang, "entities.json"
+        )
+        relations_path = os.path.join(
+            data_path, "relations", lang, "relations.json"
+        )
 
         print(f"\n--- Loading CoDEx-{size.upper()} Dataset ---")
         self._download_and_unzip(repo_path)
-        data = self._load_filtered(triples_path, entities_path, relations_path, limit)
+        data = self._load_filtered(
+            triples_path, entities_path, relations_path, limit
+        )
 
         return data
 
@@ -116,7 +130,9 @@ class CodexDataLoader(DataLoader):
             return
 
         print("Downloading CoDEx repository...")
-        repo_url = "https://github.com/tsafavi/codex/archive/refs/heads/master.zip"
+        repo_url = (
+            "https://github.com/tsafavi/codex/archive/refs/heads/master.zip"
+        )
         try:
             response = requests.get(repo_url, stream=True)
             response.raise_for_status()
@@ -135,9 +151,10 @@ class Neo4jImporter:
     def __init__(self, uri: str, user: str, password: str):
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         print("Initializing embedding model...")
-        self._embedding_model = SentenceTransformer(
-            "avsolatorio/GIST-small-Embedding-v0"
+        embedding_model_name = config.get(
+            "llm.models.embedding", "avsolatorio/GIST-small-Embedding-v0"
         )
+        self._embedding_model = SentenceTransformer(embedding_model_name)
         print("Model ready.")
 
     def close(self):
@@ -185,7 +202,9 @@ class Neo4jImporter:
         print(f"Generating embeddings for {len(entities_meta)} entities...")
 
         entity_ids = list(entities_meta.keys())
-        labels_to_embed = [entities_meta[eid].get("label", "") for eid in entity_ids]
+        labels_to_embed = [
+            entities_meta[eid].get("label", "") for eid in entity_ids
+        ]
 
         embeddings = self._embedding_model.encode(
             labels_to_embed, show_progress_bar=True
@@ -209,14 +228,18 @@ class Neo4jImporter:
         self._ensure_indexes()
 
         print("Starting data preparation for Neo4j...")
-        entities_with_embeddings = self._generate_entity_embeddings(entities_meta)
+        entities_with_embeddings = self._generate_entity_embeddings(
+            entities_meta
+        )
 
         self._import_entities(entities_with_embeddings)
         self._import_relationships(triples_df, relations_meta)
 
     def _import_entities(self, entities_with_embeddings: List[Dict]):
         """Imports entity nodes with their properties and a vector embedding."""
-        print(f"Importing {len(entities_with_embeddings)} entities with embeddings...")
+        print(
+            f"Importing {len(entities_with_embeddings)} entities with embeddings..."
+        )
         query = """
             UNWIND $entities AS entity
             MERGE (e:Entity {id: entity.id})
@@ -227,7 +250,9 @@ class Neo4jImporter:
         self._run_query(query, {"entities": entities_with_embeddings})
         print("Entity import complete.")
 
-    def _import_relationships(self, triples_df: pd.DataFrame, relations_meta: Dict):
+    def _import_relationships(
+        self, triples_df: pd.DataFrame, relations_meta: Dict
+    ):
         """Imports relationships using dynamic types via APOC."""
 
         def sanitize_label(label: str) -> str:
@@ -276,26 +301,43 @@ def main():
     setup_logging("DEBUG", stream=sys.stdout)
     logger = get_logger(__file__)
 
-    env = dotenv_values(os.path.join(".env"))
-    NEO4J_URI = env.get("NEO4J_URI")
-    NEO4J_USER = env.get("NEO4J_USER")
-    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
+    # Load Neo4j credentials from the central config
+    neo4j_config = config.get("database.neo4j")
+    if not neo4j_config:
+        raise ValueError("Neo4j configuration not found in config file.")
 
-    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-        raise ValueError("Neo4j credentials not found in .env file.")
+    uri = neo4j_config.get("uri")
+    user = neo4j_config.get("user")
+    password_env_var = neo4j_config.get("password_env")
 
-    with Neo4jImporter(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD) as importer:
+    if not password_env_var:
+        raise ValueError(
+            "Neo4j password environment variable not specified in config."
+        )
+
+    password = os.getenv(password_env_var)
+
+    if not all([uri, user, password]):
+        raise ValueError(
+            f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
+        )
+
+    with Neo4jImporter(uri, user, password) as importer:
         if not FORCE_DOWNLOAD and importer.get_node_count():
             logger.info("Database already contains data. Skipping import.")
         else:
             data_loader = CodexDataLoader()
-            knowledge_data = data_loader.load(size=DATASET_SIZE, limit=TRIPLE_LIMIT)
+            knowledge_data = data_loader.load(
+                size=DATASET_SIZE, limit=TRIPLE_LIMIT
+            )
 
             importer.clear_database()
             importer.import_graph_data(knowledge_data)
 
             node_count = importer.get_node_count()
-            logger.info(f"\n✅ Import complete. Total nodes in database: {node_count}")
+            logger.info(
+                f"\n✅ Import complete. Total nodes in database: {node_count}"
+            )
 
 
 if __name__ == "__main__":

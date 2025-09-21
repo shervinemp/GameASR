@@ -1,458 +1,81 @@
-from collections import OrderedDict, deque
-import heapq
-import random
-import sys
-import json
-from dotenv import dotenv_values
-from sentence_transformers import SentenceTransformer
-from typing import Any, Deque, Dict, Tuple, List
-
-from neo4j import GraphDatabase
+from typing import Union
 
 from ..llm.model import LLM
-from ..llm.session import Session
-
-from ..common.utils import get_logger, setup_logging
-
-
-class KnowledgeGraph:
-    _rel_addendum: str = "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
-
-    def __init__(self, uri: str, user: str, password: str):
-        self._driver = GraphDatabase.driver(uri, auth=(user, password))
-        self.embedding_model = SentenceTransformer(
-            "avsolatorio/GIST-small-Embedding-v0"
-        )
-
-    def close(self):
-        self._driver.close()
-
-    def keyword_search(self, keywords: List[str], top_k: int = 5) -> List[List[Dict]]:
-        """
-        Performs a keyword search for a list of keywords.
-
-        Args:
-            keywords: A list of keywords to search for.
-            top_k: The number of top results to return for each keyword.
-
-        Returns:
-            A list of lists, where each inner list contains the top-k search
-            results (as dictionaries) for the corresponding keyword.
-        """
-        queries_data = [
-            {"id": i, "keyword": keyword} for i, keyword in enumerate(keywords)
-        ]
-
-        query = """
-            UNWIND $queries_data AS q_data
-            CALL {
-                WITH q_data
-                CALL db.index.fulltext.queryNodes("nodes_label_description_fulltext", q_data.keyword + '~', {limit: $top_k})
-                YIELD node, score
-                RETURN collect(
-                    apoc.map.removeKey(properties(node), 'embedding')
-                ) AS result_list
-            }
-            RETURN q_data.id AS query_id, result_list AS results
-            ORDER BY query_id ASC
-        """
-
-        with self._driver.session() as session:
-            records = session.run(query, queries_data=queries_data, top_k=top_k)
-            result = [record["results"] for record in records]
-
-        return result
-
-    def vector_search(
-        self, embeddings: List[List[float]], top_k: int = 5
-    ) -> List[List[Dict]]:
-        """
-        Performs a vector similarity search for a list of embeddings.
-
-        Args:
-            embeddings: A list of embeddings to search for.
-            top_k: The number of top similar results to return for each embedding.
-
-        Returns:
-            A list of lists, where each inner list contains the top-k search
-            results (as dictionaries) for the corresponding embedding.
-        """
-        queries_data = [
-            {"id": i, "embedding": emb.tolist()} for i, emb in enumerate(embeddings)
-        ]
-
-        query = """
-            UNWIND $queries_data AS q_data
-            CALL (q_data) {
-                CALL db.index.vector.queryNodes('embedding', $top_k, q_data.embedding)
-                YIELD node, score
-                RETURN collect(
-                    apoc.map.removeKey(properties(node), 'embedding')
-                ) AS result_list
-            }
-            RETURN q_data.id AS query_id, result_list AS results
-            ORDER BY query_id ASC
-        """
-
-        with self._driver.session() as session:
-            records = session.run(query, queries_data=queries_data, top_k=top_k)
-            result = [record["results"] for record in records]
-
-        return result
-
-    def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
-        """
-        Retrieves a subgraph of the graph based on a list of node IDs.
-
-
-        Args:
-            node_ids: A list of node IDs to retrieve the subgraph for.
-
-        Returns:
-            A tuple containing a list of nodes and a list of connections (relationships).
-        """
-        query = """
-            MATCH (n:Entity) WHERE n.id IN $nodes
-            OPTIONAL MATCH (n)-[r]-(m:Entity) WHERE m.id IN $nodes
-            WITH COLLECT(DISTINCT n) AS nodes, COLLECT(DISTINCT r) AS rels
-            RETURN [n in nodes | apoc.map.removeKey(properties(n), 'embedding')] AS nodes,
-                   [r in rels | apoc.map.merge(properties(r), {})] AS relations
-        """.format(
-            self._rel_addendum
-        )
-        with self._driver.session() as session:
-            record = session.run(query, nodes=node_ids).single()
-            result = record.data()
-
-        return result
-
-    def expansion(
-        self, frontier_ids: List[str], excluded_ids: List[str]
-    ) -> List[Dict[str, Dict[str, Any]]]:
-        query = """
-            UNWIND $frontier AS sourceId
-            MATCH (n:Entity {{id: sourceId}})
-            MATCH (n)-[r]-(m:Entity)
-            WHERE NOT m.id IN $excluded
-            
-            RETURN collect({{
-                node: apoc.map.removeKey(properties(m), 'embedding'),
-                relation: apoc.map.merge(properties(r), {})
-            }}) AS results
-        """.format(
-            self._rel_addendum
-        )
-        with self._driver.session() as session:
-            records = session.run(query, frontier=frontier_ids, excluded=excluded_ids)
-            result = [r["results"] for r in records]
-
-        return result
-
-
-class Exploration:
-
-    class Frontier:
-        def __init__(self, maxlen: int | None = None):
-            self._d = OrderedDict()
-            self._maxlen = maxlen
-
-        def append(self, x):
-            k = x["id"]
-            if k in self._d:
-                self._d.move_to_end(k)
-            self._d[k] = x
-            if self._maxlen and len(self) > self._maxlen:
-                _ = self.pop()
-
-        def extend(self, X):
-            for x in X:
-                self.append(x)
-
-        def pop(self):
-            return self._d.popitem(last=False)
-
-        def clear(self):
-            self._d.clear()
-
-        def __iter__(self):
-            return iter(self._d.values())
-
-        def __repr__(self):
-            return f"Frontier({self._d})"
-
-        def __str__(self):
-            return self._d
-
-        def __len__(self):
-            return len(self._d)
-
-    def __init__(self, graph: KnowledgeGraph, frontier_size: int = 12):
-        self.graph = graph
-        self.frontier = self.Frontier(frontier_size)
-        self.ancestry = dict()
-
-    def start(self, node_ids: List[str]) -> List[Dict[str, Any]]:
-        subgraph = self.graph.subgraph(node_ids)
-        self._add(subgraph["nodes"], subgraph["relations"])
-        return subgraph
-
-    def expand(
-        self,
-        candidates: List[Dict[str, Dict[str, Any]]],
-        flush_frontier: bool = False,
-    ) -> None:
-        if flush_frontier:
-            self.frontier.clear()
-        self._add(candidates["nodes"], candidates["relations"])
-
-    @property
-    def candidates(self) -> List[Dict[str, Dict[str, Any]]]:
-        frontier_ids = [n["id"] for n in self.frontier]
-        excluded_ids = list(self.ancestry.keys())
-        candidates = self.graph.expansion(
-            frontier_ids=frontier_ids, excluded_ids=excluded_ids
-        )
-        return candidates
-
-    def _add(self, nodes: List[Dict[str, Any]], relations: List[Dict] = None) -> None:
-        self.frontier.extend(nodes)
-
-        for node in nodes:
-            nid = node["id"]
-            if nid not in self.ancestry:
-                self.ancestry[nid] = nid
-
-        if relations is not None:
-            for relation in relations:
-                a, b = relation["head"], relation["tail"]
-                if relation["head"] not in self.ancestry:
-                    a, b = b, a
-                self.ancestry[b] = self.ancestry[a]
+from .retriever import RetrievalManager
+from .explorer import ExplorationEngine
+from .generator import GenerationService
+from .knowledge_base import KnowledgeGraph
+from ..common.utils import get_logger
 
 
 class RAG:
+    """Implements the advanced RAG pipeline."""
+
     def __init__(
         self,
         graph: KnowledgeGraph,
-        llm: LLM | None = None,
-        max_iterations: int = 5,
-        max_keywords: int = 3,
-        max_retries: int = 3,
+        llm: Union[LLM, None] = None,
+        use_web_search: bool = True,
+        use_graph_writer: bool = False,  # Default to off
+        max_iterations: int = 2,
+        max_hops: int = 1,
     ):
+        """Initializes the RAG pipeline and its components."""
         self.logger = get_logger(__file__)
-
-        self.graph = graph
-        self.max_iterations = max_iterations
-        self.max_keywords = max_keywords
-        self.max_retries = max_retries
-
-        self.session = Session(llm)
-        self.session.conversation._cutoff_idx = -1
+        self.retriever = RetrievalManager(graph, llm)
+        self.explorer = ExplorationEngine(graph)
+        self.generator = GenerationService(
+            llm, graph, max_iterations=max_iterations
+        )
+        self.use_web_search = use_web_search
+        self.use_graph_writer = use_graph_writer
+        self.max_hops = max_hops
 
     def __call__(self, query: str) -> str:
-        """
-        Looks up the answer to the given query through knowledge graph search.
+        """Executes the full RAG pipeline for a given query."""
+        # 1. Retrieve and Rerank
+        reranked_nodes = self.retriever.retrieve_and_rerank_nodes(query)
+        if not reranked_nodes:
+            self.logger.info("No initial nodes found in the knowledge graph.")
 
-        Args:
-            query: The query to look up.
-        Returns:
-            The answer to the query.
-        """
-        return self._execute_query(query)
+        # 2. Expand
+        reranked_node_ids = [node["id"] for node in reranked_nodes]
+        graph_context_nodes = self.explorer.explore(
+            reranked_node_ids, max_hops=self.max_hops
+        )
 
-    def _execute_query(self, query: str) -> str:
+        if not graph_context_nodes:
+            self.logger.info(
+                "Exploration did not yield any additional graph context."
+            )
+            graph_context_nodes = reranked_nodes
 
-        self.report = {
-            "state": "Starting search for clues with initial nodes...",
-            "context": "",
-            "explicit_mention": [
-                {
-                    "targeted_part": "{example_query_part}",
-                    "relation": "{example_relation}",
-                    "subject": "{example_subject_label}",
-                    "object": "{example_object_label}",
-                    "desc": "{example_description}",
-                }
-            ],
+        # Create a lookup for scores and merge them back into the explored context
+        score_map = {
+            node["id"]: node.get("relevance_score", 0)
+            for node in reranked_nodes
         }
+        for node in graph_context_nodes:
+            if node["id"] in score_map:
+                node["relevance_score"] = score_map[node["id"]]
 
-        keywords = self._extract_keywords(query)[: self.max_keywords]
-        embeddings = self.graph.embedding_model.encode(keywords)
+        # 3. Web Search
+        web_context = None
+        if self.use_web_search:
+            web_context = self.retriever.search_web(query)
+            if not web_context:
+                self.logger.info("Web search did not yield any context.")
 
-        initial_results = [
-            a + [n for n in b if n["id"] not in (e["id"] for e in a)]
-            for a, b in zip(
-                self.graph.vector_search(embeddings, top_k=4),
-                self.graph.keyword_search(keywords, top_k=2),
-            )
-        ]
+        if not graph_context_nodes and not web_context:
+            self.logger.warning("No context found from any source.")
+            return "I could not find any relevant information to answer your query."
 
-        self.logger.debug("Found initial candidates:")
-        initial_nodes = []
-        for i, kword_arr in enumerate(initial_results):
-            self.logger.debug(f"{keywords[i]}:")
-            for r in kword_arr:
-                self.logger.debug(f"  - ID: {r['id']}, Label: {r['label']}")
-                initial_nodes.append(r["id"])
-
-        if not initial_nodes:
-            return "Could not find any relevant information."
-
-        state = Exploration(self.graph)
-        state.start(initial_nodes)
-        i = 0
-        errors = 0
-        while i < self.max_iterations:
-            self.logger.info(f"\n--- Iteration {i + 1} ---")
-            if not state.frontier:
-                self.logger.info("Frontier is empty. Halting exploration.")
-                break
-
-            prompt = self._build_expansion_prompt(query, state)
-            response = "".join(self.session(prompt))
-            self.logger.debug(f"Response: {response}")
-
-            try:
-                response = json.loads(response)
-            except json.JSONDecodeError:
-                self.logger.warning(f"Failed to decode JSON: {response}")
-                errors += 1
-                if errors >= self.max_retries:
-                    raise
-                continue
-
-            frontier = [
-                (c_ := c.split("::"))[0 if c_[0][0] == "Q" else 1]
-                for c in response.get("frontier", [])
-            ]
-            nodes_to_expand = [
-                n
-                for kword_arr in state.candidates
-                for c in kword_arr
-                if (n := c["node"])["id"] in frontier
-            ]
-
-            self.report = response.get("report", {})
-            final_answer = response.get("answer", None)
-            is_verified = response.get("is_verified", False)
-
-            if is_verified:
-                self.logger.info("Final answer found.")
-                break
-
-            if not nodes_to_expand:
-                self.logger.info("No nodes to expand. Fast forwarding...")
-                i *= 2
-
-            state.expand({"nodes": nodes_to_expand, "relations": None})
-            i += 1
-
-        return {"answer": final_answer, "report": self.report}
-
-    def _build_expansion_prompt(
-        self, query: str, state: Exploration, max_neighbors: int = 10
-    ) -> str:
-        frontier = list(state.frontier)
-        candidates = [
-            kword_arr[i]
-            for kword_arr in state.candidates
-            for i in random.sample(
-                range(len(kword_arr)), min(max_neighbors, len(kword_arr))
-            )
-        ]
-
-        id_to_node = {n["id"]: n for n in frontier + [c["node"] for c in candidates]}
-
-        triples = []
-        descs = []
-        for item in candidates:
-            node = item["node"]
-            relation = item["relation"]
-
-            head_id = relation["head"]
-            tail_id = relation["tail"]
-
-            rel_type = relation["type"]
-
-            ltr = node["id"] == tail_id
-            if not ltr:
-                head_id, tail_id = tail_id, head_id
-
-            head_label = id_to_node[head_id]["label"]
-            tail_label = id_to_node[tail_id]["label"]
-
-            descs_string = f"({node['label']}::{node['id']}): {node['description']}"
-            descs.append(descs_string)
-
-            triple_string = (
-                f"({head_label}::{head_id}) {'' if ltr else '<'}- "
-                f"[{rel_type}]"
-                f" -{'>' if ltr else ''} ({tail_label}::{tail_id})"
-            )
-            triples.append(triple_string)
-
-        nodes_str = "\n".join(descs)
-        candidates_str = "\n".join(triples)
-
-        return (
-            "Task: Analyze, through logic, any potential candidate nodes, their description, "
-            "and their relations to the investigation with regard to the query. "
-            "None of the provided candidates are guaranteed to be relevant. "
-            "Rely on the query and report for guidance. "
-            "Return a JSON object (no comments) with four keys:\n"
-            "1. 'frontier': a list containing only IDs (right side of '::' with the 'Q' prefix) of all promising or related nodes.\n"
-            "2. 'report': a small human-readable (IDs accompanied by labels) dictionary compiling verifiably-relevant evidence.\n"
-            "3. 'answer': the best-guess calculated, precise, and human-readable answer to the query so far, excluding IDs.\n"
-            "4. 'is_verified': a boolean indicator, strictly true only when the objective is met/rejected and the answer "
-            "to the query is directly and completely verified and cross-referenced with the provided context.\n"
-            f" * Query: '{query}'\n"
-            f" * Report: {self.report}\n"
-            f" * Nodes:\n{nodes_str}\n"
-            f" * Candidates:\n{candidates_str}"
-            f" * Query: '{query}'\n"
+        # 4. Generate
+        final_answer = self.generator.generate_answer(
+            query,
+            context_nodes=graph_context_nodes,
+            web_context=web_context,
+            write_to_graph=self.use_graph_writer,
         )
 
-    def _extract_keywords(self, query: str) -> List[str]:
-        prompt = (
-            "Extract, from the following query, proper entities and keywords that will be used to deduce a potential answer."
-            "Make sure the extracted entities and keywords are conceptually meaningful and relevant to the query."
-            "Return a JSON array of strings including the extracted entities and keywords."
-            f"query:\n{query}"
-        )
-
-        response = "".join(self.session(prompt))
-        return json.loads(response)
-
-
-def main():
-
-    setup_logging("DEBUG", stream=sys.stdout)
-    logger = get_logger(__file__)
-
-    env = dotenv_values(".env")
-    NEO4J_URI = env.get("NEO4J_URI")
-    NEO4J_USER = env.get("NEO4J_USER")
-    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
-
-    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-        raise ValueError("Neo4j credentials not found in .env file.")
-
-    user_queries = [
-        "Which American presidents had a background in law before taking office, like Obama?",
-        "Who are the members of the band Coldplay?",
-        "Give me all the information you have on Justin Bieber, including his personal life.",
-    ]
-
-    graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-    rag = RAG(graph)
-
-    try:
-        for user_query in user_queries:
-            final_answer = rag(user_query)
-            logger.info(final_answer)
-    finally:
-        graph.close()
-
-
-if __name__ == "__main__":
-    main()
+        return final_answer

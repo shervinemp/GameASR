@@ -75,7 +75,9 @@ class RpcServer:
                     "code": -32000,
                     "message": f"Server error executing '{method_name}': {str(e)}",
                 }
-                self.logger.error(f"Error executing method '{method_name}': {e}")
+                self.logger.error(
+                    f"Error executing method '{method_name}': {e}"
+                )
 
         except json.JSONDecodeError as e:
             response_obj["error"] = {
@@ -95,7 +97,9 @@ class RpcServer:
                 "message": f"Unexpected server error: {str(e)}",
             }
             response_obj["id"] = None
-            self.logger.error(f"Unexpected error during request processing: {e}")
+            self.logger.error(
+                f"Unexpected error during request processing: {e}"
+            )
 
         return json.dumps(response_obj)
 
@@ -111,9 +115,13 @@ class RpcServer:
                     self.socket.send_string(response)
                     self.logger.debug(f"Sent: {response}")
         except KeyboardInterrupt:
-            self.logger.info("RPC Server shutting down due to KeyboardInterrupt.")
+            self.logger.info(
+                "RPC Server shutting down due to KeyboardInterrupt."
+            )
         except Exception as e:
-            self.logger.error(f"Unhandled error in RPC Server worker loop: {e}")
+            self.logger.error(
+                f"Unhandled error in RPC Server worker loop: {e}"
+            )
         finally:
             self._running = False
             self.socket.close()
@@ -140,7 +148,9 @@ class RpcServer:
                     "RPC Server thread did not terminate gracefully within timeout."
                 )
             else:
-                self.logger.info("RPC Server worker thread stopped successfully.")
+                self.logger.info(
+                    "RPC Server worker thread stopped successfully."
+                )
             self._worker_thread = None
         else:
             self.logger.info(
@@ -162,6 +172,8 @@ if __name__ == "__main__":
         while True:
             threading.Event().wait(1)
     except KeyboardInterrupt:
-        print("\nMain thread received KeyboardInterrupt. Stopping RPC server...")
+        print(
+            "\nMain thread received KeyboardInterrupt. Stopping RPC server..."
+        )
         rpc_server.stop()
         print("Application exiting.")

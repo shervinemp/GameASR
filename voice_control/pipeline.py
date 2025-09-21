@@ -1,18 +1,17 @@
 import sys
 from typing import Optional
 
-from dotenv import dotenv_values
-
-from .asr import ParakeetV2
-from .llm import Session
+from .asr import get_model_class
+from .llm import Session, default_llm_class
 from .llm.tools import Tool
 from .tts import TTS
 from .rag import RAG
-from .rag.graph import KnowledgeGraph
+from .rag.knowledge_base import KnowledgeGraph
 from .bridge.rpc_server import LLMService, RpcServer
 
 from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
+from .common.config import config
 
 
 class Pipeline:
@@ -41,7 +40,9 @@ class Pipeline:
         """
         self.logger = get_logger(__name__)
 
-        self.asr = ParakeetV2()
+        asr_provider = config.get("asr.provider", "parakeetv2")
+        AsrModel = get_model_class(asr_provider)
+        self.asr = AsrModel()
         self.session = session or Session()
         if rag is not None:
             name = "retrieve"
@@ -78,7 +79,10 @@ class Pipeline:
         try:
             for transcript in self.asr:
                 self.logger.debug(f"{transcript=}")
-                self._callback(transcript)
+                try:
+                    self._callback(transcript)
+                except Exception as e:
+                    self.logger.error(f"Error in callback: {e}", exc_info=True)
         finally:
             if self.rpc_server:
                 self.rpc_server.stop()
@@ -93,18 +97,26 @@ def main():
     setup_logging(log_level="DEBUG")
     logger = get_logger(__name__)
 
-    env = dotenv_values(".env")
-    NEO4J_URI = env.get("NEO4J_URI")
-    NEO4J_USER = env.get("NEO4J_USER")
-    NEO4J_PASSWORD = env.get("NEO4J_PASSWORD")
+    # Load Neo4j credentials from the central config
+    neo4j_config = config.get("database.neo4j")
+    if not neo4j_config:
+        raise ValueError("Neo4j configuration not found in config file.")
 
-    if not all([NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD]):
-        raise ValueError("Neo4j credentials not found in .env file.")
+    uri = neo4j_config.get("uri")
+    user = neo4j_config.get("user")
+    password = neo4j_config.get("password")
+
+    if not all([uri, user, password]):
+        raise ValueError(
+            "Neo4j credentials not fully configured. Check your config file."
+        )
 
     try:
-        graph = KnowledgeGraph(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-        rag = RAG(graph)
-        pipe = Pipeline(rag=rag)
+        graph = KnowledgeGraph(uri, user, password)
+        llm = default_llm_class()
+        rag = RAG(graph, llm=llm)
+        session = Session(llm=llm)
+        pipe = Pipeline(session=session, rag=rag)
         logger.info("Starting voice control pipeline...")
         pipe.run()
     except Exception as e:
