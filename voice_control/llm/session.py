@@ -18,7 +18,7 @@ class Session:
         conversation: Optional[Conversation] = None,
     ):
         self.logger = get_logger(__name__)
-        self.llm = llm or default_llm_class(session_state=self._session_state)
+        self.llm = llm or default_llm_class()
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
 

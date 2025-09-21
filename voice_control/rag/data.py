@@ -8,6 +8,8 @@ import pandas as pd
 import json
 import sys
 from typing import Dict, Optional, List
+from dotenv import load_dotenv
+
 
 from sentence_transformers import SentenceTransformer
 
@@ -137,7 +139,7 @@ class CodexDataLoader(DataLoader):
             response = requests.get(repo_url, stream=True)
             response.raise_for_status()
             with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                z.extractall(self.extract_to)
+                z.extractall(os.path.dirname(repo_path))
             print("Download and extraction complete.")
         except (requests.exceptions.RequestException, zipfile.BadZipFile) as e:
             raise RuntimeError(f"Failed during download or extraction: {e}")
@@ -152,7 +154,7 @@ class Neo4jImporter:
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         print("Initializing embedding model...")
         embedding_model_name = config.get(
-            "llm.models.embedding", "avsolatorio/GIST-small-Embedding-v0"
+            "llm.models.embedding", "google/embeddinggemma-300m"
         )
         self._embedding_model = SentenceTransformer(embedding_model_name)
         print("Model ready.")
@@ -300,6 +302,8 @@ def main():
 
     setup_logging("DEBUG", stream=sys.stdout)
     logger = get_logger(__file__)
+
+    load_dotenv()
 
     # Load Neo4j credentials from the central config
     neo4j_config = config.get("database.neo4j")

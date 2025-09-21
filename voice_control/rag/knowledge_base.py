@@ -15,7 +15,7 @@ class KnowledgeGraph:
         self.logger = get_logger(__file__)
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         embedding_model_name = config.get(
-            "llm.models.embedding", "avsolatorio/GIST-small-Embedding-v0"
+            "llm.models.embedding", "google/embeddinggemma-300m"
         )
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
