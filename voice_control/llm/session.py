@@ -40,7 +40,7 @@ class Session:
                     self.conversation.add_tool_message(f"{k}: {v}")
 
                 self.conversation.add_tool_message(
-                    "Now, generate an answer based on the provided information."
+                    "Now, generate an answer based only on the returned responses."
                 )
                 yield from self._generate_response(tool_choice="none")
 
