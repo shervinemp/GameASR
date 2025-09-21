@@ -14,14 +14,14 @@ class Session:
 
     def __init__(
         self,
-        llm: LLM
+        llm: Optional[LLM] = None,
         conversation: Optional[Conversation] = None,
     ):
         self.logger = get_logger(__name__)
-
         self.llm = llm or default_llm_class(session_state=self._session_state)
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
+
         self._session_state = dict()
         self._lock = threading.Lock()
 
@@ -39,6 +39,9 @@ class Session:
                 for k, v in tool_responses.items():
                     self.conversation.add_tool_message(f"{k}: {v}")
 
+                self.conversation.add_tool_message(
+                    "Now, generate an answer based on the provided information."
+                )
                 yield from self._generate_response(tool_choice="none")
 
     def _generate_response(self, **kwargs) -> Generator[str, None, None]:
