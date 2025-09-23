@@ -7,7 +7,7 @@ This script handles downloading the model from the Hugging Face Hub.
 
 import sys
 
-from .model import default_llm_class
+from .model import default_class
 from ..common.utils import get_logger, setup_logging
 
 
@@ -19,7 +19,7 @@ def main():
     logger = get_logger(__name__)
 
     try:
-        default_llm_class.download()
+        default_class.download()
         logger.info("Model download completed successfully.")
     except Exception as e:
         logger.error(f"Failed to download model: {e}")

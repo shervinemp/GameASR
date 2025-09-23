@@ -1,6 +1,4 @@
 from typing import Any, Dict, List, Tuple
-from sentence_transformers import SentenceTransformer
-from neo4j import GraphDatabase
 
 from ..common.config import config
 from ..common.utils import get_logger
@@ -12,10 +10,13 @@ class KnowledgeGraph:
     )
 
     def __init__(self, uri: str, user: str, password: str):
+        from sentence_transformers import SentenceTransformer
+        from neo4j import GraphDatabase
+
         self.logger = get_logger(__file__)
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         embedding_model_name = config.get(
-            "llm.models.embedding", "avsolatorio/GIST-small-Embedding-v0"
+            "llm.models.embedding", "google/embeddinggemma-300m"
         )
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
@@ -92,17 +93,14 @@ class KnowledgeGraph:
         self,
         frontier_ids: List[str],
         excluded_ids: List[str],
-        max_hops: int = 1,
+        n_hops: int = 1,
     ) -> List[Dict[str, Dict[str, Any]]]:
         """Performs a multi-hop expansion from a set of frontier nodes."""
-        # Ensure max_hops is within a reasonable range to prevent performance issues
-        max_hops = max(1, min(max_hops, 3))
-
         query = f"""
             UNWIND $frontier AS sourceId
             MATCH (n:Entity {{id: sourceId}})
             CALL apoc.path.subgraphNodes(n, {{
-                maxLevel: {max_hops},
+                maxLevel: {n_hops},
                 relationshipFilter: ">",
                 labelFilter: "+Entity"
             }})
@@ -116,7 +114,6 @@ class KnowledgeGraph:
             records = session.run(
                 query, frontier=frontier_ids, excluded=excluded_ids
             )
-            # The query returns a single list of all nodes found across all paths
             result = [r["results"] for r in records]
         return result
 

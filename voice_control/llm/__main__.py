@@ -6,7 +6,7 @@ This script tests the language model functionality.
 """
 
 import sys
-from . import Conversation, default_llm_class, Session, Tool
+from . import Conversation, default_class, Session, Tool
 from ..common.utils import setup_logging, get_logger
 
 
@@ -66,7 +66,7 @@ def main():
     tools[0].callback = lambda **kwargs: "Rainy"
     tools[1].callback = lambda **kwargs: 100
 
-    llm = default_llm_class()
+    llm = default_class()
     conversation = Conversation()
     conversation.tools = tools
     conversation.set_system_message(

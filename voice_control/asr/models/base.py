@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Callable, Generator, Iterable
 
-import sounddevice
+from sounddevice import InputStream
 
 from ...common.base import ConsumerProducer
 
@@ -24,9 +24,7 @@ class ModelBase(ConsumerProducer, ABC):
     def _produce(self) -> Generator[str, None, None]: ...
 
     @abstractmethod
-    def _inputstream(
-        self, device: int, callback: Callable
-    ) -> sounddevice.InputStream: ...
+    def _inputstream(self, device: int, callback: Callable) -> InputStream: ...
 
     def start(self):
         self._input_stream.start()

@@ -1,12 +1,15 @@
+import os
 import sys
 from typing import Optional
+from dotenv import load_dotenv
+from voice_control.rag.model import SimpleRAG
 
-from .asr import get_model_class
-from .llm import Session, default_llm_class
+from .asr import default_class as default_asr
+from .llm import Session, default_class as default_llm
 from .llm.tools import Tool
 from .tts import TTS
 from .rag import RAG
-from .rag.knowledge_base import KnowledgeGraph
+from .rag.knowledge import KnowledgeGraph
 from .bridge.rpc_server import LLMService, RpcServer
 
 from .common.base import stream_splitter
@@ -40,9 +43,7 @@ class Pipeline:
         """
         self.logger = get_logger(__name__)
 
-        asr_provider = config.get("asr.provider", "parakeetv2")
-        AsrModel = get_model_class(asr_provider)
-        self.asr = AsrModel()
+        self.asr = default_asr()
         self.session = session or Session()
         if rag is not None:
             name = "retrieve"
@@ -97,6 +98,8 @@ def main():
     setup_logging(log_level="DEBUG")
     logger = get_logger(__name__)
 
+    load_dotenv()
+
     # Load Neo4j credentials from the central config
     neo4j_config = config.get("database.neo4j")
     if not neo4j_config:
@@ -104,17 +107,24 @@ def main():
 
     uri = neo4j_config.get("uri")
     user = neo4j_config.get("user")
-    password = neo4j_config.get("password")
+    password_env_var = neo4j_config.get("password_env")
+
+    if not password_env_var:
+        raise ValueError(
+            "Neo4j password environment variable not specified in config."
+        )
+
+    password = os.getenv(password_env_var)
 
     if not all([uri, user, password]):
         raise ValueError(
-            "Neo4j credentials not fully configured. Check your config file."
+            f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
         )
 
     try:
         graph = KnowledgeGraph(uri, user, password)
-        llm = default_llm_class()
-        rag = RAG(graph, llm=llm)
+        llm = default_llm()
+        rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
         session = Session(llm=llm)
         pipe = Pipeline(session=session, rag=rag)
         logger.info("Starting voice control pipeline...")

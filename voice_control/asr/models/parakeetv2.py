@@ -4,18 +4,10 @@ from time import sleep
 from typing import Callable, Generator, Iterable
 from collections import deque
 import numpy as np
-import sounddevice as sd
 
 from .base import ModelBase
-from ...common.utils import get_logger
 from ...common.base import ConsumerProducer
-
-try:
-    from onnx_asr import load_model, load_vad
-except ImportError:
-    raise ImportError(
-        "ONNX-ASR is not installed. Please install it using: pip install onnx-asr"
-    )
+from ...common.utils import get_logger
 
 
 _vad_lock = threading.Lock()
@@ -24,6 +16,8 @@ _vad_lock = threading.Lock()
 class ParakeetV2(ModelBase):
 
     def __init__(self, sound_device: int = 0):
+        from onnx_asr import load_model
+
         self._model = load_model(
             "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
         )
@@ -46,6 +40,8 @@ class ParakeetV2(ModelBase):
             yield r
 
     def _inputstream(self, sound_device: int, callback: Callable):
+        import sounddevice as sd
+
         return sd.InputStream(
             samplerate=self._vad._model.SAMPLE_RATE,
             blocksize=self._vad._model.HOP_SIZE,
@@ -63,6 +59,8 @@ class Silero(ConsumerProducer):
         trailing_silence_duration: float = 2.4,
         trailing_buffer_duration: float = 1.2,
     ):
+        from onnx_asr import load_vad
+
         self.logger = get_logger(__name__)
 
         self._model = load_vad("silero")

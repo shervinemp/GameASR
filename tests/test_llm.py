@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from voice_control.llm.model import NemotronLLM, QwenLLM, OllamaLLM
+from voice_control.llm.model import NemotronMini, Qwen3, OllamaModel
 from voice_control.llm.conversation import Conversation
 
 
@@ -19,7 +19,7 @@ class TestLLM(unittest.TestCase):
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
-        llm = NemotronLLM()
+        llm = NemotronMini()
 
         # Create a conversation
         conversation = Conversation()
@@ -42,7 +42,7 @@ class TestLLM(unittest.TestCase):
         mock_ollama_client.return_value = mock_client
 
         # Initialize the LLM
-        llm = OllamaLLM()
+        llm = OllamaModel()
 
         # Create an empty conversation
         conversation = Conversation()
@@ -67,7 +67,7 @@ class TestLLM(unittest.TestCase):
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
-        llm = QwenLLM()
+        llm = Qwen3()
 
         # Create a conversation
         conversation = Conversation()
@@ -92,7 +92,7 @@ class TestLLM(unittest.TestCase):
         mock_ollama_client.return_value = mock_client
 
         # Initialize the LLM
-        llm = OllamaLLM()
+        llm = OllamaModel()
 
         # Create a conversation
         conversation = Conversation()
