@@ -13,7 +13,7 @@ class ModelBase(ConsumerProducer, ABC):
         sound_device: int,
     ):
         def sound_cb(in_data, frames, time, status):
-            self._consume(in_data)
+            self.__call__(in_data)
 
         self._input_stream = self._inputstream(sound_device, sound_cb)
 

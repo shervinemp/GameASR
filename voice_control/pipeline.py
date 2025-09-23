@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import os
 import sys
 from typing import Optional
@@ -20,11 +21,6 @@ from .common.config import config
 class Pipeline:
     """
     Orchestrates the integration between ASR, LLM, and TTS components.
-
-    This class initializes all three components and sets up a pipeline where:
-    - ASR captures audio and transcribes it to text
-    - The transcribed text is passed to LLM for processing
-    - The LLM response is sent to TTS for audio output
     """
 
     def __init__(
@@ -32,16 +28,10 @@ class Pipeline:
         session: Optional[Session] = None,
         rag: Optional[RAG] = None,
         rpc_server: str | None = None,
-        push_to_talk: str | None = None,
+        p2t_key: str | None = None,
     ):
         """
-        Initialize the voice control pipeline with ASR, LLM, and TTS components,
-        and dynamically set up tool execution based on the game API spec.
-
-        Args:
-            session: An optional session object for the LLM.
-            rpc_server: An optional RPC server endpoint for the LLM service.
-            push_to_talk: An optional key to enable push-to-talk functionality.
+        Initialize the voice control pipeline.
         """
         self.logger = get_logger(__name__)
 
@@ -57,18 +47,27 @@ class Pipeline:
             if rpc_server
             else None
         )
-        self.hotkey_dispatcher = HotkeyDispatcher()
-        if push_to_talk:
-            self.asr.disable()
-            self.hotkey_dispatcher.register(push_to_talk, self.asr)
-            self.logger.info(
-                f"Push-to-talk enabled with hotkey '{push_to_talk}'"
-            )
+
+        if p2t_key:
+
+            @contextmanager
+            def p2t_action():
+                """Action to enable/disable ASR on hotkey press/release."""
+                self.asr.enable()
+                self.logger.info("Push-to-talk ACTIVE. Listening...")
+                yield
+                self.asr.disable_w_passthrough()
+                self.logger.info("Push-to-talk RELEASED. ASR muted.")
+
+            self.asr.disable_w_passthrough()
+            hotkey_dispatcher = HotkeyDispatcher()
+            hotkey_dispatcher.register(p2t_key, p2t_action)
+            self.hotkey_dispatcher = hotkey_dispatcher
+            self.logger.info(f"Push-to-talk enabled with hotkey '{p2t_key}'")
 
     def _callback(self, transcription: str):
         """
-        Process transcribed text through LLM, handle tool calls, and then send to TTS.
-        This is the main callback for ASR output.
+        Process transcribed text through LLM and then send to TTS.
         """
         if not transcription:
             return
@@ -82,7 +81,7 @@ class Pipeline:
 
     def run(self):
         """Start the voice control pipeline."""
-        if self.hotkey_dispatcher.hotkeys:
+        if self.hotkey_dispatcher:
             self.hotkey_dispatcher.start()
 
         self.asr.start()
@@ -139,7 +138,7 @@ def main():
         llm = default_llm()
         rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
         session = Session(llm=llm)
-        pipe = Pipeline(session=session, rag=rag)
+        pipe = Pipeline(session=session, rag=rag, p2t_key="<ctrl_r>+<shift_r>")
         logger.info("Starting voice control pipeline...")
         pipe.run()
     except Exception as e:

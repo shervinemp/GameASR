@@ -1,7 +1,7 @@
 from queue import Empty, Queue
 import threading
 from time import sleep
-from typing import Callable, Generator, Iterable
+from typing import Any, Callable, Generator, Iterable
 from collections import deque
 import numpy as np
 
@@ -22,7 +22,6 @@ class ParakeetV2(ModelBase):
             "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
         )
         self._vad = Silero()
-
         self._lock = _vad_lock
 
         super().__init__(sound_device)
@@ -49,6 +48,13 @@ class ParakeetV2(ModelBase):
             channels=1,
             callback=callback,
         )
+
+    def disable_w_passthrough(self, value: Any = None):
+        value = np.zeros(
+            (self._input_stream.blocksize, self._input_stream.channels),
+            dtype=np.float32,
+        )
+        super().disable_w_passthrough(value)
 
 
 class Silero(ConsumerProducer):
