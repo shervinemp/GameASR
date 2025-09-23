@@ -61,8 +61,7 @@ def main():
         type=str,
         default=None,
         help="Enable push-to-talk with the specified key or key combination. "
-        "Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s'. "
-        "To use the literal '+' key, you might need to specify it as '<shift>+='.",
+        "Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s'. ",
     )
     args = parser.parse_args()
 
