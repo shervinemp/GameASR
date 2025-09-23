@@ -4,12 +4,20 @@ from typing import Generator, Iterable
 
 
 class ConsumerProducer(ABC):
+    __allow_consume: bool = True
 
     def __call__(self, value):
-        self._consume(value)
+        if self.__allow_consume:
+            self._consume(value)
 
     def __iter__(self):
         yield from self._produce()
+
+    def enable(self):
+        self.__allow_consume = True
+
+    def disable(self):
+        self.__allow_consume = False
 
     @abstractmethod
     def _consume(self, value): ...
@@ -18,7 +26,9 @@ class ConsumerProducer(ABC):
     def _produce(self) -> Generator: ...
 
 
-def stream_splitter(text_stream: Iterable[str], min_len: int = 0) -> Generator[str, None, None]:
+def stream_splitter(
+    text_stream: Iterable[str], min_len: int = 0
+) -> Generator[str, None, None]:
     """
     Splits a text into sentences, ensuring each sentence is at least `min_len`
     characters long.
