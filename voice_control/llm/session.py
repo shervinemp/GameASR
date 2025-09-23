@@ -6,7 +6,7 @@ from typing import Any, Dict, Generator, Optional, Tuple
 
 from ..common.utils import get_logger
 
-from .model import LLM, default_llm_class
+from .model import LLM, default_class
 from .conversation import Conversation
 
 
@@ -18,7 +18,7 @@ class Session:
         conversation: Optional[Conversation] = None,
     ):
         self.logger = get_logger(__name__)
-        self.llm = llm or default_llm_class()
+        self.llm = llm or default_class()
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
 
@@ -94,7 +94,9 @@ class ToolCaller:
                 responses[tool_name] = future.result()
             except Exception as e:
                 responses[tool_name] = f"Tool Error: {e}"
-                self.logger.error(f"Error calling tool {tool_name}: {e}")
+                self.logger.error(
+                    f"Error calling tool {tool_name}: {e}", exc_info=True
+                )
 
         return responses
 

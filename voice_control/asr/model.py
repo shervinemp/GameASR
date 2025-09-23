@@ -1,10 +1,14 @@
-from typing import Literal
+from ..common.config import config
+from .models import ParakeetV2
 
-model_types = Literal["parakeetv2"]
 
+# ----------------------------------------------------------------------
 
-def get_model_class(model_name: model_types) -> type:
-    if model_name == "parakeetv2":
-        from .models import ParakeetV2
+asr_providers = {
+    "parakeetv2": ParakeetV2,
+}
 
-        return ParakeetV2
+provider = config.get("asr.default_provider", "parakeetv2")
+default_class = asr_providers.get(provider)
+
+# ----------------------------------------------------------------------

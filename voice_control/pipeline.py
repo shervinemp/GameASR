@@ -2,13 +2,14 @@ import os
 import sys
 from typing import Optional
 from dotenv import load_dotenv
+from voice_control.rag.model import SimpleRAG
 
-from .asr import get_model_class
-from .llm import Session, default_llm_class
+from .asr import default_class as default_asr
+from .llm import Session, default_class as default_llm
 from .llm.tools import Tool
 from .tts import TTS
 from .rag import RAG
-from .rag.knowledge_base import KnowledgeGraph
+from .rag.knowledge import KnowledgeGraph
 from .bridge.rpc_server import LLMService, RpcServer
 
 from .common.base import stream_splitter
@@ -42,9 +43,7 @@ class Pipeline:
         """
         self.logger = get_logger(__name__)
 
-        asr_provider = config.get("asr.provider", "parakeetv2")
-        AsrModel = get_model_class(asr_provider)
-        self.asr = AsrModel()
+        self.asr = default_asr()
         self.session = session or Session()
         if rag is not None:
             name = "retrieve"
@@ -124,8 +123,8 @@ def main():
 
     try:
         graph = KnowledgeGraph(uri, user, password)
-        llm = default_llm_class()
-        rag = RAG(graph, llm=llm)
+        llm = default_llm()
+        rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
         session = Session(llm=llm)
         pipe = Pipeline(session=session, rag=rag)
         logger.info("Starting voice control pipeline...")

@@ -7,9 +7,9 @@ This script demonstrates how to set up and run the ASR pipeline.
 
 import sys
 
-from ..common.utils import setup_logging, get_logger
+from .model import default_class
 
-from .model import get_model_class
+from ..common.utils import setup_logging, get_logger
 
 
 def parse_asr_args():
@@ -18,14 +18,6 @@ def parse_asr_args():
 
     parser = argparse.ArgumentParser(
         description="Real-time, continuous ASR from microphone using ONNX models and VAD."
-    )
-
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default="parakeetv2",
-        help="The name of the ASR model to use. "
-        "Available models include 'parakeetv2' and 'kyutai'.",
     )
 
     parser.add_argument(
@@ -46,10 +38,7 @@ def main():
     logger = get_logger(__name__)
 
     args = parse_asr_args().__dict__
-
-    model_type = get_model_class(args["model_name"])
-    del args["model_name"]
-    model = model_type(**args)
+    model = default_class(**args)
 
     logger.info("Starting ASR...")
     model.start()

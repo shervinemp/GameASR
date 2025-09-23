@@ -149,12 +149,17 @@ class GGUFLLM(LLM):
         with self._lock:
             k_ = "model_state"
             new_state = session_state.get(k_)
+            self.logger.debug(f"{id(new_state)=}")
             if (
                 old_state := self._last_state.get(k_)
             ) and old_state != new_state:
                 self._last_state[k_] = self.model.save_state()
+                self.logger.debug(f"Parking state {id(old_state)=}")
                 self.model.reset()
                 if new_state:
+                    self.logger.debug(
+                        f"Switching states for GGUFLLM ({id(self)=})"
+                    )
                     self.model.load_state(new_state)
 
             self._last_state = session_state
@@ -222,6 +227,6 @@ llm_providers = {
 }
 
 provider = config.get("llm.default_provider", "nemotron")
-default_llm_class = llm_providers.get(provider)
+default_class = llm_providers.get(provider)
 
 # ----------------------------------------------------------------------
