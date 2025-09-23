@@ -56,6 +56,14 @@ def main():
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level.",
     )
+    parser.add_argument(
+        "--push-to-talk",
+        type=str,
+        default=None,
+        help="Enable push-to-talk with the specified key or key combination. "
+        "Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s'. "
+        "To use the literal '+' key, you might need to specify it as '<shift>+='.",
+    )
     args = parser.parse_args()
 
     setup_logging(log_level=args.log_level)
@@ -84,7 +92,10 @@ def main():
         sys.exit(1)
 
     try:
-        pipe = Pipeline(rpc_server=f"{args.protocol}://127.0.0.1:{args.port}")
+        pipe = Pipeline(
+            rpc_server=f"{args.protocol}://127.0.0.1:{args.port}",
+            push_to_talk=args.push_to_talk,
+        )
         pipe.session.conversation.tools = tools
         logger.info("Pipeline instance created.")
     except Exception as e:

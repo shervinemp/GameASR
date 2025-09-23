@@ -3,7 +3,7 @@ import sys
 from typing import Optional
 from dotenv import load_dotenv
 from voice_control.rag.model import SimpleRAG
-
+from .hotkey_dispatcher import HotkeyDispatcher
 from .asr import default_class as default_asr
 from .llm import Session, default_class as default_llm
 from .llm.tools import Tool
@@ -32,6 +32,7 @@ class Pipeline:
         session: Optional[Session] = None,
         rag: Optional[RAG] = None,
         rpc_server: str | None = None,
+        push_to_talk: str | None = None,
     ):
         """
         Initialize the voice control pipeline with ASR, LLM, and TTS components,
@@ -40,6 +41,7 @@ class Pipeline:
         Args:
             session: An optional session object for the LLM.
             rpc_server: An optional RPC server endpoint for the LLM service.
+            push_to_talk: An optional key to enable push-to-talk functionality.
         """
         self.logger = get_logger(__name__)
 
@@ -55,6 +57,11 @@ class Pipeline:
             if rpc_server
             else None
         )
+        self.hotkey_dispatcher = HotkeyDispatcher()
+        if push_to_talk:
+            self.asr.disable()
+            self.hotkey_dispatcher.register(push_to_talk, self.asr)
+            self.logger.info(f"Push-to-talk enabled with hotkey '{push_to_talk}'")
 
     def _callback(self, transcription: str):
         """
@@ -73,6 +80,9 @@ class Pipeline:
 
     def run(self):
         """Start the voice control pipeline."""
+        if self.hotkey_dispatcher.hotkeys:
+            self.hotkey_dispatcher.start()
+
         self.asr.start()
         self.tts.start()
         if self.rpc_server:
@@ -87,6 +97,8 @@ class Pipeline:
         finally:
             if self.rpc_server:
                 self.rpc_server.stop()
+            if self.hotkey_dispatcher.hotkeys:
+                self.hotkey_dispatcher.stop()
             self.asr.stop()
             self.tts.stop()
 
