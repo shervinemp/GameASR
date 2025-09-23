@@ -61,7 +61,9 @@ class Pipeline:
         if push_to_talk:
             self.asr.disable()
             self.hotkey_dispatcher.register(push_to_talk, self.asr)
-            self.logger.info(f"Push-to-talk enabled with hotkey '{push_to_talk}'")
+            self.logger.info(
+                f"Push-to-talk enabled with hotkey '{push_to_talk}'"
+            )
 
     def _callback(self, transcription: str):
         """
@@ -112,7 +114,6 @@ def main():
 
     load_dotenv()
 
-    # Load Neo4j credentials from the central config
     neo4j_config = config.get("database.neo4j")
     if not neo4j_config:
         raise ValueError("Neo4j configuration not found in config file.")
