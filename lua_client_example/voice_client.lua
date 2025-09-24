@@ -1,5 +1,4 @@
 -- main.lua
-package.path = package.path .. ';../voice_control/bridge/clients/lua/?.lua'
 local LLMClient = require("llm_client")
 local json = require("json")
 
