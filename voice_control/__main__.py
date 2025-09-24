@@ -3,7 +3,7 @@ import sys
 
 from .pipeline import Pipeline
 
-from .bridge.rpc_tool_client import RpcToolClient
+from .bridge.rpc_tool_client import ToolClient
 
 from .common.utils import load_specs, setup_logging, get_logger
 from .common.config import config
@@ -81,11 +81,11 @@ def main():
 
     try:
         tools_auth_token = config.get("tools_server.auth_token")
-        ToolClient = RpcToolClient(
+        tool_client = ToolClient(
             f"{args.tools_protocol}://{args.tools_host}:{args.tools_port}",
             auth_token=tools_auth_token,
         )
-        tools = ToolClient.from_spec(tools_spec)
+        tools = tool_client.from_spec(tools_spec)
     except Exception as e:
         logger.critical(
             f"Error creating tools: {e}. Exiting.",

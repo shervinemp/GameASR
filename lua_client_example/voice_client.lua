@@ -1,37 +1,15 @@
 -- main.lua
 package.path = package.path .. ';../voice_control/bridge/clients/lua/?.lua'
-local RpcToolServer = require("rpc_tool_server")
+local LLMClient = require("llm_client")
 local json = require("json")
 
 -- --- ZeroMQ Endpoint Configuration (via Environment Variables) ---
--- These environment variables will be passed directly to the constructor.
--- If not set, the 'ToolServer:new' method will apply its own defaults.
---
--- TCP Example:
---   Linux/macOS: export LUA_CLIENT_PROTOCOL="tcp" LUA_CLIENT_ENDPOINT="127.0.0.1:5555"
---   Windows CMD: set LUA_CLIENT_PROTOCOL=tcp & set LUA_CLIENT_ENDPOINT=127.0.0.1:5555
---
--- IPC Example (Unix-like):
---   Linux/macOS: export LUA_CLIENT_PROTOCOL="ipc" LUA_CLIENT_ENDPOINT="/tmp/voice_control_service.ipc"
---
--- IPC Example (Windows Named Pipe):
---   Windows CMD: set LUA_CLIENT_PROTOCOL=ipc & set LUA_CLIENT_ENDPOINT=\\.\pipe\voice_control_service
---
 local client_protocol = os.getenv("LUA_CLIENT_PROTOCOL")
 local client_endpoint = os.getenv("LUA_CLIENT_ENDPOINT")
 
-if not client_protocol then
-    print("[Lua-Client] LUA_CLIENT_PROTOCOL env var not set. ToolServer:new will use its default ('tcp').")
-end
-if not client_endpoint then
-    print("[Lua-Client] LUA_CLIENT_ENDPOINT env var not set. ToolServer:new will use its default ('127.0.0.1:5555' for TCP).")
-end
+print("--- Starting Lua LLM Client Example ---")
 
-print("--- Starting Lua ZeroMQ Client Example ---")
-
--- Pass arguments, which will be 'nil' if environment variables were not set.
--- The RpcToolServer:new constructor handles these 'nil' values by applying its defaults.
-local client = RpcToolServer:new(client_protocol, client_endpoint)
+local client = LLMClient:new(client_protocol, client_endpoint)
 
 local connected, connect_err = client:connect()
 if not connected then

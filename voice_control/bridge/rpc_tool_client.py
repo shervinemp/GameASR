@@ -5,7 +5,7 @@ import zmq
 from ..llm.tools import Tool
 
 
-class RpcToolClient:
+class ToolClient:
     """
     A dynamic RPC client that configures its available methods based on
     a provided api specification.

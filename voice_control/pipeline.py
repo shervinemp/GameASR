@@ -11,7 +11,7 @@ from .llm.tools import Tool
 from .tts import TTS
 from .rag import RAG
 from .rag.knowledge import KnowledgeGraph
-from .bridge.rpc_server import LLMService, RpcServer
+from .bridge.rpc_server import LLMService, LLMServer
 
 from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
@@ -44,13 +44,13 @@ class Pipeline:
         self.tts = TTS()
         if rpc_server:
             auth_token = config.get("rpc_server.auth_token")
-            self.rpc_server = RpcServer(
+            self.llm_server = LLMServer(
                 LLMService(self.session),
                 endpoint=rpc_server,
                 auth_token=auth_token,
             )
         else:
-            self.rpc_server = None
+            self.llm_server = None
 
         if p2t_key:
 
@@ -90,8 +90,8 @@ class Pipeline:
 
         self.asr.start()
         self.tts.start()
-        if self.rpc_server:
-            self.rpc_server.start()
+        if self.llm_server:
+            self.llm_server.start()
         try:
             for transcript in self.asr:
                 self.logger.debug(f"{transcript=}")
@@ -100,8 +100,8 @@ class Pipeline:
                 except Exception as e:
                     self.logger.error(f"Error in callback: {e}", exc_info=True)
         finally:
-            if self.rpc_server:
-                self.rpc_server.stop()
+            if self.llm_server:
+                self.llm_server.stop()
             if self.hotkey_dispatcher.hotkeys:
                 self.hotkey_dispatcher.stop()
             self.asr.stop()

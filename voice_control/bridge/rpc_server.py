@@ -24,7 +24,7 @@ class LLMService:
         return "".join(response_parts)
 
 
-class RpcServer:
+class LLMServer:
     def __init__(self, service_api, endpoint: str, auth_token: str = None):
         self.logger = get_logger(__name__)
         self.endpoint = endpoint
@@ -35,9 +35,9 @@ class RpcServer:
         self.socket.bind(self.endpoint)
         self._worker_thread = None
         self._running = False
-        self.logger.info(f"RPC Server bound to {self.endpoint}")
+        self.logger.info(f"LLM Server bound to {self.endpoint}")
         if self.auth_token:
-            self.logger.info("RPC Server authentication is enabled.")
+            self.logger.info("LLM Server authentication is enabled.")
 
     def _is_authenticated(self, request: dict) -> bool:
         if not self.auth_token:
@@ -177,17 +177,17 @@ if __name__ == "__main__":
 
     server_endpoint = "tcp://127.0.0.1:5555"
     auth_token = config.get("rpc_server.auth_token")
-    rpc_server = RpcServer(llm_service_instance, server_endpoint, auth_token=auth_token)
+    llm_server = LLMServer(llm_service_instance, server_endpoint, auth_token=auth_token)
 
-    rpc_server.start()
-    print(f"RPC Server started on {server_endpoint}. Press Ctrl+C to stop.")
+    llm_server.start()
+    print(f"LLM Server started on {server_endpoint}. Press Ctrl+C to stop.")
 
     try:
         while True:
             threading.Event().wait(1)
     except KeyboardInterrupt:
         print(
-            "\nMain thread received KeyboardInterrupt. Stopping RPC server..."
+            "\nMain thread received KeyboardInterrupt. Stopping LLM server..."
         )
-        rpc_server.stop()
+        llm_server.stop()
         print("Application exiting.")
