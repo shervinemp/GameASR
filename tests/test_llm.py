@@ -6,7 +6,7 @@ from voice_control.llm.conversation import Conversation
 
 class TestLLM(unittest.TestCase):
     @patch("voice_control.llm.model.os.path.exists", return_value=True)
-    @patch("voice_control.llm.model.Llama")
+    @patch("llama_cpp.Llama")
     def test_nemotron_llm(self, mock_llama, mock_exists):
         """
         Test the NemotronLLM.
@@ -31,7 +31,7 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
 
-    @patch("voice_control.llm.model.ollama.Client")
+    @patch("ollama.Client")
     def test_empty_conversation(self, mock_ollama_client):
         """
         Test that the LLM returns an empty string for an empty conversation.
@@ -54,7 +54,7 @@ class TestLLM(unittest.TestCase):
         self.assertEqual(response, "")
 
     @patch("voice_control.llm.model.os.path.exists", return_value=True)
-    @patch("voice_control.llm.model.Llama")
+    @patch("llama_cpp.Llama")
     def test_qwen_llm(self, mock_llama, mock_exists):
         """
         Test the QwenLLM.
@@ -79,7 +79,7 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
 
-    @patch("voice_control.llm.model.ollama.Client")
+    @patch("ollama.Client")
     def test_ollama_llm(self, mock_ollama_client):
         """
         Test the OllamaLLM.

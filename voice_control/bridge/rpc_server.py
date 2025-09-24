@@ -4,6 +4,7 @@ import json
 
 from ..common.utils import get_logger
 from ..llm import Session
+from ..common.config import config
 
 
 class LLMService:
@@ -24,16 +25,24 @@ class LLMService:
 
 
 class RpcServer:
-    def __init__(self, service_api, endpoint: str):
+    def __init__(self, service_api, endpoint: str, auth_token: str = None):
         self.logger = get_logger(__name__)
         self.endpoint = endpoint
         self.service_api = service_api
+        self.auth_token = auth_token
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(self.endpoint)
         self._worker_thread = None
         self._running = False
         self.logger.info(f"RPC Server bound to {self.endpoint}")
+        if self.auth_token:
+            self.logger.info("RPC Server authentication is enabled.")
+
+    def _is_authenticated(self, request: dict) -> bool:
+        if not self.auth_token:
+            return True
+        return request.get("auth_token") == self.auth_token
 
     def _dispatch_method(self, method_name: str, params: dict):
         method_func = getattr(self.service_api, method_name, None)
@@ -56,6 +65,10 @@ class RpcServer:
 
             if request.get("jsonrpc") != "2.0" or "method" not in request:
                 raise ValueError("Invalid JSON-RPC request format.")
+
+            if not self._is_authenticated(request):
+                response_obj["error"] = {"code": -32001, "message": "Authentication failed"}
+                return json.dumps(response_obj)
 
             method_name = request["method"]
             params = request.get("params", {})
@@ -163,7 +176,8 @@ if __name__ == "__main__":
     llm_service_instance = LLMService(llm_session)
 
     server_endpoint = "tcp://127.0.0.1:5555"
-    rpc_server = RpcServer(llm_service_instance, server_endpoint)
+    auth_token = config.get("rpc_server.auth_token")
+    rpc_server = RpcServer(llm_service_instance, server_endpoint, auth_token=auth_token)
 
     rpc_server.start()
     print(f"RPC Server started on {server_endpoint}. Press Ctrl+C to stop.")

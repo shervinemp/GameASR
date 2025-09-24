@@ -2,8 +2,8 @@ import unittest
 import os
 import soundfile as sf
 from unittest.mock import patch, MagicMock
-from voice_control.asr.models import ParakeetV2
 from voice_control.tts.model import TTS
+from onnx_asr import load_model
 
 
 def generate_test_audio(text, output_path):
@@ -24,20 +24,12 @@ def generate_test_audio(text, output_path):
 
 
 class TestASR(unittest.TestCase):
-    @patch("voice_control.asr.models.parakeetv2.sd.InputStream")
-    @patch("voice_control.asr.models.parakeetv2.Silero")
-    def test_parakeet_v2_transcribe(self, mock_silero, mock_input_stream):
+    def test_transcribe_audio_file(self):
         """
-        Test that the ParakeetV2 model can transcribe audio from a file.
+        Test that the ASR model can transcribe an audio file accurately.
         """
-        # Mock the Silero VAD model
-        mock_vad = MagicMock()
-        mock_silero.return_value = mock_vad
-
-        # Mock the sounddevice InputStream
-        mock_input_stream.return_value = MagicMock()
-        # Initialize the ParakeetV2 model
-        asr = ParakeetV2()
+        # Load the ASR model
+        model = load_model("nemo-parakeet-tdt-0.6b-v2", quantization="int8")
 
         # Generate the test audio
         original_text = (
@@ -47,18 +39,16 @@ class TestASR(unittest.TestCase):
         samples, sample_rate = generate_test_audio(original_text, audio_path)
 
         # Transcribe the audio
-        transcript = asr._model.recognize(samples, sample_rate=sample_rate)
+        transcript = model.recognize(samples, sample_rate=sample_rate)
 
         # Check that the transcript is not empty
         self.assertIsNotNone(transcript)
         self.assertGreater(len(transcript), 0)
 
         # Check that the transcript is close to the original text
-        original_text = (
-            "this is a test sentence for the voice detection system"
-        )
-        # A simple similarity check
-        similarity = len(
-            set(transcript.lower().split()) & set(original_text.split())
-        ) / len(set(original_text.split()))
-        self.assertGreater(similarity, 0.8)
+        # A simple similarity check using Jaccard similarity
+        original_words = set(original_text.split())
+        transcript_words = set(transcript.lower().split())
+        similarity = len(original_words.intersection(transcript_words)) / len(original_words.union(transcript_words))
+
+        self.assertGreater(similarity, 0.8, f"Transcription similarity is too low: {similarity}")

@@ -50,3 +50,17 @@ tts:
 asr:
   provider: "parakeetv2"
   model_dir: "model_files/asr"
+
+# --- RPC Server Configuration ---
+rpc_server:
+  # The authentication token for the RPC server.
+  # If null, authentication is disabled.
+  # It is strongly recommended to set a secure token in your config.yaml
+  auth_token: null
+
+# --- Tools Server Configuration ---
+tools_server:
+  # The authentication token for the tools server (the Lua game).
+  # If null, authentication is disabled.
+  # It is strongly recommended to set a secure token in your config.yaml
+  auth_token: null

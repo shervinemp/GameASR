@@ -6,6 +6,7 @@ from .pipeline import Pipeline
 from .bridge.rpc_tool_client import RpcToolClient
 
 from .common.utils import load_specs, setup_logging, get_logger
+from .common.config import config
 
 
 def main():
@@ -79,8 +80,10 @@ def main():
         sys.exit(1)
 
     try:
+        tools_auth_token = config.get("tools_server.auth_token")
         ToolClient = RpcToolClient(
-            f"{args.tools_protocol}://{args.tools_host}:{args.tools_port}"
+            f"{args.tools_protocol}://{args.tools_host}:{args.tools_port}",
+            auth_token=tools_auth_token,
         )
         tools = ToolClient.from_spec(tools_spec)
     except Exception as e:

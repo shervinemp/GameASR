@@ -2,21 +2,24 @@
 Configuration management for the Voice Control application.
 
 This module provides a singleton `Config` class that handles loading
-default and user-provided configurations from YAML files.
+default and user-provided configurations from YAML files, and validates
+them using Pydantic models.
 """
 
 import os
 import yaml
 from typing import Any
+from pydantic import ValidationError
+
+from .config_models import AppConfig
 
 
 class Config:
     """
     A singleton class to manage application configuration.
 
-    It loads a default configuration from a YAML file shipped with the package,
-    and then overrides it with a user-provided configuration file if one exists
-    in the project root.
+    It loads a default configuration, overrides with user settings,
+    and validates the final configuration against a Pydantic model.
     """
 
     _instance = None
@@ -41,11 +44,16 @@ class Config:
         if user_config_path is None:
             user_config_path = os.path.join(os.getcwd(), "config.yaml")
 
-        self.config = self._load_config(default_config_path)
+        config_data = self._load_config(default_config_path)
 
         if os.path.exists(user_config_path):
             user_config = self._load_config(user_config_path)
-            self._deep_merge(self.config, user_config)
+            self._deep_merge(config_data, user_config)
+
+        try:
+            self.config = AppConfig(**config_data)
+        except ValidationError as e:
+            raise RuntimeError(f"Configuration validation error: {e}")
 
         self._initialized = True
 
@@ -55,7 +63,10 @@ class Config:
             with open(path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            raise RuntimeError(f"Configuration file not found at {path}")
+            # It's okay if the user config doesn't exist, but not the default.
+            if "defaults" in path:
+                raise RuntimeError(f"Default configuration file not found at {path}")
+            return {}
         except yaml.YAMLError as e:
             raise RuntimeError(f"Error parsing YAML file at {path}: {e}")
 
@@ -65,16 +76,15 @@ class Config:
         Overwrites values in source with values from destination.
         """
         for key, value in destination.items():
-            if isinstance(value, dict):
-                node = source.setdefault(key, {})
-                self._deep_merge(value, node)
+            if isinstance(value, dict) and key in source and isinstance(source[key], dict):
+                self._deep_merge(source[key], value)
             else:
                 source[key] = value
         return source
 
     def get(self, key: str, default: Any = None) -> Any:
         """
-        Retrieves a configuration value using dot notation.
+        Retrieves a configuration value using dot notation from the Pydantic model.
 
         Args:
             key: The key to retrieve, e.g., 'database.neo4j.uri'.
@@ -83,14 +93,12 @@ class Config:
         Returns:
             The configuration value or the default.
         """
-        keys = key.split(".")
         value = self.config
         try:
-            for k in keys:
-                value = value[k]
+            for k in key.split("."):
+                value = getattr(value, k)
             return value
-        except (TypeError, KeyError):
+        except AttributeError:
             return default
-
 
 config = Config()

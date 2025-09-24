@@ -1,5 +1,8 @@
 -- voice_control_api.lua
--- This file defines the RPC API for making calls from Lua to the Python backend.
+-- rpc_tool_server.lua
+-- This file defines the RPC client for making calls from Lua to the Python backend.
+-- The name RpcToolServer is used because this module provides a server-like interface
+-- to the Lua game code.
 
 local json = require("json")
 local zmq = require("lzmq")
@@ -10,20 +13,12 @@ RpcToolServer.__index = RpcToolServer
 --- Constructor for the RpcToolServer.
 -- @param protocol string The connection protocol ("tcp" or "ipc"). Defaults to "tcp".
 -- @param endpoint string The endpoint string.
---   For TCP: "127.0.0.1:8080" (host:port). Defaults to "127.0.0.1:8080" for TCP.
---   For IPC: "/tmp/voice_control.ipc" (file path or named pipe name).
 -- @return RpcToolServer A new API client instance.
 function RpcToolServer:new(protocol, endpoint)
-    -- Apply defaults for protocol
     protocol = protocol or "tcp"
 
-    -- Apply defaults for endpoint based on protocol
     if protocol == "tcp" then
         endpoint = endpoint or "127.0.0.1:8080"
-    elseif protocol == "ipc" then
-        -- Consider a default IPC path if it makes sense for your application.
-        -- For now, we'll let it error if not provided for IPC.
-        -- endpoint = endpoint or "/tmp/voice_control.ipc"
     end
 
     local obj = setmetatable({
@@ -40,7 +35,6 @@ end
 function RpcToolServer:connect()
     if self.socket then self:disconnect() end
 
-    -- Construct the full ZeroMQ endpoint string
     if self.protocol == "tcp" then
         if not self.endpoint or not string.match(self.endpoint, "^%d?%d?%d?%.%d?%d?%d?%.%d?%d?%d?%.%d?%d?%d?:%d+$") then -- Basic host:port regex check
             return false, "TCP protocol requires endpoint in 'host:port' format."

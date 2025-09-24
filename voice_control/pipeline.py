@@ -42,11 +42,15 @@ class Pipeline:
             rag_tool = Tool.from_callable(name, rag)
             self.session.conversation._tools.update({name: rag_tool})
         self.tts = TTS()
-        self.rpc_server = (
-            RpcServer(LLMService(self.session), endpoint=rpc_server)
-            if rpc_server
-            else None
-        )
+        if rpc_server:
+            auth_token = config.get("rpc_server.auth_token")
+            self.rpc_server = RpcServer(
+                LLMService(self.session),
+                endpoint=rpc_server,
+                auth_token=auth_token,
+            )
+        else:
+            self.rpc_server = None
 
         if p2t_key:
 

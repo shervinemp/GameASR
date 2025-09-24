@@ -1,5 +1,6 @@
 -- main.lua
-local ToolServer = require("voice_control_api")
+package.path = package.path .. ';../voice_control/bridge/clients/lua/?.lua'
+local RpcToolServer = require("rpc_tool_server")
 local json = require("json")
 
 -- --- ZeroMQ Endpoint Configuration (via Environment Variables) ---
@@ -29,8 +30,8 @@ end
 print("--- Starting Lua ZeroMQ Client Example ---")
 
 -- Pass arguments, which will be 'nil' if environment variables were not set.
--- The ToolServer:new constructor handles these 'nil' values by applying its defaults.
-local client = ToolServer:new(client_protocol, client_endpoint)
+-- The RpcToolServer:new constructor handles these 'nil' values by applying its defaults.
+local client = RpcToolServer:new(client_protocol, client_endpoint)
 
 local connected, connect_err = client:connect()
 if not connected then

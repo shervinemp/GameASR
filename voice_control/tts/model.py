@@ -28,13 +28,11 @@ class TTS:
         self.logger = get_logger(__name__)
 
         model_dir = config.get("tts.model_dir", "model_files/tts")
-        kokoro_config = config.get("tts.models.kokoro", {})
-        model_file = kokoro_config.get("model_file", "kokoro-v1.0.onnx")
-        voices_file = kokoro_config.get("voices_file", "voices-v1.0.bin")
+        kokoro_config = config.get("tts.models.kokoro")
 
         self.kokoro = Kokoro(
-            model_path=os.path.join(model_dir, model_file),
-            voices_path=os.path.join(model_dir, voices_file),
+            model_path=os.path.join(model_dir, kokoro_config.model_file),
+            voices_path=os.path.join(model_dir, kokoro_config.voices_file),
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
@@ -44,9 +42,11 @@ class TTS:
         model_dir = config.get("tts.model_dir", "model_files/tts")
         os.makedirs(model_dir, exist_ok=True)
 
+        kokoro_config = config.get("tts.models.kokoro")
+
         required_files = [
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+            f"https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/{kokoro_config.model_file}",
+            f"https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/{kokoro_config.voices_file}",
         ]
 
         for url in required_files:
