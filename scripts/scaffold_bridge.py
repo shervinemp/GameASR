@@ -8,8 +8,10 @@ from voice_control.common.utils import get_logger, setup_logging
 
 class BridgeLanguage(Enum):
     LUA = "lua"
-    # Add other languages here in the future
-    # PYTHON = "python"
+    PYTHON = "python"
+    GDSCRIPT = "gdscript"
+    CSHARP = "csharp"
+    CPP = "cpp"
 
 def get_bridge_source_path(language: BridgeLanguage) -> str:
     """

@@ -1,11 +1,11 @@
-package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua"
+package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua;../?.lua"
 
 require "abstractions.scene"
 require "abstractions.input"
 require "abstractions.physics"
 local game_states = require("game_states")
 local rpc_api = require("rpc_api")
-local ToolServer = require("voice_control.bridge.clients.lua.tool_server")
+local ToolServer = require("voice_control/bridge/clients/lua/tool_server")
 
 -- Main game loop
 
