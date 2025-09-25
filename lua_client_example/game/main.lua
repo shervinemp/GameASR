@@ -1,11 +1,11 @@
-package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua;../?.lua"
+package.path = package.path .. ";./lua/?.lua;./lua/?/init.lua"
 
 require "abstractions.scene"
 require "abstractions.input"
 require "abstractions.physics"
 local game_states = require("game_states")
-local rpc_api = require("rpc_api")
-local ToolServer = require("voice_control/bridge/clients/lua/tool_server")
+local tool_api = require("tool_api")
+local ToolServer = require("tool_server")
 
 -- Main game loop
 
@@ -88,7 +88,7 @@ function love.load()
   -- Start the tool server
   local endpoint = os.getenv("LUA_TOOLS_ENDPOINT") or "tcp://127.0.0.1:8080"
   local auth_token = os.getenv("LUA_TOOLS_AUTH_TOKEN")
-  tool_server = ToolServer:new(rpc_api, endpoint, auth_token)
+  tool_server = ToolServer:new(tool_api, endpoint, auth_token)
   tool_server:start()
 end
 

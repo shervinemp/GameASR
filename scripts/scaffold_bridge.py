@@ -12,6 +12,7 @@ class BridgeLanguage(Enum):
     GDSCRIPT = "gdscript"
     CSHARP = "csharp"
     CPP = "cpp"
+    JAVASCRIPT = "javascript"
 
 def get_bridge_source_path(language: BridgeLanguage) -> str:
     """
@@ -30,30 +31,58 @@ def get_bridge_source_path(language: BridgeLanguage) -> str:
         import voice_control
         return os.path.join(os.path.dirname(voice_control.__file__), "bridge", "clients", language.value)
 
-def scaffold_bridge(language: BridgeLanguage, destination: str):
+# This dictionary defines extra files needed for a complete example for each language.
+# The key is the language, the value is a list of paths relative to the project root.
+EXAMPLE_DEPENDENCIES = {
+    BridgeLanguage.LUA: ["lua_client_example/rpc_api.lua"]
+}
+
+def scaffold_bridge(language: BridgeLanguage, destination: str, only_files: list = None):
     """
-    Copies the bridge files for the specified language to the destination directory.
+    Copies the bridge files and their dependencies for the specified language.
     """
     logger = get_logger(__name__)
-    source_path = get_bridge_source_path(language)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    if not os.path.isdir(source_path):
-        logger.error(f"Source path for language '{language.value}' not found at: {source_path}")
-        sys.exit(1)
+    # Determine which files to copy
+    files_to_copy = []
+    if only_files:
+        # User specified exact files
+        bridge_source_path = get_bridge_source_path(language)
+        for file_name in only_files:
+            files_to_copy.append(os.path.join(bridge_source_path, file_name))
+    else:
+        # Copy all bridge files for the language
+        bridge_source_path = get_bridge_source_path(language)
+        if os.path.isdir(bridge_source_path):
+            for file_name in os.listdir(bridge_source_path):
+                files_to_copy.append(os.path.join(bridge_source_path, file_name))
 
-    logger.info(f"Copying bridge files for '{language.value}' from {source_path} to {destination}")
+        # Also copy example dependencies
+        if language in EXAMPLE_DEPENDENCIES:
+            for dep_path in EXAMPLE_DEPENDENCIES[language]:
+                files_to_copy.append(os.path.join(project_root, dep_path))
 
-    for item_name in os.listdir(source_path):
-        source_item = os.path.join(source_path, item_name)
-        destination_item = os.path.join(destination, item_name)
+    if not files_to_copy:
+        logger.warning("No files selected for scaffolding.")
+        return
 
-        if os.path.exists(destination_item):
-            logger.warning(f"File '{item_name}' already exists in the destination. Skipping.")
+    logger.info(f"Scaffolding files for '{language.value}' to: {destination}")
+
+    for source_path in files_to_copy:
+        if not os.path.isfile(source_path):
+            logger.warning(f"Source file not found: {source_path}. Skipping.")
             continue
 
-        if os.path.isfile(source_item):
-            shutil.copy2(source_item, destination)
-            logger.info(f"  - Copied file: {item_name}")
+        file_name = os.path.basename(source_path)
+        destination_item = os.path.join(destination, file_name)
+
+        if os.path.exists(destination_item):
+            logger.warning(f"File '{file_name}' already exists in the destination. Skipping.")
+            continue
+
+        shutil.copy2(source_path, destination_item)
+        logger.info(f"  - Copied: {file_name}")
 
     logger.info("Bridge scaffolding complete.")
 
@@ -78,6 +107,12 @@ def main():
         default=os.getcwd(),
         help="The destination directory to copy the files to. Defaults to the current working directory."
     )
+    parser.add_argument(
+        "--only",
+        type=str,
+        nargs='+',
+        help="A list of specific files to copy (e.g., --only llm_client.lua tool_server.lua)."
+    )
 
     args = parser.parse_args()
 
@@ -88,7 +123,7 @@ def main():
         get_logger(__name__).error(f"Invalid language choice: {args.lang}")
         sys.exit(1)
 
-    scaffold_bridge(language, args.dest)
+    scaffold_bridge(language, args.dest, only_files=args.only)
 
 if __name__ == "__main__":
     main()
