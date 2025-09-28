@@ -6,54 +6,19 @@ Part of the TTS components package.
 This module provides text-to-speech processing functionality using ONNX models.
 """
 
-import os
-from kokoro_onnx import Kokoro
-from kokoro_onnx.tokenizer import Tokenizer
-
 from .audio import AudioPlayer
-
-from ..common.utils import download_file, get_logger
-
-
+from ..common.utils import get_logger
 from ..common.config import config
 
 
 class TTS:
-    sample_rate: int = 24_000
-
     def __init__(self):
-        """
-        Initialize TTS processor with the specified model and configuration files.
-        """
         self.logger = get_logger(__name__)
-
-        model_dir = config.get("tts.model_dir", "model_files/tts")
-        kokoro_config = config.get("tts.models.kokoro", {})
-        model_file = kokoro_config.get("model_file", "kokoro-v1.0.onnx")
-        voices_file = kokoro_config.get("voices_file", "voices-v1.0.bin")
-
-        self.kokoro = Kokoro(
-            model_path=os.path.join(model_dir, model_file),
-            voices_path=os.path.join(model_dir, voices_file),
-        )
-        self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
 
     @classmethod
     def download(cls):
-        model_dir = config.get("tts.model_dir", "model_files/tts")
-        os.makedirs(model_dir, exist_ok=True)
-
-        required_files = [
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
-        ]
-
-        for url in required_files:
-            filename = url.split("/")[-1]
-            destination = os.path.join(model_dir, filename)
-            if not os.path.exists(destination):
-                download_file(url, destination)
+        pass
 
     def __call__(
         self,
@@ -63,26 +28,8 @@ class TTS:
         speed: float = 1.0,
         interrupt: bool = False,
     ):
-        """
-        Convert text into speech audio.
-
-        Args:
-            text: The text string to synthesize
-
-        Returns:
-            tuple: (numpy array of audio samples, sample rate)
-        """
-        phonemes = self.tokenizer.phonemize(text, lang=language)
-        samples, sample_rate = self.kokoro.create(
-            phonemes,
-            voice=voice,
-            speed=speed,
-            is_phonemes=True,
-        )
-
-        self.audio_player(samples, sample_rate, interrupt)
-
-        return samples, sample_rate
+        self.logger.warning("TTS is not implemented. Skipping audio playback.")
+        return None, None
 
     def start(self):
         self.audio_player.start()

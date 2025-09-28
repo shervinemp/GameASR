@@ -1,27 +1,24 @@
 from typing import Any, Dict, List, Tuple
 
+from gqlalchemy import Memgraph
+
 from ..common.config import config
 from ..common.utils import get_logger
 
 
 class KnowledgeGraph:
-    _rel_addendum: str = (
-        "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
-    )
-
-    def __init__(self, uri: str, user: str, password: str):
+    def __init__(self, host: str, port: int, user: str, password: str):
         from sentence_transformers import SentenceTransformer
-        from neo4j import GraphDatabase
 
         self.logger = get_logger(__file__)
-        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+        self.db = Memgraph(host=host, port=port, username=user, password=password)
         embedding_model_name = config.get(
             "llm.models.embedding", "google/embeddinggemma-300m"
         )
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
     def close(self):
-        self._driver.close()
+        pass
 
     def keyword_search(
         self, keywords: List[str], top_k: int = 5
@@ -31,8 +28,9 @@ class KnowledgeGraph:
         ]
         query = """
             UNWIND $queries_data AS q_data
-            CALL (q_data) {
-                CALL db.index.fulltext.queryNodes("nodes_label_description_fulltext", q_data.keyword + '~', {limit: $top_k})
+            CALL {
+                WITH q_data
+                CALL mg.fulltext_search("Entity", q_data.keyword, $top_k)
                 YIELD node, score
                 RETURN collect(
                     apoc.map.removeKey(properties(node), 'embedding')
@@ -41,11 +39,10 @@ class KnowledgeGraph:
             RETURN q_data.id AS query_id, result_list AS results
             ORDER BY query_id ASC
         """
-        with self._driver.session() as session:
-            records = session.run(
-                query, queries_data=queries_data, top_k=top_k
-            )
-            result = [record["results"] for record in records]
+        records = self.db.execute_and_fetch(
+            query, parameters={"queries_data": queries_data, "top_k": top_k}
+        )
+        result = [record["results"] for record in records]
         return result
 
     def vector_search(
@@ -57,8 +54,9 @@ class KnowledgeGraph:
         ]
         query = """
             UNWIND $queries_data AS q_data
-            CALL (q_data) {
-                CALL db.index.vector.queryNodes('embedding', $top_k, q_data.embedding)
+            CALL {
+                WITH q_data
+                CALL vector_search.search('embedding', $top_k, q_data.embedding)
                 YIELD node, score
                 RETURN collect(
                     apoc.map.removeKey(properties(node), 'embedding')
@@ -67,11 +65,10 @@ class KnowledgeGraph:
             RETURN q_data.id AS query_id, result_list AS results
             ORDER BY query_id ASC
         """
-        with self._driver.session() as session:
-            records = session.run(
-                query, queries_data=queries_data, top_k=top_k
-            )
-            result = [record["results"] for record in records]
+        records = self.db.execute_and_fetch(
+            query, parameters={"queries_data": queries_data, "top_k": top_k}
+        )
+        result = [record["results"] for record in records]
         return result
 
     def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
@@ -80,13 +77,10 @@ class KnowledgeGraph:
             OPTIONAL MATCH (n)-[r]-(m:Entity) WHERE m.id IN $nodes
             WITH COLLECT(DISTINCT n) AS nodes, COLLECT(DISTINCT r) AS rels
             RETURN [n in nodes | apoc.map.removeKey(properties(n), 'embedding')] AS nodes,
-                   [r in rels | apoc.map.merge(properties(r), {})] AS relations
-        """.format(
-            self._rel_addendum
-        )
-        with self._driver.session() as session:
-            record = session.run(query, nodes=node_ids).single()
-            result = record.data()
+                   [r in rels | properties(r)] AS relations
+        """
+        record = next(self.db.execute_and_fetch(query, parameters={"nodes": node_ids}))
+        result = record
         return result
 
     def expansion(
@@ -99,22 +93,20 @@ class KnowledgeGraph:
         query = f"""
             UNWIND $frontier AS sourceId
             MATCH (n:Entity {{id: sourceId}})
-            CALL apoc.path.subgraphNodes(n, {{
-                maxLevel: {n_hops},
-                relationshipFilter: ">",
-                labelFilter: "+Entity"
-            }})
-            YIELD node
-            WHERE NOT node.id IN $excluded
+            CALL {{
+                WITH n
+                MATCH (n)-[r*1..{n_hops}]->(m:Entity)
+                WHERE NOT m.id IN $excluded
+                RETURN m
+            }}
             RETURN collect({{
-                node: apoc.map.removeKey(properties(node), 'embedding')
+                node: apoc.map.removeKey(properties(m), 'embedding')
             }}) AS results
         """
-        with self._driver.session() as session:
-            records = session.run(
-                query, frontier=frontier_ids, excluded=excluded_ids
-            )
-            result = [r["results"] for r in records]
+        records = self.db.execute_and_fetch(
+            query, parameters={"frontier": frontier_ids, "excluded": excluded_ids}
+        )
+        result = [r["results"] for r in records]
         return result
 
     def triplet_search(self, triplet: Dict) -> List[Dict]:
@@ -146,13 +138,12 @@ class KnowledgeGraph:
         else:
             return_clause = "RETURN s, o"
         query = f"MATCH {''.join(query_parts)} {return_clause} LIMIT 10"
-        with self._driver.session() as session:
-            records = session.run(query, **params)
-            results = [
-                record.data()[key]
-                for record in records
-                for key in record.keys()
-            ]
+        records = self.db.execute_and_fetch(query, **params)
+        results = [
+            record[key]
+            for record in records
+            for key in record.keys()
+        ]
         return results
 
     def add_triplets(self, triplets: List[Dict[str, str]]):
@@ -161,22 +152,16 @@ class KnowledgeGraph:
             return
 
         query = """
-        UNWIND $triplets AS triplet
-        // Use MERGE for both nodes to avoid creating duplicates
-        MERGE (s:Entity {label: triplet.subject})
-        ON CREATE SET s.id = apoc.create.uuid(), s.description = 'Created by RAG agent'
-
-        MERGE (o:Entity {label: triplet.object})
-        ON CREATE SET o.id = apoc.create.uuid(), o.description = 'Created by RAG agent'
-
-        // Use MERGE for the relationship to avoid duplicates
-        // The relationship type is created dynamically from the predicate
-        CALL apoc.merge.relationship(s, upper(replace(triplet.predicate, ' ', '_')), {}, {}, o)
-        YIELD rel
-        RETURN count(rel) AS created_relationships
+            UNWIND $triplets AS triplet
+            MERGE (s:Entity {label: triplet.subject})
+            ON CREATE SET s.id = randomUUID(), s.description = 'Created by RAG agent'
+            MERGE (o:Entity {label: triplet.object})
+            ON CREATE SET o.id = randomUUID(), o.description = 'Created by RAG agent'
+            CALL mg.create_relationship(s, upper(replace(triplet.predicate, ' ', '_')), {}, o)
+            YIELD rel
+            RETURN count(rel) AS created_relationships
         """
-        with self._driver.session() as session:
-            result = session.run(query, triplets=triplets)
-            self.logger.info(
-                f"Added {result.single()['created_relationships']} new relationships to the graph."
-            )
+        result = self.db.execute_and_fetch(query, parameters={"triplets": triplets})
+        self.logger.info(
+            f"Added {next(result)['created_relationships']} new relationships to the graph."
+        )
