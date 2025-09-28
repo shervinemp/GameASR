@@ -60,6 +60,7 @@ class AudioPlayer:
         self,
         audio_data: np.ndarray[np.float32 | np.int16],
         sample_rate: int,
+        pad_end_ms: int = 200,
     ):
         if audio_data.dtype != np.float32:
             audio_data = (
@@ -69,6 +70,16 @@ class AudioPlayer:
             )
         if np.max(np.abs(audio_data)) > 1.0:
             audio_data /= np.max(np.abs(audio_data))
+
+        audio_data = np.concatenate(
+            [
+                audio_data,
+                np.zeros(
+                    (pad_end_ms * sample_rate // 1000, *audio_data.shape[1:])
+                ),
+            ],
+            axis=0,
+        )
 
         sd.play(
             audio_data,
