@@ -3,15 +3,16 @@ import os
 import sys
 from typing import Optional
 from dotenv import load_dotenv
-from voice_control.rag.model import SimpleRAG
+
+from .asr.model import ASRProviders
+from .tts.model import TTSProviders
+from .rag.model import SimpleRAG
 from .hotkey_dispatcher import HotkeyDispatcher
-from .asr import default_class as default_asr
-from .llm import Session, default_class as default_llm
+from .llm import Session, LLMProviders
 from .llm.tools import Tool
-from .tts import TTS
 from .rag import RAG
 from .rag.knowledge import KnowledgeGraph
-from .bridge.rpc_server import LLMService, RpcServer
+from .bridge.llm_server import LLMServer, LLMService
 
 from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
@@ -27,28 +28,65 @@ class Pipeline:
         self,
         session: Optional[Session] = None,
         rag: Optional[RAG] = None,
-        rpc_server: str | None = None,
-        p2t_key: str | None = None,
+        server_endpoint: str | None = None,
+        push_to_talk: str | None = None,
     ):
         """
         Initialize the voice control pipeline.
         """
         self.logger = get_logger(__name__)
 
-        self.asr = default_asr()
-        self.session = session or Session()
-        if rag is not None:
-            name = "retrieve"
-            rag_tool = Tool.from_callable(name, rag)
-            self.session.conversation._tools.update({name: rag_tool})
-        self.tts = TTS()
-        self.rpc_server = (
-            RpcServer(LLMService(self.session), endpoint=rpc_server)
-            if rpc_server
-            else None
-        )
+        self._running = False
 
-        if p2t_key:
+        asr_cls = getattr(ASRProviders, config.get("asr.provider"))
+        self.asr = asr_cls()
+
+        tts_cls = getattr(TTSProviders, config.get("tts.provider"))
+        self.tts = tts_cls()
+
+        llm_cls = getattr(LLMProviders, config.get("llm.provider"))
+        self.session = session or Session(llm=llm_cls())
+
+        self.rag = rag
+
+        if server_endpoint:
+            auth_token = config.get("llm_server.auth_token")
+            self.llm_server = LLMServer(
+                LLMService(self.session),
+                endpoint=server_endpoint,
+                auth_token=auth_token,
+            )
+
+        self.push_to_talk = push_to_talk
+
+    @property
+    def rag(self) -> RAG:
+        return self.__rag
+
+    @rag.setter
+    def rag(self, value: RAG):
+        if value:
+            name = "retrieve"
+            rag_tool = Tool.from_callable(name, value)
+            self.session.conversation._tools.update({name: rag_tool})
+        self.__rag = value
+
+    @property
+    def push_to_talk(self):
+        return self.__p2t
+
+    @push_to_talk.setter
+    def push_to_talk(self, value: str | None):
+        self.__p2t = value
+
+        if dispatcher := getattr(self, "_hk_dispatch", None):
+            dispatcher.stop()
+            del self._hk_dispatch
+
+        if value is None:
+            self.asr.enable()
+            self.logger.info("Push-to-talk disabled")
+        else:
 
             @contextmanager
             def p2t_action():
@@ -60,10 +98,14 @@ class Pipeline:
                 self.logger.info("Push-to-talk RELEASED. ASR muted.")
 
             self.asr.disable_w_passthrough()
-            hotkey_dispatcher = HotkeyDispatcher()
-            hotkey_dispatcher.register(p2t_key, p2t_action)
-            self.hotkey_dispatcher = hotkey_dispatcher
-            self.logger.info(f"Push-to-talk enabled with hotkey '{p2t_key}'")
+            dispatcher = HotkeyDispatcher()
+            dispatcher.register(value, p2t_action)
+            self._hk_dispatch = dispatcher
+
+            if self._running:
+                dispatcher.start()
+
+            self.logger.info(f"Push-to-talk enabled with hotkey '{value}'")
 
     def _callback(self, transcription: str):
         """
@@ -81,13 +123,13 @@ class Pipeline:
 
     def run(self):
         """Start the voice control pipeline."""
-        if self.hotkey_dispatcher:
-            self.hotkey_dispatcher.start()
-
         self.asr.start()
         self.tts.start()
-        if self.rpc_server:
-            self.rpc_server.start()
+        if server := getattr(self, "llm_server", None):
+            server.start()
+        if dispatcher := getattr(self, "_hk_dispatch", None):
+            dispatcher.start()
+        self._running = True
         try:
             for transcript in self.asr:
                 self.logger.debug(f"{transcript=}")
@@ -96,10 +138,11 @@ class Pipeline:
                 except Exception as e:
                     self.logger.error(f"Error in callback: {e}", exc_info=True)
         finally:
-            if self.rpc_server:
-                self.rpc_server.stop()
-            if self.hotkey_dispatcher.hotkeys:
-                self.hotkey_dispatcher.stop()
+            self._running = False
+            if server := getattr(self, "llm_server", None):
+                server.stop()
+            if dispatcher := getattr(self, "_hk_dispatch", None):
+                dispatcher.stop()
             self.asr.stop()
             self.tts.stop()
 
@@ -117,9 +160,9 @@ def main():
     if not neo4j_config:
         raise ValueError("Neo4j configuration not found in config file.")
 
-    uri = neo4j_config.get("uri")
-    user = neo4j_config.get("user")
-    password_env_var = neo4j_config.get("password_env")
+    uri = neo4j_config.uri
+    user = neo4j_config.user
+    password_env_var = neo4j_config.password_env
 
     if not password_env_var:
         raise ValueError(
@@ -135,10 +178,10 @@ def main():
 
     try:
         graph = KnowledgeGraph(uri, user, password)
-        llm = default_llm()
+        pipe = Pipeline(push_to_talk="<ctrl_r>+<shift_r>")
+        llm = pipe.session.llm
         rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
-        session = Session(llm=llm)
-        pipe = Pipeline(session=session, rag=rag, p2t_key="<ctrl_r>+<shift_r>")
+        pipe.rag = rag
         logger.info("Starting voice control pipeline...")
         pipe.run()
     except Exception as e:

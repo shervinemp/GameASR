@@ -181,15 +181,14 @@ class WebRetriever(Retriever):
         return results
 
     def transform_query(self, query: str) -> List[str]:
-        prefix = '{"search_query": "'
         prompt = (
             "Transform the following conversational query into a concise, keyword-based search engine query. "
             "For example, 'Can you tell me who the members of the band Coldplay are?' should become {'search_query': 'Coldplay band members'}."
             f'\nConversational Query: "{query}"'
-            f"\nSearch Engine Query: {prefix}"
+            f"\nSearch Engine Query: "
         )
 
-        response = prefix + "".join(self.session(prompt))
+        response = "".join(self.session(prompt))
         search_query = json.loads(response)["search_query"].strip()
 
         return search_query

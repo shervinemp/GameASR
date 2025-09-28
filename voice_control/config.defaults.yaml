@@ -14,7 +14,7 @@ database:
 llm:
   # Default provider to use. Can be 'openai', 'gemini', 'ollama', etc.
   # This setting can be used to dynamically load the correct LLM class.
-  default_provider: "nemotron"
+  provider: "NemotronMini"
 
   # --- Model specifications ---
   models:
@@ -28,25 +28,35 @@ llm:
   # --- Provider-specific settings ---
   providers:
     ollama:
-      base_url: "http://localhost:11434"
+      model: "qwen3:latest"
     gemini:
       api_key_env: "GEMINI_API_KEY"
     openai:
       api_key_env: "OPENAI_API_KEY"
-    nemotron: {}
-    qwen: {}
 
 # --- TTS Configuration ---
 tts:
-  provider: "kokoro"
+  provider: "Kokoro"
   # Base directory for TTS models
   model_dir: "model_files/tts"
-  models:
-    kokoro:
-      model_file: "kokoro-v1.0.onnx"
-      voices_file: "voices-v1.0.bin"
 
 # --- ASR Configuration ---
 asr:
-  provider: "parakeetv2"
+  provider: "ParakeetV2"
   model_dir: "model_files/asr"
+
+#----------------------------
+
+# --- RPC Server Configuration ---
+rpc_server:
+  # The authentication token for the RPC server.
+  # If null, authentication is disabled.
+  # It is strongly recommended to set a secure token in your config.yaml
+  auth_token: null
+
+# --- Tools Server Configuration ---
+tools_server:
+  # The authentication token for the tools server (the Lua game).
+  # If null, authentication is disabled.
+  # It is strongly recommended to set a secure token in your config.yaml
+  auth_token: null

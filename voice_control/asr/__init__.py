@@ -1,4 +1,3 @@
-from .models import ParakeetV2
-from .model import default_class
+from .model import ASRProviders
 
-__all__ = ["ParakeetV2", "default_class"]
+__all__ = ["ASRProviders"]

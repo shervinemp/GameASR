@@ -7,7 +7,7 @@ HotkeyAction: TypeAlias = Union[
 
 
 class HotkeyDispatcher:
-    def __init__(self) -> None:
+    def __init__(self):
         """Initializes the hotkey dispatcher."""
         self.hotkeys: Dict[frozenset, HotkeyAction] = {}
         self.active_contexts: Dict[frozenset, ContextManager[None]] = {}
@@ -16,18 +16,18 @@ class HotkeyDispatcher:
             on_press=self._on_press, on_release=self._on_release
         )
 
-    def register(self, hotkey_string: str, action: HotkeyAction) -> None:
+    def register(self, hotkey_string: str, action: HotkeyAction):
         """Registers a hotkey with a specific action."""
         hotkey = frozenset(keyboard.HotKey.parse(hotkey_string))
         self.hotkeys[hotkey] = action
 
-    def unregister(self, hotkey_string: str) -> None:
+    def unregister(self, hotkey_string: str):
         """Unregisters a hotkey."""
         hotkey = frozenset(keyboard.HotKey.parse(hotkey_string))
         if hotkey in self.hotkeys:
             del self.hotkeys[hotkey]
 
-    def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
+    def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None):
         if key is None:
             return
         self.pressed_keys.add(key)
@@ -41,7 +41,7 @@ class HotkeyDispatcher:
                     context_manager.__enter__()
                     self.active_contexts[hotkey] = context_manager
 
-    def _on_release(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
+    def _on_release(self, key: keyboard.Key | keyboard.KeyCode | None):
         for hotkey, context_manager in list(self.active_contexts.items()):
             if not hotkey.issubset(self.pressed_keys):
                 context_manager.__exit__(None, None, None)
@@ -50,11 +50,11 @@ class HotkeyDispatcher:
         if key in self.pressed_keys:
             self.pressed_keys.remove(key)
 
-    def start(self) -> None:
+    def start(self):
         """Starts the keyboard listener."""
         self.listener.start()
 
-    def stop(self) -> None:
+    def stop(self):
         """Stops the keyboard listener."""
         self.listener.stop()
         self.listener.join()

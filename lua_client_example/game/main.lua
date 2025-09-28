@@ -4,6 +4,8 @@ require "abstractions.scene"
 require "abstractions.input"
 require "abstractions.physics"
 local game_states = require("game_states")
+local tool_api = require("tool_api")
+local ToolServer = require("tool_server")
 
 -- Main game loop
 
@@ -78,10 +80,25 @@ function love.load()
     return
   end
 
+  local endpoint = os.getenv("TOOLS_ENDPOINT") or "tcp://127.0.0.1:8080"
+  local auth_token = os.getenv("TOOLS_AUTH_TOKEN")
+
+  local success, err = pcall(function()
+    tool_server = ToolServer:new(tool_api, endpoint, auth_token)
+    tool_server:start()
+  end)
+
   if not success then
-    print("Error loading game states:", err)
+    print("Error creating the tool server:", err)
     return
   end
+
+end
+
+function love.quit()
+    if tool_server then
+        tool_server:stop()
+    end
 end
 
 function love.update(dt)

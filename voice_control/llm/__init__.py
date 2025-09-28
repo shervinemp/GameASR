@@ -1,10 +1,10 @@
 from .conversation import Conversation, Message, MessageList
-from .model import default_class
+from .model import LLMProviders
 from .session import Session
 from .tools import Tool
 
 __all__ = [
-    "default_class",
+    "LLMProviders",
     "Conversation",
     "Message",
     "MessageList",

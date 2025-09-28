@@ -7,7 +7,7 @@ This module provides text-to-speech processing functionality using ONNX models.
 """
 
 import os
-from kokoro_onnx import Kokoro
+from kokoro_onnx import Kokoro as KokoroONNX
 from kokoro_onnx.tokenizer import Tokenizer
 
 from .audio import AudioPlayer
@@ -18,7 +18,7 @@ from ..common.utils import download_file, get_logger
 from ..common.config import config
 
 
-class TTS:
+class Kokoro:
     sample_rate: int = 24_000
 
     def __init__(self):
@@ -28,13 +28,10 @@ class TTS:
         self.logger = get_logger(__name__)
 
         model_dir = config.get("tts.model_dir", "model_files/tts")
-        kokoro_config = config.get("tts.models.kokoro", {})
-        model_file = kokoro_config.get("model_file", "kokoro-v1.0.onnx")
-        voices_file = kokoro_config.get("voices_file", "voices-v1.0.bin")
 
-        self.kokoro = Kokoro(
-            model_path=os.path.join(model_dir, model_file),
-            voices_path=os.path.join(model_dir, voices_file),
+        self.kokoro = KokoroONNX(
+            model_path=os.path.join(model_dir, "kokoro-v1.0.onnx"),
+            voices_path=os.path.join(model_dir, "voices-v1.0.bin"),
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
@@ -95,3 +92,13 @@ class TTS:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
+
+
+# ----------------------------------------------------------------------
+
+
+class TTSProviders:
+    Kokoro: type = Kokoro
+
+
+# ----------------------------------------------------------------------

@@ -4,6 +4,7 @@ import json
 
 from ..common.utils import get_logger
 from ..llm import Session
+from ..common.config import config
 
 
 class LLMService:
@@ -23,17 +24,25 @@ class LLMService:
         return "".join(response_parts)
 
 
-class RpcServer:
-    def __init__(self, service_api, endpoint: str):
+class LLMServer:
+    def __init__(self, service_api, endpoint: str, auth_token: str = None):
         self.logger = get_logger(__name__)
         self.endpoint = endpoint
         self.service_api = service_api
+        self.auth_token = auth_token
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind(self.endpoint)
         self._worker_thread = None
         self._running = False
-        self.logger.info(f"RPC Server bound to {self.endpoint}")
+        self.logger.info(f"LLM Server bound to {self.endpoint}")
+        if self.auth_token:
+            self.logger.info("LLM Server authentication is enabled.")
+
+    def _is_authenticated(self, request: dict) -> bool:
+        if not self.auth_token:
+            return True
+        return request.get("auth_token") == self.auth_token
 
     def _dispatch_method(self, method_name: str, params: dict):
         method_func = getattr(self.service_api, method_name, None)
@@ -56,6 +65,13 @@ class RpcServer:
 
             if request.get("jsonrpc") != "2.0" or "method" not in request:
                 raise ValueError("Invalid JSON-RPC request format.")
+
+            if not self._is_authenticated(request):
+                response_obj["error"] = {
+                    "code": -32001,
+                    "message": "Authentication failed",
+                }
+                return json.dumps(response_obj)
 
             method_name = request["method"]
             params = request.get("params", {})
@@ -163,17 +179,20 @@ if __name__ == "__main__":
     llm_service_instance = LLMService(llm_session)
 
     server_endpoint = "tcp://127.0.0.1:5555"
-    rpc_server = RpcServer(llm_service_instance, server_endpoint)
+    auth_token = config.get("rpc_server.auth_token")
+    llm_server = LLMServer(
+        llm_service_instance, server_endpoint, auth_token=auth_token
+    )
 
-    rpc_server.start()
-    print(f"RPC Server started on {server_endpoint}. Press Ctrl+C to stop.")
+    llm_server.start()
+    print(f"LLM Server started on {server_endpoint}. Press Ctrl+C to stop.")
 
     try:
         while True:
             threading.Event().wait(1)
     except KeyboardInterrupt:
         print(
-            "\nMain thread received KeyboardInterrupt. Stopping RPC server..."
+            "\nMain thread received KeyboardInterrupt. Stopping LLM server..."
         )
-        rpc_server.stop()
+        llm_server.stop()
         print("Application exiting.")

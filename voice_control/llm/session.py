@@ -6,7 +6,7 @@ from typing import Any, Dict, Generator, Optional, Tuple
 
 from ..common.utils import get_logger
 
-from .model import LLM, default_class
+from .model import LLM
 from .conversation import Conversation
 
 
@@ -14,11 +14,11 @@ class Session:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
+        llm: LLM,
         conversation: Optional[Conversation] = None,
     ):
         self.logger = get_logger(__name__)
-        self.llm = llm or default_class()
+        self.llm = llm
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
 

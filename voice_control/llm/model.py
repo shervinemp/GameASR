@@ -6,7 +6,6 @@ from typing import Any, Dict, Generator, Iterator
 
 from .conversation import Conversation
 
-from ..common.config import config
 from ..common.utils import download_hf_file, get_logger
 
 
@@ -60,6 +59,8 @@ class LLM(ABC):
                 ),
                 None,
             )
+            # TODO: make bounds detection more robust. (e.g. blah blah.<toolcall> {...} </toolcall>)
+            # TODO: also if text is followed by call, should the immediate response and the response after adding tool response messages to the conversation remain separate?
 
             if bounds:
                 if b_.endswith(bounds[1]):
@@ -127,7 +128,7 @@ class GGUFLLM(LLM):
         )
         self.logger.info("Model loaded successfully.")
 
-        self._last_state = dict()
+        self._last_state = None
         self._lock = Lock()
 
     @classmethod
@@ -145,22 +146,15 @@ class GGUFLLM(LLM):
         *,
         session_state: dict,
         tool_choice: str | Dict[str, Any] = "auto",
+        **kwargs,
     ) -> Generator[str, None, None]:
         with self._lock:
-            k_ = "model_state"
-            new_state = session_state.get(k_)
-            self.logger.debug(f"{id(new_state)=}")
-            if (
-                old_state := self._last_state.get(k_)
-            ) and old_state != new_state:
+            if self._last_state and id(self._last_state) != id(session_state):
+                k_ = "model_state"
                 self._last_state[k_] = self.model.save_state()
-                self.logger.debug(f"Parking state {id(old_state)=}")
                 self.model.reset()
-                if new_state:
-                    self.logger.debug(
-                        f"Switching states for GGUFLLM ({id(self)=})"
-                    )
-                    self.model.load_state(new_state)
+                if s_ := session_state.get(k_):
+                    self.model.load_state(s_)
 
             self._last_state = session_state
 
@@ -170,6 +164,7 @@ class GGUFLLM(LLM):
                 tool_choice=tool_choice,
                 max_tokens=self.max_tokens,
                 stream=True,
+                **kwargs,
             )
 
             for chunk in stream:
@@ -191,17 +186,18 @@ class Qwen3(GGUFLLM):
     max_tokens: int = 8192
 
 
-class OllamaModel(LLM):
+class OllamaLLM(LLM):
     def __init__(
         self,
-        host: str = config.get("llm.providers.ollama.base_url"),
-        model: str = config.get("llm.models.default"),
+        model: str,
+        host: str = "http://localhost:11434",
     ):
         from ollama import Client
 
         self.logger = get_logger(__name__)
-        self.client = Client(host=host)
+
         self.model = model
+        self.client = Client(host=host)
 
     def _infer(
         self, conversation: Conversation, *, session_state: dict
@@ -220,13 +216,11 @@ class OllamaModel(LLM):
 
 # ----------------------------------------------------------------------
 
-llm_providers = {
-    "nemotron": NemotronMini,
-    "qwen3": Qwen3,
-    "ollama": OllamaModel,
-}
 
-provider = config.get("llm.default_provider", "nemotron")
-default_class = llm_providers.get(provider)
+class LLMProviders:
+    NemotronMini: type = NemotronMini
+    Qwen3: type = Qwen3
+    OllamaModel: type = OllamaLLM
+
 
 # ----------------------------------------------------------------------
