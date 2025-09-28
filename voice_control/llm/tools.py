@@ -74,25 +74,16 @@ class Tool:
     callback: Optional[Callable] = None
 
     def __call__(self, **kwargs) -> Any:
-        return self.callback(**self._parse_args(kwargs))
+        return self.callback(**self._parse_args(**kwargs))
 
-    def _parse_args(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Cast arguments based on parameter types.
-
-        Args:
-            args (Dict[str, Any]): The raw argument values.
-
-        Returns:
-            Dict[str, Any]: The argument values cast to their expected types.
-        """
+    def _parse_args(self, **kwargs) -> Dict[str, Any]:
         if not self.parameters or not hasattr(self.parameters, "properties"):
-            return args
+            return kwargs
 
         casted_args = {}
         properties = self.parameters.properties
 
-        for arg_name, arg_value in args.items():
+        for arg_name, arg_value in kwargs.items():
             casted_args[arg_name] = arg_value
             if arg_name in properties:
                 json_type = _get_json_type(properties[arg_name].type)
