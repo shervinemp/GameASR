@@ -13,8 +13,7 @@ from dotenv import load_dotenv
 
 from sentence_transformers import SentenceTransformer
 
-from neo4j import GraphDatabase
-from neo4j_graphrag.indexes import create_vector_index
+from gqlalchemy import Memgraph
 
 from ..common.utils import get_logger, setup_logging
 from ..common.config import config
@@ -145,13 +144,13 @@ class CodexDataLoader(DataLoader):
             raise RuntimeError(f"Failed during download or extraction: {e}")
 
 
-class Neo4jImporter:
+class MemgraphImporter:
     """
-    Manages the connection, embedding generation, and data import into Neo4j.
+    Manages the connection, embedding generation, and data import into Memgraph.
     """
 
-    def __init__(self, uri: str, user: str, password: str):
-        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+    def __init__(self, host: str, port: int, user: str, password: str):
+        self.db = Memgraph(host=host, port=port, username=user, password=password)
         print("Initializing embedding model...")
         embedding_model_name = config.get(
             "llm.models.embedding", "google/embeddinggemma-300m"
@@ -160,7 +159,7 @@ class Neo4jImporter:
         print("Model ready.")
 
     def close(self):
-        self._driver.close()
+        pass
 
     def __enter__(self):
         return self
@@ -169,31 +168,30 @@ class Neo4jImporter:
         self.close()
 
     def _run_query(self, query: str, parameters: Optional[Dict] = None):
-        with self._driver.session() as session:
-            session.run(query, parameters or {})
+        self.db.execute(query, parameters or {})
 
     def _ensure_indexes(self):
         print("Ensuring indexes are in place...")
-        query = "CREATE INDEX entity_id_index IF NOT EXISTS FOR (n:Entity) ON (n.id)"
+        query = "CREATE INDEX ON :Entity(id);"
         self._run_query(query)
 
-        query = "CREATE FULLTEXT INDEX nodes_label_description_fulltext IF NOT EXISTS FOR (n:Entity) ON EACH [n.label, n.description]"
+        query = "CALL mg.create_full_text_index('Entity', 'label,description');"
         self._run_query(query)
 
-        create_vector_index(
-            self._driver,
-            name="embedding",
-            label="Entity",
-            embedding_property="embedding",
-            dimensions=384,
-            similarity_fn="cosine",
-        )
+        query = """
+            CREATE VECTOR INDEX embedding ON :Entity(embedding)
+            WITH CONFIG {
+                "dimension": 384,
+                "similarity_metric": "cosine"
+            };
+        """
+        self._run_query(query)
         print("Indexes are ready.")
 
     def clear_database(self):
         print("Clearing database...")
-        self._run_query("DROP INDEX entity_id_index IF EXISTS")
-        self._run_query("MATCH (n) DETACH DELETE n")
+        self._run_query("DROP INDEX ON :Entity(id);")
+        self._run_query("MATCH (n) DETACH DELETE n;")
         print("Database cleared.")
 
     def _generate_entity_embeddings(self, entities_meta: Dict) -> List[Dict]:
@@ -229,7 +227,7 @@ class Neo4jImporter:
 
         self._ensure_indexes()
 
-        print("Starting data preparation for Neo4j...")
+        print("Starting data preparation for Memgraph...")
         entities_with_embeddings = self._generate_entity_embeddings(
             entities_meta
         )
@@ -255,7 +253,7 @@ class Neo4jImporter:
     def _import_relationships(
         self, triples_df: pd.DataFrame, relations_meta: Dict
     ):
-        """Imports relationships using dynamic types via APOC."""
+        """Imports relationships using dynamic types."""
 
         def sanitize_label(label: str) -> str:
             label = label.upper().replace(" ", "_").replace("-", "_")
@@ -279,18 +277,17 @@ class Neo4jImporter:
             UNWIND $triples AS triple
             MATCH (head:Entity {id: triple.head})
             MATCH (tail:Entity {id: triple.tail})
-            CALL apoc.create.relationship(head, triple.type, {id: triple.id}, tail)
+            CALL mg.create_relationship(head, triple.type, {id: triple.id}, tail)
             YIELD rel
             RETURN count(rel)
         """
-        print("Importing relationships with dynamic types (using APOC)...")
+        print("Importing relationships with dynamic types...")
         self._run_query(query, {"triples": triples_list})
         print(f"Imported {len(triples_list)} relationships.")
 
     def get_node_count(self) -> int:
-        with self._driver.session() as session:
-            result = session.run("MATCH (n) RETURN count(n) AS count")
-            return result.single()["count"]
+        result = self.db.execute_and_fetch("MATCH (n) RETURN count(n) AS count")
+        return next(result)["count"]
 
 
 def main():
@@ -305,28 +302,31 @@ def main():
 
     load_dotenv()
 
-    # Load Neo4j credentials from the central config
-    neo4j_config = config.get("database.neo4j")
-    if not neo4j_config:
-        raise ValueError("Neo4j configuration not found in config file.")
+    # Load Memgraph credentials from the central config
+    memgraph_config = config.get("database.memgraph")
+    if not memgraph_config:
+        raise ValueError("Memgraph configuration not found in config file.")
 
-    uri = neo4j_config.get("uri")
-    user = neo4j_config.get("user")
-    password_env_var = neo4j_config.get("password_env")
+    uri = memgraph_config.get("uri")
+    user = memgraph_config.get("user")
+    password_env_var = memgraph_config.get("password_env")
 
     if not password_env_var:
         raise ValueError(
-            "Neo4j password environment variable not specified in config."
+            "Memgraph password environment variable not specified in config."
         )
 
     password = os.getenv(password_env_var)
 
     if not all([uri, user, password]):
         raise ValueError(
-            f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
+            f"Memgraph credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
         )
 
-    with Neo4jImporter(uri, user, password) as importer:
+    host = uri.split('//')[1].split(':')[0]
+    port = int(uri.split(':')[-1])
+
+    with MemgraphImporter(host, port, user, password) as importer:
         if not FORCE_DOWNLOAD and importer.get_node_count():
             logger.info("Database already contains data. Skipping import.")
         else:

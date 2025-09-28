@@ -4,11 +4,11 @@
 
 # --- Database Configuration ---
 database:
-  neo4j:
+  memgraph:
     uri: "bolt://localhost:7687"
-    user: "neo4j"
+    user: "memgraph"
     # The password should be loaded from an environment variable, not stored here.
-    password_env: "NEO4J_PASSWORD"
+    password_env: "MEMGRAPH_PASSWORD"
 
 # --- LLM Configuration ---
 llm:
@@ -38,13 +38,10 @@ llm:
 
 # --- TTS Configuration ---
 tts:
-  provider: "kokoro"
+  provider: "default"
   # Base directory for TTS models
   model_dir: "model_files/tts"
-  models:
-    kokoro:
-      model_file: "kokoro-v1.0.onnx"
-      voices_file: "voices-v1.0.bin"
+  models: {}
 
 # --- ASR Configuration ---
 asr:

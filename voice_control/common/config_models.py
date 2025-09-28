@@ -1,13 +1,13 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Dict
 
-class Neo4jConfig(BaseModel):
+class MemgraphConfig(BaseModel):
     uri: str
     user: str
     password_env: str
 
 class DatabaseConfig(BaseModel):
-    neo4j: Neo4jConfig
+    memgraph: MemgraphConfig
 
 class OllamaProviderConfig(BaseModel):
     base_url: str
@@ -35,12 +35,8 @@ class LLMConfig(BaseModel):
     models: LLMModelsConfig
     providers: LLMProvidersConfig
 
-class KokoroTTSConfig(BaseModel):
-    model_file: str
-    voices_file: str
-
 class TTSModelsConfig(BaseModel):
-    kokoro: KokoroTTSConfig
+    pass
 
 class TTSConfig(BaseModel):
     provider: str

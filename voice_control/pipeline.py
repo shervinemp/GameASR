@@ -117,28 +117,30 @@ def main():
 
     load_dotenv()
 
-    neo4j_config = config.get("database.neo4j")
-    if not neo4j_config:
-        raise ValueError("Neo4j configuration not found in config file.")
+    memgraph_config = config.get("database.memgraph")
+    if not memgraph_config:
+        raise ValueError("Memgraph configuration not found in config file.")
 
-    uri = neo4j_config.get("uri")
-    user = neo4j_config.get("user")
-    password_env_var = neo4j_config.get("password_env")
+    uri = memgraph_config.get("uri")
+    user = memgraph_config.get("user")
+    password_env_var = memgraph_config.get("password_env")
 
     if not password_env_var:
         raise ValueError(
-            "Neo4j password environment variable not specified in config."
+            "Memgraph password environment variable not specified in config."
         )
 
     password = os.getenv(password_env_var)
 
     if not all([uri, user, password]):
         raise ValueError(
-            f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
+            f"Memgraph credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
         )
 
     try:
-        graph = KnowledgeGraph(uri, user, password)
+        host = uri.split('//')[1].split(':')[0]
+        port = int(uri.split(':')[-1])
+        graph = KnowledgeGraph(host, port, user, password)
         llm = default_llm()
         rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
         session = Session(llm=llm)
