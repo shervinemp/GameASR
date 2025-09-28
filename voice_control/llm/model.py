@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from itertools import chain
 import json
 import os
 from threading import Lock
@@ -39,8 +40,8 @@ class LLM(ABC):
             ("<", ">"),
             ("&lt;", "&gt;"),
         ]
-        tool_beg, tool_end = ("toolcall", "/toolcall")
-        think_beg, think_end = ("think", "/think")
+        tool_tags = ("toolcall", "tool_call")
+        think_tags = ("think",)
 
         buffer = ""
         tag_body = ""
@@ -48,8 +49,11 @@ class LLM(ABC):
         is_call = False
         is_thought = False
 
-        for content in stream:
+        for content in chain.from_iterable(stream):
             buffer += content
+            if content.isspace():
+                continue
+
             b_ = buffer.strip()
 
             bounds = bounds or next(
@@ -59,32 +63,31 @@ class LLM(ABC):
                 ),
                 None,
             )
-            # TODO: make bounds detection more robust. (e.g. blah blah.<toolcall> {...} </toolcall>)
-            # TODO: also if text is followed by call, should the immediate response and the response after adding tool response messages to the conversation remain separate?
 
             if bounds:
                 if b_.endswith(bounds[1]):
-                    inner = b_[len(bounds[0]) : -len(bounds[1])]
-                    if inner == think_beg:
-                        is_thought = True
-                        buffer = ""
-                    elif inner == tool_beg:
-                        is_call = True
-                        buffer = ""
-                    elif inner == think_end and is_thought:
-                        is_thought = False
-                        buffer = ""
-                    elif inner == tool_end and is_call:
-                        is_call = False
-                        buffer = ""
-                        try:
-                            tool_call = json.loads(tag_body)
-                            tag_body = ""
-                            yield tool_call
-                        except (json.JSONDecodeError, KeyError) as e:
-                            self.logger.error(
-                                f"Failed to parse tool call: {tag_body}. Error: {e}"
-                            )
+                    tag = b_[len(bounds[0]) : -len(bounds[1])]
+                    if tag[0] == "/":
+                        tag = tag[1:]
+                        if is_thought and any(tag == t for t in think_tags):
+                            is_thought = False
+                        elif is_call and any(tag == t for t in tool_tags):
+                            is_call = False
+                            tb_ = tag_body.strip()
+                            try:
+                                tool_call = json.loads(tb_)
+                                yield tool_call
+                            except (json.JSONDecodeError, KeyError) as e:
+                                self.logger.error(
+                                    f"Failed to parse tool call: {tb_}. Error: {e}"
+                                )
+                        tag_body = ""
+                    else:
+                        if any(tag == t for t in think_tags):
+                            is_thought = True
+                        elif any(tag == t for t in tool_tags):
+                            is_call = True
+                    buffer = ""
                     bounds = None
 
             if buffer and not bounds:
