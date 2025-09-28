@@ -93,6 +93,7 @@ class Tool:
         properties = self.parameters.properties
 
         for arg_name, arg_value in args.items():
+            casted_args[arg_name] = arg_value
             if arg_name in properties:
                 json_type = _get_json_type(properties[arg_name].type)
                 if json_type == "integer":
@@ -101,10 +102,8 @@ class Tool:
                     casted_args[arg_name] = float(arg_value)
                 elif json_type == "boolean":
                     casted_args[arg_name] = bool(arg_value)
-                else:
+                elif json_type == "string":
                     casted_args[arg_name] = str(arg_value)
-            else:
-                casted_args[arg_name] = arg_value
 
         return casted_args
 

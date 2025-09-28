@@ -27,10 +27,13 @@ class Session:
 
         self.tool_caller.start()
 
-    def __call__(self, query: str, **kwargs) -> Generator[str, None, None]:
+    def __call__(
+        self, query: str | None = None, **kwargs
+    ) -> Generator[str, None, None]:
         with self._lock:
-            self.conversation.add_user_message(query)
-            self.logger.debug(f"{query=}")
+            if query:
+                self.conversation.add_user_message(query)
+                self.logger.debug(f"{query=}")
 
             yield from self._generate_response()
 
