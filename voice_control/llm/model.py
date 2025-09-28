@@ -182,8 +182,8 @@ class NemotronMini(GGUFLLM):
 class Qwen3(GGUFLLM):
     hf_repo: str = "Qwen/Qwen3-4B-GGUF"
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
-    n_ctx: int = 32768
-    max_tokens: int = 8192
+    n_ctx: int = 40960
+    max_tokens: int = 10240
 
 
 class OllamaLLM(LLM):
