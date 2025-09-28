@@ -6,7 +6,7 @@ from ..common.utils import get_logger
 
 class KnowledgeGraph:
     _rel_addendum: str = (
-        "{head: startNode(r).id, tail: endNode(r).id, type: type(r)}"
+        "{head: startNode(rel).id, tail: endNode(rel).id, type: type(rel)}"
     )
 
     def __init__(self, uri: str, user: str, password: str):
@@ -75,15 +75,13 @@ class KnowledgeGraph:
         return result
 
     def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
-        query = """
+        query = f"""
             MATCH (n:Entity) WHERE n.id IN $nodes
             OPTIONAL MATCH (n)-[r]-(m:Entity) WHERE m.id IN $nodes
             WITH COLLECT(DISTINCT n) AS nodes, COLLECT(DISTINCT r) AS rels
-            RETURN [n in nodes | apoc.map.removeKey(properties(n), 'embedding')] AS nodes,
-                   [r in rels | apoc.map.merge(properties(r), {})] AS relations
-        """.format(
-            self._rel_addendum
-        )
+            RETURN [node in nodes | apoc.map.removeKey(properties(node), 'embedding')] AS nodes,
+                   [rel in rels | apoc.map.merge(properties(rel), {self._rel_addendum})] AS relations
+        """
         with self._driver.session() as session:
             record = session.run(query, nodes=node_ids).single()
             result = record.data()
@@ -94,21 +92,40 @@ class KnowledgeGraph:
         frontier_ids: List[str],
         excluded_ids: List[str],
         n_hops: int = 1,
-    ) -> List[Dict[str, Dict[str, Any]]]:
-        """Performs a multi-hop expansion from a set of frontier nodes."""
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        Performs a multi-hop expansion from a set of frontier nodes,
+        returning the expanded nodes along with their parent and the
+        connecting relationship.
+        """
+
         query = f"""
             UNWIND $frontier AS sourceId
-            MATCH (n:Entity {{id: sourceId}})
-            CALL apoc.path.subgraphNodes(n, {{
-                maxLevel: {n_hops},
-                relationshipFilter: ">",
-                labelFilter: "+Entity"
-            }})
-            YIELD node
-            WHERE NOT node.id IN $excluded
-            RETURN collect({{
-                node: apoc.map.removeKey(properties(node), 'embedding')
-            }}) AS results
+            CALL {{
+                WITH sourceId
+                MATCH (n:Entity {{id: sourceId}})
+                CALL apoc.path.expandConfig(n, {{
+                    minLevel: 1, // Start from 1 hop away
+                    maxLevel: {n_hops},
+                    relationshipFilter: ">", // Only traverse outgoing relationships
+                    labelFilter: "+Entity",   // Only traverse to Entity nodes
+                    uniqueness: "NODE_PATH"  // Ensures paths are simple (no repeated nodes)
+                }})
+                YIELD path
+
+                WITH last(nodes(path)) AS node,
+                     nodes(path)[size(nodes(path))-2] AS parent,
+                     last(relationships(path)) AS rel
+
+                WHERE NOT node.id IN $excluded
+
+                RETURN collect(DISTINCT {{
+                    node: apoc.map.removeKey(properties(node), 'embedding'),
+                    parent: apoc.map.removeKey(properties(parent), 'embedding'),
+                    relationship: apoc.map.merge(properties(rel), {self._rel_addendum})
+                }}) AS single_result
+            }}
+            RETURN single_result AS results
         """
         with self._driver.session() as session:
             records = session.run(

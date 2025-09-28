@@ -111,39 +111,56 @@ class GraphRetriever(Retriever):
         return keywords
 
     def expand(self, node_ids: List[str], n_hops: int) -> List[Dict[str, Any]]:
+        """
+        Expands from seed nodes to find neighbors and combines them into a single list
+        of dictionaries for formatting.
+        """
         self.logger.info(
             f"Starting {n_hops}-hop exploration from {len(node_ids)} initial nodes."
         )
 
-        subgraph = self.graph.subgraph(node_ids)
-        node_data = subgraph.get("nodes", [])
+        seed_nodes = self.graph.subgraph(node_ids).get("nodes", [])
 
-        neighbor_data_lists = self.graph.expansion(
+        expansion_results = self.graph.expansion(
             frontier_ids=node_ids,
             excluded_ids=node_ids,
             n_hops=n_hops,
         )
-
-        neighbor_nodes = [
-            item["node"] for sublist in neighbor_data_lists for item in sublist
+        neighbor_paths = [
+            item for sublist in expansion_results for item in sublist
         ]
-
         self.logger.info(
-            f"Found {len(neighbor_nodes)} unique neighbors within {n_hops} hops."
+            f"Found {len(neighbor_paths)} relationships within {n_hops} hops."
         )
 
-        combined_nodes = {node["id"]: node for node in node_data}
-        for node in neighbor_nodes:
-            if node["id"] not in combined_nodes:
-                combined_nodes[node["id"]] = node
+        return seed_nodes + neighbor_paths
 
-        return list(combined_nodes.values())
+    def format_results(self, results: List[Dict]) -> List[str]:
+        """
+        Formats a list of nodes and path dictionaries into
+        human-readable strings for the LLM.
+        """
+        formatted_strings = []
+        for item in results:
+            if "parent" in item and "node" in item:
+                node = item.get("node", {})
+                parent = item.get("parent", {})
+                rel = item.get("relationship", {})
 
-    def format_results(self, results: List[dict]) -> List[str]:
-        return [
-            f"{r.get('label', '')}: {r.get('description', '')}"
-            for r in results
-        ]
+                parent_label = parent.get("label", "")
+                node_label = node.get("label", "")
+                rel_type = rel.get("type", "RELATED_TO")
+
+                statement = f"{parent_label} -[{rel_type}]-> {node_label}"
+                formatted_strings.append(statement)
+
+            else:
+                label = item.get("label", "")
+                description = item.get("description", "")
+                statement = f"{label}: {description}"
+                formatted_strings.append(statement)
+
+        return list(dict.fromkeys(formatted_strings).keys())
 
 
 class WebRetriever(Retriever):
