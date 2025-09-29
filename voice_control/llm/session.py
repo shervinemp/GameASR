@@ -33,7 +33,7 @@ class Session:
         with self._lock:
             if query:
                 self.conversation.add_user_message(query)
-                self.logger.debug(f"{query=}")
+                self.logger.info(f"{query=}")
 
             yield from self._generate_response()
 
