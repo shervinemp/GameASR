@@ -51,8 +51,8 @@ class AudioPlayer:
     ):
         with self._queue.mutex:
             if interrupt:
-                self._queue.queue.clear()
                 sd.stop()
+                self._queue.queue.clear()
         self._queue.put((audio_data, sample_rate))
 
     def play(
