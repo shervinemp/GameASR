@@ -4,6 +4,8 @@ import sys
 from typing import Optional
 from dotenv import load_dotenv
 
+from .llm.conversation import Conversation
+
 from .asr.model import ASRProviders
 from .tts.model import TTSProviders
 from .rag.model import SimpleRAG
@@ -30,6 +32,7 @@ class Pipeline:
         rag: Optional[RAG] = None,
         server_endpoint: str | None = None,
         push_to_talk: str | None = None,
+        press_to_reset: str | None = None,
     ):
         """
         Initialize the voice control pipeline.
@@ -62,54 +65,7 @@ class Pipeline:
             )
 
         self.push_to_talk = push_to_talk
-
-    @property
-    def rag(self) -> RAG:
-        return self.__rag
-
-    @rag.setter
-    def rag(self, value: RAG):
-        if value:
-            name = "retrieve"
-            rag_tool = Tool.from_callable(name, value)
-            self.session.conversation._tools.update({name: rag_tool})
-        self.__rag = value
-
-    @property
-    def push_to_talk(self):
-        return self.__p2t
-
-    @push_to_talk.setter
-    def push_to_talk(self, value: str | None):
-        self.__p2t = value
-
-        if dispatcher := getattr(self, "_hk_dispatch", None):
-            dispatcher.stop()
-            del self._hk_dispatch
-
-        if value is None:
-            self.asr.enable()
-            self.logger.info("Push-to-talk disabled")
-        else:
-
-            @contextmanager
-            def p2t_action():
-                """Action to enable/disable ASR on hotkey press/release."""
-                self.asr.enable()
-                self.logger.info("Push-to-talk ACTIVE. Listening...")
-                yield
-                self.asr.disable_w_passthrough()
-                self.logger.info("Push-to-talk RELEASED. ASR muted.")
-
-            self.asr.disable_w_passthrough()
-            dispatcher = HotkeyDispatcher()
-            dispatcher.register(value, p2t_action)
-            self._hk_dispatch = dispatcher
-
-            if self._running:
-                dispatcher.start()
-
-            self.logger.info(f"Push-to-talk enabled with hotkey '{value}'")
+        self.press_to_reset = press_to_reset
 
     def _callback(self, transcription: str):
         """
@@ -129,10 +85,9 @@ class Pipeline:
         """Start the voice control pipeline."""
         self.asr.start()
         self.tts.start()
+        self._hotkey_dispatcher.start()
         if server := getattr(self, "llm_server", None):
             server.start()
-        if dispatcher := getattr(self, "_hk_dispatch", None):
-            dispatcher.start()
         self._running = True
         try:
             for transcript in self.asr:
@@ -149,6 +104,82 @@ class Pipeline:
                 dispatcher.stop()
             self.asr.stop()
             self.tts.stop()
+
+    def _configure_session(self):
+        if cb := getattr(self, "_rag", None):
+            name = "retrieve"
+            rag_tool = Tool.from_callable(name, cb)
+            self.session.conversation._tools.update({name: rag_tool})
+
+    @property
+    def rag(self) -> RAG:
+        return self._rag
+
+    @rag.setter
+    def rag(self, value: RAG):
+        self._rag = value
+        self._configure_session()
+
+    @property
+    def push_to_talk(self):
+        return self.__push_to_talk
+
+    @push_to_talk.setter
+    def push_to_talk(self, value: str | None):
+        dispatcher = self._hotkey_dispatcher
+        if k_ := getattr(self, "__push_to_talk", None):
+            dispatcher.unregister(k_)
+
+        self.__push_to_talk = value
+        if value is None:
+            self.asr.enable()
+            self.logger.info("Push-to-talk disabled")
+        else:
+
+            @contextmanager
+            def cb():
+                self.asr.enable()
+                self.logger.info("Push-to-talk ACTIVE. Listening...")
+                yield
+                self.asr.disable_w_passthrough()
+                self.logger.info("Push-to-talk RELEASED. ASR muted.")
+
+            self.asr.disable_w_passthrough()
+            dispatcher.register(value, cb)
+            self.logger.info(f"Push-to-talk enabled with hotkey '{value}'")
+
+    @property
+    def press_to_reset(self):
+        return self.__press_to_reset
+
+    @press_to_reset.setter
+    def press_to_reset(self, value: str | None):
+        dispatcher = self._hotkey_dispatcher
+        if k_ := getattr(self, "__press_to_reset", None):
+            dispatcher.unregister(k_)
+
+        self.__press_to_reset = value
+        if value:
+
+            def cb():
+                self.logger.info("Conversation reset.")
+                self.session = Session(
+                    llm=self.session.llm, conversation=Conversation()
+                )
+                self._configure_session()
+
+            dispatcher.register(value, cb)
+            self.logger.info(f"Press-to-reset enabled with hotkey '{value}'")
+
+    @property
+    def _hotkey_dispatcher(self) -> HotkeyDispatcher:
+        attr_name = "__hotkey_dispatcher"
+        if dispatcher := getattr(self, attr_name, None):
+            return dispatcher
+        else:
+            dispatcher = HotkeyDispatcher()
+            setattr(self, attr_name, dispatcher)
+            return dispatcher
 
 
 def main():
@@ -182,7 +213,10 @@ def main():
         )
 
     try:
-        pipe = Pipeline(push_to_talk="<ctrl_r>+<shift_r>")
+        pipe = Pipeline(
+            push_to_talk="<ctrl_r>+<shift_r>",
+            press_to_reset="<ctrl_l>+<ctrl_r>",
+        )
         llm = pipe.session.llm
         rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
         pipe.rag = rag
