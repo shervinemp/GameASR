@@ -20,6 +20,9 @@ class KnowledgeGraph:
         )
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
+    def verify_connectivity(self) -> bool:
+        return self._driver.verify_connectivity()
+
     def close(self):
         self._driver.close()
 
