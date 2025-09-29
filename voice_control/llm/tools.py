@@ -86,7 +86,7 @@ class Tool:
         for arg_name, arg_value in kwargs.items():
             casted_args[arg_name] = arg_value
             if arg_name in properties:
-                json_type = _get_json_type(properties[arg_name].type)
+                json_type = properties[arg_name].type
                 if json_type == "integer":
                     casted_args[arg_name] = int(arg_value)
                 elif json_type == "number":
