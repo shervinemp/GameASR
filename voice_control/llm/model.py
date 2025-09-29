@@ -175,20 +175,6 @@ class GGUFLLM(LLM):
                     yield delta[k]
 
 
-class NemotronMini(GGUFLLM):
-    hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
-    filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
-    n_ctx: int = 4096
-    max_tokens: int = 1024
-
-
-class Qwen3(GGUFLLM):
-    hf_repo: str = "Qwen/Qwen3-4B-GGUF"
-    filename: str = "Qwen3-4B-Q5_K_M.gguf"
-    n_ctx: int = 40960
-    max_tokens: int = 10240
-
-
 class Ollama(LLM):
     def __init__(
         self,
@@ -210,11 +196,26 @@ class Ollama(LLM):
             model=self.model,
             messages=conversation.messages,
             stream=True,
+            tools=[t.to_dict() for t in conversation.tools.values()],
         )
 
         for chunk in stream:
             if "content" in chunk["message"]:
                 yield chunk["message"]["content"]
+
+
+class NemotronMini(GGUFLLM):
+    hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
+    filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
+    n_ctx: int = 4096
+    max_tokens: int = 1024
+
+
+class Qwen3(GGUFLLM):
+    hf_repo: str = "Qwen/Qwen3-4B-GGUF"
+    filename: str = "Qwen3-4B-Q5_K_M.gguf"
+    n_ctx: int = 40960
+    max_tokens: int = 10240
 
 
 # ----------------------------------------------------------------------
