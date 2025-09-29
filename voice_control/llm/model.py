@@ -189,7 +189,7 @@ class Qwen3(GGUFLLM):
     max_tokens: int = 10240
 
 
-class OllamaLLM(LLM):
+class Ollama(LLM):
     def __init__(
         self,
         model: str,
@@ -223,7 +223,7 @@ class OllamaLLM(LLM):
 class LLMProviders:
     NemotronMini: type = NemotronMini
     Qwen3: type = Qwen3
-    OllamaModel: type = OllamaLLM
+    Ollama: type = Ollama
 
 
 # ----------------------------------------------------------------------
