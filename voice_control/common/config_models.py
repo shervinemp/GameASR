@@ -12,24 +12,6 @@ class DatabaseConfig(BaseModel):
     neo4j: Neo4jConfig
 
 
-class OllamaProviderConfig(BaseModel):
-    model: str
-
-
-class GeminiProviderConfig(BaseModel):
-    api_key_env: str
-
-
-class OpenAIProviderConfig(BaseModel):
-    api_key_env: str
-
-
-class LLMProvidersConfig(BaseModel):
-    ollama: OllamaProviderConfig
-    gemini: GeminiProviderConfig
-    openai: OpenAIProviderConfig
-
-
 class LLMModelsConfig(BaseModel):
     default: str
     extraction_heavy: str
@@ -39,7 +21,7 @@ class LLMModelsConfig(BaseModel):
 class LLMConfig(BaseModel):
     provider: str
     models: LLMModelsConfig
-    providers: LLMProvidersConfig
+    providers: dict
 
 
 class TTSConfig(BaseModel):

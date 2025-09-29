@@ -44,8 +44,12 @@ class Pipeline:
         tts_cls = getattr(TTSProviders, config.get("tts.provider"))
         self.tts = tts_cls()
 
-        llm_cls = getattr(LLMProviders, config.get("llm.provider"))
-        self.session = session or Session(llm=llm_cls())
+        llm_provider = config.get("llm.provider")
+        llm_cls = getattr(LLMProviders, llm_provider)
+        llm_settings = config.get("llm.providers").get(
+            llm_provider.lower(), {}
+        )
+        self.session = session or Session(llm=llm_cls(**llm_settings))
 
         self.rag = rag
 
