@@ -8,7 +8,7 @@ them using Pydantic models.
 
 import os
 import yaml
-from typing import Any
+from typing import Any, Dict
 from pydantic import ValidationError
 
 from .config_models import AppConfig
@@ -50,12 +50,32 @@ class Config:
             user_config = self._load_config(user_config_path)
             self._deep_merge(config_data, user_config)
 
+        config_data = self._recursive_resolve_env_vars(config_data)
+
         try:
             self.config = AppConfig(**config_data)
         except ValidationError as e:
             raise RuntimeError(f"Configuration validation error: {e}")
 
         self._initialized = True
+
+    def _recursive_resolve_env_vars(self, data: Any) -> Any:
+        """
+        Recursively traverses a config structure to resolve environment variables.
+        """
+        if isinstance(data, dict):
+            if "env" in data and isinstance(data.get("env"), dict):
+                env_block = data.pop("env")
+                for key, env_var_name in env_block.items():
+                    data[key] = os.getenv(env_var_name)
+
+            for key, value in data.items():
+                data[key] = self._recursive_resolve_env_vars(value)
+
+        elif isinstance(data, list):
+            return [self._recursive_resolve_env_vars(item) for item in data]
+
+        return data
 
     def _load_config(self, path: str) -> dict:
         """Loads a YAML configuration file."""

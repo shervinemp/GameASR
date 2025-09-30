@@ -49,14 +49,8 @@ class Pipeline:
 
         llm_provider = config.get("llm.provider")
         llm_cls = getattr(LLMProviders, llm_provider)
-        llm_settings = (
-            config.get("llm.providers").get(llm_provider.lower(), {}).copy()
-        )
-
-        if "env" in llm_settings:
-            for key, env_var in llm_settings.pop("env").items():
-                llm_settings[key] = os.getenv(env_var)
-
+        # Environment variables are resolved by the Config class
+        llm_settings = config.get("llm.providers").get(llm_provider.lower(), {})
         self.session = session or Session(llm=llm_cls(**llm_settings))
 
         self.rag = rag
@@ -197,19 +191,15 @@ def main():
     load_dotenv()
 
     neo4j_config = config.get("database.neo4j")
-
-    uri = neo4j_config.uri
-    user = neo4j_config.user
-    password_env_var = neo4j_config.password_env
-    password = os.getenv(password_env_var)
-
-    if not all([uri, user, password]):
+    if not all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
         raise ValueError(
-            f"Neo4j credentials not fully configured. Check your config file and the '{password_env_var}' environment variable."
+            "Neo4j credentials not fully configured. Check your config file and environment variables."
         )
 
     try:
-        graph = KnowledgeGraph(uri, user, password)
+        graph = KnowledgeGraph(
+            neo4j_config.uri, neo4j_config.user, neo4j_config.password
+        )
         graph.verify_connectivity()
     except Exception as e:
         graph = None
