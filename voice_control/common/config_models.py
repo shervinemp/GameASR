@@ -5,7 +5,7 @@ from typing import Optional, Dict
 class Neo4jConfig(BaseModel):
     uri: str
     user: str
-    password_env: str
+    password: Optional[str] = None
 
 
 class DatabaseConfig(BaseModel):
