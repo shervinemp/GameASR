@@ -49,7 +49,7 @@ class Pipeline:
 
         llm_provider = config.get("llm.provider")
         llm_cls = getattr(LLMProviders, llm_provider)
-        # Environment variables are resolved by the Config class
+        
         llm_settings = config.get("llm.providers").get(llm_provider.lower(), {})
         self.session = session or Session(llm=llm_cls(**llm_settings))
 
