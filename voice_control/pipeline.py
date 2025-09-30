@@ -49,9 +49,14 @@ class Pipeline:
 
         llm_provider = config.get("llm.provider")
         llm_cls = getattr(LLMProviders, llm_provider)
-        llm_settings = config.get("llm.providers").get(
-            llm_provider.lower(), {}
+        llm_settings = (
+            config.get("llm.providers").get(llm_provider.lower(), {}).copy()
         )
+
+        if "env" in llm_settings:
+            for key, env_var in llm_settings.pop("env").items():
+                llm_settings[key] = os.getenv(env_var)
+
         self.session = session or Session(llm=llm_cls(**llm_settings))
 
         self.rag = rag

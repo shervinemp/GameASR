@@ -30,9 +30,11 @@ llm:
     ollama:
       model: "qwen3:latest"
     gemini:
-      api_key_env: "GEMINI_API_KEY"
+      env:
+        api_key: "GEMINI_API_KEY"
     openai:
-      api_key_env: "OPENAI_API_KEY"
+      env:
+        api_key: "OPENAI_API_KEY"
 
 # --- TTS Configuration ---
 tts:

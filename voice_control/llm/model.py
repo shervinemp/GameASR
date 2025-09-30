@@ -218,6 +218,64 @@ class Qwen3(GGUFLLM):
     max_tokens: int = 10240
 
 
+class ChatGPT(LLM):
+    def __init__(self, model: str = "gpt-4o", api_key: str = None):
+        from openai import OpenAI
+
+        self.logger = get_logger(self.__class__.__name__)
+        self.model = model
+
+        if not api_key:
+            raise ValueError("An API key for OpenAI is required.")
+
+        self.client = OpenAI(api_key=api_key)
+
+    def _infer(
+        self,
+        conversation: Conversation,
+        *,
+        session_state: dict,
+        **kwargs,
+    ) -> Generator[str, None, None]:
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=conversation.messages,
+            stream=True,
+            **kwargs,
+        )
+        for chunk in stream:
+            if content := chunk.choices[0].delta.content:
+                yield content
+
+
+class Gemini(LLM):
+    def __init__(self, model: str = "gemini-1.5-flash", api_key: str = None):
+        import google.generativeai as genai
+
+        self.logger = get_logger(self.__class__.__name__)
+        self.model = model
+
+        if not api_key:
+            raise ValueError("An API key for Google Gemini is required.")
+
+        genai.configure(api_key=api_key)
+        self.client = genai.GenerativeModel(self.model)
+
+    def _infer(
+        self,
+        conversation: Conversation,
+        *,
+        session_state: dict,
+        **kwargs,
+    ) -> Generator[str, None, None]:
+        response = self.client.generate_content(
+            conversation.messages, stream=True, **kwargs
+        )
+        for chunk in response:
+            if content := chunk.text:
+                yield content
+
+
 # ----------------------------------------------------------------------
 
 
@@ -225,6 +283,8 @@ class LLMProviders:
     NemotronMini: type = NemotronMini
     Qwen3: type = Qwen3
     Ollama: type = Ollama
+    ChatGPT: type = ChatGPT
+    Gemini: type = Gemini
 
 
 # ----------------------------------------------------------------------
