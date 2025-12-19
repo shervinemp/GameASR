@@ -6,11 +6,16 @@ from threading import Lock
 from typing import Any, Dict, Generator, Iterator
 
 from .conversation import Conversation
+from .context import ContextManager  # Added import
 
 from ..common.utils import download_hf_file, get_logger
 
 
 class LLM(ABC):
+    def __init__(self):
+        # Initialize ContextManager in the base class or let subclasses handle it.
+        pass
+
     def __call__(
         self,
         conversation: Conversation,
@@ -18,18 +23,34 @@ class LLM(ABC):
         **kwargs,
     ) -> Generator[str | dict, None, None]:
         session_state = session_state or dict()
-        yield from self._parse(
-            self._infer(
-                conversation=conversation,
-                session_state=session_state,
-                **kwargs,
+
+        # Manage context before inference
+        context_manager = ContextManager()
+        context_manager.manage_context(conversation, self)
+
+        try:
+            yield from self._parse(
+                self._infer(
+                    conversation=conversation,
+                    session_state=session_state,
+                    **kwargs,
+                )
             )
-        )
+        except Exception as e:
+            # Check for specific timeouts or generic errors
+            self.logger.error(f"Error during LLM inference: {e}", exc_info=True)
+            yield "Sorry, I encountered an error or timed out while processing your request."
 
     @abstractmethod
     def _infer(
         self, conversation: Conversation, *, session_state: dict, **kwargs
     ) -> Generator[str, None, None]: ...
+
+    def count_tokens(self, text: str) -> int:
+        """Counts the number of tokens in a string.
+        Default implementation is an approximation (4 characters per token).
+        """
+        return len(text) // 4
 
     def _parse(
         self,
@@ -109,6 +130,7 @@ class GGUFLLM(LLM):
     max_tokens: int = 128
 
     def __init__(self):
+        super().__init__() # Call base init if it exists
         from llama_cpp import Llama
 
         self.logger = get_logger(self.__class__.__name__)
@@ -142,6 +164,9 @@ class GGUFLLM(LLM):
             filename=cls.filename,
             directory=cls.local_dir,
         )
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.model.tokenize(text.encode("utf-8")))
 
     def _infer(
         self,
@@ -181,12 +206,15 @@ class Ollama(LLM):
         model: str,
         host: str = "http://localhost:11434",
     ):
+        super().__init__()
         from ollama import Client
 
         self.logger = get_logger(__name__)
 
         self.model = model
         self.client = Client(host=host)
+
+    # Using default approximation for count_tokens
 
     def _infer(
         self, conversation: Conversation, *, session_state: dict
@@ -220,6 +248,7 @@ class Qwen3(GGUFLLM):
 
 class ChatGPT(LLM):
     def __init__(self, model: str = "gpt-4o", api_key: str = None):
+        super().__init__()
         from openai import OpenAI
 
         self.logger = get_logger(self.__class__.__name__)
@@ -229,6 +258,8 @@ class ChatGPT(LLM):
             raise ValueError("An API key for OpenAI is required.")
 
         self.client = OpenAI(api_key=api_key)
+
+    # Using default approximation for count_tokens
 
     def _infer(
         self,
@@ -250,6 +281,7 @@ class ChatGPT(LLM):
 
 class Gemini(LLM):
     def __init__(self, model: str = "gemini-1.5-flash", api_key: str = None):
+        super().__init__()
         import google.generativeai as genai
 
         self.logger = get_logger(self.__class__.__name__)
@@ -260,6 +292,8 @@ class Gemini(LLM):
 
         genai.configure(api_key=api_key)
         self.client = genai.GenerativeModel(self.model)
+
+    # Using default approximation for count_tokens
 
     def _infer(
         self,

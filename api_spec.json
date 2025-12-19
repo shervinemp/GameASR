@@ -1,0 +1,25 @@
+{
+    "functions": [
+        {
+            "name": "move_unit",
+            "params": [
+                "name",
+                "x",
+                "y"
+            ]
+        },
+        {
+            "name": "command_unit",
+            "params": [
+                "name",
+                "action",
+                "target_x",
+                "target_y"
+            ]
+        },
+        {
+            "name": "get_squad_status",
+            "params": []
+        }
+    ]
+}
