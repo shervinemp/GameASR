@@ -15,34 +15,40 @@ class BaseParser(ABC):
 
 
 class LuaParser(BaseParser):
-    """Parses Lua files for functions exposed on a specific table."""
+    """Parses Lua files for functions exposed on a specific table using LDoc comments."""
 
     def parse(self, content: str) -> list:
         """
-        Finds functions matching the specific format:
-        'function rpc_api.method_name(param1, param2)'
+        Finds functions documented with LDoc style comments:
+        --[[
+            Description...
+            @param name (type): description
+        ]]
+        function rpc_api.method_name(...)
         """
-        # This regex is specific to the 'rpc_api' table.
-        # This regex is more robust, handling multiline and nested parentheses
-        function_pattern = re.compile(
-            r"function\s+rpc_api\.(\w+)\s*\(\s*(.*?)\s*\)",
-            re.DOTALL,  # Allows the pattern to match across multiple lines
+        # Pattern to match LDoc comment block followed by function definition
+        # Group 1: Comment content
+        # Group 2: Function name
+        pattern = re.compile(
+            r"--\[\[(.*?)\]\]\s*function\s+rpc_api\.(\w+)",
+            re.DOTALL
         )
+
         functions = []
-        matches = function_pattern.finditer(
-            content
-        )  # Use finditer for better control over matching groups
+        matches = pattern.finditer(content)
 
         for match in matches:
-            func_name = match.group(1)
-            params_str = match.group(2).strip()
-            # Handle potentially empty parameter lists or complex parameters
+            comment_block = match.group(1)
+            func_name = match.group(2)
+
+            # Parse parameters from the comment block
             params = []
-            if params_str:
-                params = [p.strip() for p in re.split(r",\s*", params_str) if p.strip()]
-        # Only add non-empty function definitions
-        if func_name and isinstance(params, list):
+            param_matches = re.finditer(r"@param\s+(\w+)", comment_block)
+            for pm in param_matches:
+                params.append(pm.group(1))
+
             functions.append({"name": func_name, "params": params})
+
         return functions
 
 

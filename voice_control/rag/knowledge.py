@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple
+from time import sleep
 
 from ..common.config import config
 from ..common.utils import get_logger
@@ -26,6 +27,25 @@ class KnowledgeGraph:
     def close(self):
         self._driver.close()
 
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Helper to execute a function with retry logic for Neo4j connection errors."""
+        from neo4j.exceptions import ServiceUnavailable, SessionExpired, DriverError
+
+        max_retries = 3
+        delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except (ServiceUnavailable, SessionExpired, DriverError) as e:
+                self.logger.warning(f"Neo4j connection error: {e}. Retrying {attempt+1}/{max_retries}...")
+                if attempt < max_retries - 1:
+                    sleep(delay)
+                    delay *= 2  # Exponential backoff
+                else:
+                    self.logger.error("Max retries reached for Neo4j connection.")
+                    raise e
+
     def keyword_search(
         self, keywords: List[str], top_k: int = 5
     ) -> List[List[Dict]]:
@@ -44,12 +64,14 @@ class KnowledgeGraph:
             RETURN q_data.id AS query_id, result_list AS results
             ORDER BY query_id ASC
         """
-        with self._driver.session() as session:
-            records = session.run(
-                query, queries_data=queries_data, top_k=top_k
-            )
-            result = [record["results"] for record in records]
-        return result
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(
+                    query, queries_data=queries_data, top_k=top_k
+                )
+                return [record["results"] for record in records]
+
+        return self._execute_with_retry(_run)
 
     def vector_search(
         self, embeddings: List[List[float]], top_k: int = 5
@@ -70,12 +92,14 @@ class KnowledgeGraph:
             RETURN q_data.id AS query_id, result_list AS results
             ORDER BY query_id ASC
         """
-        with self._driver.session() as session:
-            records = session.run(
-                query, queries_data=queries_data, top_k=top_k
-            )
-            result = [record["results"] for record in records]
-        return result
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(
+                    query, queries_data=queries_data, top_k=top_k
+                )
+                return [record["results"] for record in records]
+
+        return self._execute_with_retry(_run)
 
     def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
         query = f"""
@@ -85,10 +109,12 @@ class KnowledgeGraph:
             RETURN [node in nodes | apoc.map.removeKey(properties(node), 'embedding')] AS nodes,
                    [rel in rels | apoc.map.merge(properties(rel), {self._rel_addendum})] AS relations
         """
-        with self._driver.session() as session:
-            record = session.run(query, nodes=node_ids).single()
-            result = record.data()
-        return result
+        def _run():
+            with self._driver.session() as session:
+                record = session.run(query, nodes=node_ids).single()
+                return record.data()
+
+        return self._execute_with_retry(_run)
 
     def expansion(
         self,
@@ -130,12 +156,14 @@ class KnowledgeGraph:
             }}
             RETURN single_result AS results
         """
-        with self._driver.session() as session:
-            records = session.run(
-                query, frontier=frontier_ids, excluded=excluded_ids
-            )
-            result = [r["results"] for r in records]
-        return result
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(
+                    query, frontier=frontier_ids, excluded=excluded_ids
+                )
+                return [r["results"] for r in records]
+
+        return self._execute_with_retry(_run)
 
     def triplet_search(self, triplet: Dict) -> List[Dict]:
         s, p, o = (
@@ -166,14 +194,16 @@ class KnowledgeGraph:
         else:
             return_clause = "RETURN s, o"
         query = f"MATCH {''.join(query_parts)} {return_clause} LIMIT 10"
-        with self._driver.session() as session:
-            records = session.run(query, **params)
-            results = [
-                record.data()[key]
-                for record in records
-                for key in record.keys()
-            ]
-        return results
+
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(query, **params)
+                return [
+                    record.data()[key]
+                    for record in records
+                    for key in record.keys()
+                ]
+        return self._execute_with_retry(_run)
 
     def add_triplets(self, triplets: List[Dict[str, str]]):
         """Adds new triplets to the knowledge graph, creating nodes and relationships as needed."""
@@ -195,8 +225,10 @@ class KnowledgeGraph:
         YIELD rel
         RETURN count(rel) AS created_relationships
         """
-        with self._driver.session() as session:
-            result = session.run(query, triplets=triplets)
-            self.logger.info(
-                f"Added {result.single()['created_relationships']} new relationships to the graph."
-            )
+        def _run():
+            with self._driver.session() as session:
+                result = session.run(query, triplets=triplets)
+                self.logger.info(
+                    f"Added {result.single()['created_relationships']} new relationships to the graph."
+                )
+        self._execute_with_retry(_run)
