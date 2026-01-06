@@ -9,9 +9,6 @@ from ...common.base import ConsumerProducer
 from ...common.utils import get_logger
 
 
-_vad_lock = threading.Lock()
-
-
 class ParakeetV2(ModelBase):
 
     def __init__(self, sound_device: int = 0):
@@ -21,7 +18,6 @@ class ParakeetV2(ModelBase):
             "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
         )
         self._vad = Silero()
-        self._lock = _vad_lock
 
         super().__init__(sound_device)
 
@@ -30,11 +26,9 @@ class ParakeetV2(ModelBase):
 
     def _produce(self) -> Generator[str, None, None]:
         for e in self._vad:
-            r = None
-            with self._lock:
-                r = self._model.recognize(
-                    e, sample_rate=self._vad._model.SAMPLE_RATE
-                )
+            r = self._model.recognize(
+                e, sample_rate=self._vad._model.SAMPLE_RATE
+            )
             yield r
 
     def _inputstream(self, sound_device: int, callback: Callable):
@@ -71,12 +65,15 @@ class Silero(ConsumerProducer):
         self._model = load_vad("silero")
         self._queue = Queue(maxsize=1000)
 
-        self._lock = _vad_lock
-
         self.vad_threshold = vad_threshold
         self.pre_speech_dur = leading_silence_duration
         self.post_speech_dur = trailing_silence_duration
         self.post_speech_keep = trailing_buffer_duration
+
+        self._coeff = self._model.SAMPLE_RATE / self._model.HOP_SIZE
+        self._pre_speech_chunks = int(self.pre_speech_dur * self._coeff)
+        self._trailing_silent_chunks = int(self.post_speech_dur * self._coeff + 1)
+        self._trailing_buffer_chunks = int(self.post_speech_keep * self._coeff + 1)
 
         self.reset()
 
@@ -84,48 +81,40 @@ class Silero(ConsumerProducer):
         self._is_speech_segment = False
         self._silence_counter = 0
 
-        coeff_ = self._model.SAMPLE_RATE / self._model.HOP_SIZE
-
-        pre_speech_chunks = int(self.pre_speech_dur * coeff_)
-        self._pre_speech_buffer = deque(maxlen=pre_speech_chunks)
-
-        self._trailing_silent_chunks = int(self.post_speech_dur * coeff_ + 1)
-
-        self._trailing_buffer_chunks = int(self.post_speech_keep * coeff_ + 1)
+        self._pre_speech_buffer = deque(maxlen=self._pre_speech_chunks)
 
         self._model_input_frame = np.zeros(
             self._model.CONTEXT_SIZE + self._model.HOP_SIZE, dtype=np.float32
         )
 
     def _produce(self) -> Generator[np.ndarray, None, None]:
-        buffer = deque()
+        buffer = []
         while True:
             try:
-                if (c := self._queue.get(timeout=1)) is not None:
+                c = self._queue.get(timeout=0.1)
+                if c is None:
+                    if buffer:
+                        yield np.concatenate(buffer)
+                        buffer = []
+                else:
                     buffer.append(c)
-                elif len(buffer) >= 10:
-                    yield np.concatenate(buffer)
-                    buffer.clear()
+                    if len(buffer) >= 10:
+                        yield np.concatenate(buffer)
+                        buffer = []
             except Empty:
                 pass
 
     def _consume(self, chunk: Iterable[np.ndarray]):
-        acquired = self._lock.acquire(timeout=2)
-        if not acquired:
-            return
+        chunk = np.mean(chunk, axis=1)
 
-        try:
-            chunk = np.mean(chunk, axis=1)
-            self._model_input_frame = np.concatenate(
-                [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
-            )
+        shift = len(chunk)
+        self._model_input_frame = np.roll(self._model_input_frame, -shift)
+        self._model_input_frame[-shift:] = chunk
 
-            speech_prob, *_ = self._model._encode(
-                self._model_input_frame[np.newaxis, :]
-            )
-            speech_prob = speech_prob[0]
-        finally:
-            self._lock.release()
+        speech_prob, *_ = self._model._encode(
+            self._model_input_frame[np.newaxis, :]
+        )
+        speech_prob = speech_prob[0]
 
         is_loud = speech_prob > self.vad_threshold
 

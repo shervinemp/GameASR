@@ -65,7 +65,7 @@ class LLM(ABC):
         think_tags = ("think",)
 
         buffer = ""
-        tag_body = ""
+        tag_body_list = []
         bounds = None
         is_call = False
         is_thought = False
@@ -94,7 +94,7 @@ class LLM(ABC):
                             is_thought = False
                         elif is_call and any(tag == t for t in tool_tags):
                             is_call = False
-                            tb_ = tag_body.strip()
+                            tb_ = "".join(tag_body_list).strip()
                             try:
                                 tool_call = json.loads(tb_)
                                 yield tool_call
@@ -102,7 +102,7 @@ class LLM(ABC):
                                 self.logger.error(
                                     f"Failed to parse tool call: {tb_}. Error: {e}"
                                 )
-                        tag_body = ""
+                        tag_body_list = []
                     else:
                         if any(tag == t for t in think_tags):
                             is_thought = True
@@ -113,7 +113,7 @@ class LLM(ABC):
 
             if buffer and not bounds:
                 if is_call or is_thought:
-                    tag_body += buffer
+                    tag_body_list.append(buffer)
                 else:
                     yield buffer
                 buffer = ""

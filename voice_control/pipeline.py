@@ -1,5 +1,6 @@
+import asyncio
 from contextlib import contextmanager
-import os
+import re
 import sys
 from typing import Optional
 from dotenv import load_dotenv
@@ -16,14 +17,14 @@ from .rag import RAG
 from .rag.knowledge import KnowledgeGraph
 from .bridge.llm_server import LLMServer, LLMService
 
-from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
 from .common.config import config
 
 
 class Pipeline:
     """
-    Orchestrates the integration between ASR, LLM, and TTS components.
+    Orchestrates the integration between ASR, LLM, and TTS components
+    using an asynchronous event loop.
     """
 
     def __init__(
@@ -49,7 +50,7 @@ class Pipeline:
 
         llm_provider = config.get("llm.provider")
         llm_cls = getattr(LLMProviders, llm_provider)
-        
+
         llm_settings = config.get("llm.providers").get(llm_provider.lower(), {})
         self.session = session or Session(llm=llm_cls(**llm_settings))
 
@@ -62,47 +63,161 @@ class Pipeline:
                 endpoint=server_endpoint,
                 auth_token=auth_token,
             )
+        else:
+            self.llm_server = None
 
-        self.push_to_talk = push_to_talk
-        self.press_to_reset = press_to_reset
+        self.__push_to_talk = None
+        self.__press_to_reset = None
+        # Hotkey dispatcher setup
+        self._hk_dispatch = HotkeyDispatcher()
 
-    def _callback(self, transcription: str):
-        """
-        Process transcribed text through LLM and then send to TTS.
-        """
-        if not transcription:
-            return
+        # Initialize properties
+        if push_to_talk:
+            self.push_to_talk = push_to_talk
+        if press_to_reset:
+            self.press_to_reset = press_to_reset
 
-        interrupt = True
-        out = self.session(transcription)
-        for sentence in stream_splitter(out, min_len=8):
-            if s := sentence.strip():
-                self.tts(s, interrupt=interrupt)
-                interrupt = False
+        # Async state
+        self.input_queue = asyncio.Queue()
+        self.current_interaction_task: Optional[asyncio.Task] = None
+
+    async def run_async(self):
+        """Async entry point."""
+        self.asr.start()
+        self.tts.start()
+        self._hk_dispatch.start()
+        if self.llm_server:
+            self.llm_server.start()
+
+        self._running = True
+        loop = asyncio.get_running_loop()
+
+        # Start ASR monitoring task
+        asr_task = asyncio.create_task(self.monitor_asr(loop))
+
+        # Start Processing Loop
+        process_task = asyncio.create_task(self.process_queue(loop))
+
+        self.logger.info("Pipeline started (Async).")
+
+        try:
+            # Keep alive until stopped
+            while self._running:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._running = False
+            asr_task.cancel()
+            process_task.cancel()
+            if self.current_interaction_task:
+                self.current_interaction_task.cancel()
+
+            if self.llm_server:
+                self.llm_server.stop()
+            self._hk_dispatch.stop()
+            self.asr.stop()
+            self.tts.stop()
+
+    async def monitor_asr(self, loop):
+        """Runs the blocking ASR iterator in a thread."""
+        def asr_producer():
+            for transcript in self.asr:
+                if transcript:
+                    asyncio.run_coroutine_threadsafe(
+                        self.input_queue.put(transcript), loop
+                    )
+
+        await loop.run_in_executor(None, asr_producer)
+
+    async def process_queue(self, loop):
+        """Consumes ASR transcripts and spawns processing tasks."""
+        while True:
+            text = await self.input_queue.get()
+            self.logger.debug(f"Received input: {text}")
+
+            # Interruption Logic: Cancel current processing if active
+            if self.current_interaction_task and not self.current_interaction_task.done():
+                self.logger.info("Interrupting current interaction.")
+                self.current_interaction_task.cancel()
+                # Stop current TTS audio immediately
+                # self.tts calls AudioPlayer. We assume calling with interrupt=True works,
+                # but here we just want to stop output.
+                # Since we are starting a NEW interaction, the new TTS calls will handle interrupt if passed.
+                # Or we can explicitly stop.
+                # Given current TTS implementation, calling self.tts with interrupt=True stops previous.
+                # We can do that in the new task.
+
+            self.current_interaction_task = asyncio.create_task(
+                self.handle_interaction(text, loop)
+            )
+
+    async def handle_interaction(self, text: str, loop):
+        """Handles LLM generation and TTS streaming."""
+        queue = asyncio.Queue()
+        sentinel = object()
+        interrupt_audio = True
+
+        def llm_producer():
+            try:
+                # Synchronous LLM call
+                out = self.session(text)
+                for chunk in out:
+                    asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
+            except Exception as e:
+                self.logger.error(f"LLM Error: {e}", exc_info=True)
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(sentinel), loop)
+
+        # Start LLM in background thread
+        loop.run_in_executor(None, llm_producer)
+
+        # Async Stream Splitter Logic
+        sentences = re.compile(r"[^.][.!?]\s+")
+        buffer = ""
+        min_len = 8
+
+        try:
+            while True:
+                chunk = await queue.get()
+                if chunk is sentinel:
+                    break
+
+                buffer += chunk
+                # Check for sentences
+                if len(buffer) >= min_len:
+                    # Implementation matching original stream_splitter logic but async compatible
+                    while True:
+                         match = sentences.search(buffer)
+                         if not match:
+                             break
+
+                         end = match.end()
+                         sentence = buffer[:end]
+                         buffer = buffer[end:]
+
+                         if s := sentence.strip():
+                             await self.speak(s, loop, interrupt=interrupt_audio)
+                             interrupt_audio = False # Only first chunk interrupts
+
+            if s := buffer.strip():
+                await self.speak(s, loop, interrupt=interrupt_audio)
+
+        except asyncio.CancelledError:
+            self.logger.debug("Interaction cancelled.")
+            # Verify TTS stops?
+            # We can optionally call self.tts(..., interrupt=True) with empty string to stop?
+            pass
+
+    async def speak(self, text: str, loop, interrupt: bool = False):
+        await loop.run_in_executor(None, self.tts, text, "af_heart", "en-us", 1.0, interrupt)
 
     def run(self):
         """Start the voice control pipeline."""
-        self.asr.start()
-        self.tts.start()
-        self._hotkey_dispatcher.start()
-        if server := getattr(self, "llm_server", None):
-            server.start()
-        self._running = True
         try:
-            for transcript in self.asr:
-                self.logger.debug(f"{transcript=}")
-                try:
-                    self._callback(transcript)
-                except Exception as e:
-                    self.logger.error(f"Error in callback: {e}", exc_info=True)
-        finally:
-            self._running = False
-            if server := getattr(self, "llm_server", None):
-                server.stop()
-            if dispatcher := getattr(self, "_hk_dispatch", None):
-                dispatcher.stop()
-            self.asr.stop()
-            self.tts.stop()
+            asyncio.run(self.run_async())
+        except KeyboardInterrupt:
+            pass
 
     def _configure_session(self):
         if cb := getattr(self, "_rag", None):
@@ -125,7 +240,7 @@ class Pipeline:
 
     @push_to_talk.setter
     def push_to_talk(self, value: str | None):
-        dispatcher = self._hotkey_dispatcher
+        dispatcher = self._hk_dispatch
         if k_ := getattr(self, "__push_to_talk", None):
             dispatcher.unregister(k_)
 
@@ -153,7 +268,7 @@ class Pipeline:
 
     @press_to_reset.setter
     def press_to_reset(self, value: str | None):
-        dispatcher = self._hotkey_dispatcher
+        dispatcher = self._hk_dispatch
         if k_ := getattr(self, "__press_to_reset", None):
             dispatcher.unregister(k_)
 
@@ -172,13 +287,7 @@ class Pipeline:
 
     @property
     def _hotkey_dispatcher(self) -> HotkeyDispatcher:
-        attr_name = "__hotkey_dispatcher"
-        if dispatcher := getattr(self, attr_name, None):
-            return dispatcher
-        else:
-            dispatcher = HotkeyDispatcher()
-            setattr(self, attr_name, dispatcher)
-            return dispatcher
+        return self._hk_dispatch
 
 
 def main():
