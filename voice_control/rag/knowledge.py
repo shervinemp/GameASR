@@ -138,7 +138,8 @@ class KnowledgeGraph:
                     maxLevel: {n_hops},
                     relationshipFilter: ">", // Only traverse outgoing relationships
                     labelFilter: "+Entity",   // Only traverse to Entity nodes
-                    uniqueness: "NODE_PATH"  // Ensures paths are simple (no repeated nodes)
+                    uniqueness: "NODE_PATH",  // Ensures paths are simple (no repeated nodes)
+                    limit: 50
                 }})
                 YIELD path
 

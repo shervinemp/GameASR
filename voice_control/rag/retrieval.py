@@ -65,23 +65,31 @@ class GraphRetriever(Retriever):
         top_k_keyword: int = 5,
         n_hops: int = 1,
     ) -> List[Dict]:
-        keywords = [query]
-        try:
-            keywords = self.extract_keywords(query=query)
-            self.logger.debug(f"Extracted keywords: {keywords}")
-        except Exception as e:
-            self.logger.warning(
-                f"Failed to extract keywords due to an error. Using original query as a keyword. Error: {e}"
-            )
+        from concurrent.futures import ThreadPoolExecutor
 
-        embeddings = self.graph.embedding_model.encode(keywords)
-        vector_results = self.graph.vector_search(
-            embeddings, top_k=top_k_vector
-        )
+        def _vector_search():
+            # Use original query for semantic search to parallelize
+            embeddings = self.graph.embedding_model.encode([query])
+            return self.graph.vector_search(embeddings, top_k=top_k_vector)
 
-        keyword_results = self.graph.keyword_search(
-            keywords, top_k=top_k_keyword
-        )
+        def _keyword_search():
+            keywords = [query]
+            try:
+                keywords = self.extract_keywords(query=query)
+                self.logger.debug(f"Extracted keywords: {keywords}")
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to extract keywords. Using original query. Error: {e}"
+                )
+
+            return self.graph.keyword_search(keywords, top_k=top_k_keyword)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_vec = executor.submit(_vector_search)
+            future_kw = executor.submit(_keyword_search)
+
+            vector_results = future_vec.result()
+            keyword_results = future_kw.result()
 
         combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
         for item in chain.from_iterable(keyword_results):

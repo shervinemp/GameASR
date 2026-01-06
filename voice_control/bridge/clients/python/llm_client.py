@@ -35,7 +35,14 @@ class LLMClient:
             request["auth_token"] = self.auth_token
 
         self.socket.send_json(request)
-        response = self.socket.recv_json()
+
+        if self.socket.poll(5000, zmq.POLLIN):
+            response = self.socket.recv_json()
+        else:
+            self.socket.close(linger=0)
+            self.socket = self.context.socket(zmq.REQ)
+            self.socket.connect(self.endpoint)
+            raise TimeoutError("RPC Request timed out")
 
         if "error" in response:
             raise Exception(f"RPC Error: {response['error']}")
