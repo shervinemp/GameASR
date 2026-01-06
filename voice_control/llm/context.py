@@ -41,23 +41,16 @@ class ContextManager:
         total_tokens = 0
         message_tokens = []
 
-        # Conversation.messages returns messages from cutoff_idx onwards
-        # But we need to check ALL messages to decide new cutoff.
-        # Actually conversation.messages property respects cutoff_idx.
-        # We should look at conversation._messages directly to recalculate cutoff.
-        # _messages is a MessageList. iterating over it returns dicts because of __iter__ override.
-        # But we can access the internal list via super()? No, MessageList inherits from list.
-        # Wait, MessageList.__iter__ returns map(Message.asdict, super().__iter__()).
-        # So iterating gives dicts.
-
-        all_messages = conversation._messages
+        # Access raw messages to use caching
+        all_messages = conversation._messages.iter_raw()
 
         # Calculate tokens for all messages
         for msg in all_messages:
-            # msg is a dict here
-            content = msg["content"]
-            # Add some overhead for role/formatting (heuristic)
-            tokens = llm.count_tokens(content) + 4
+            if msg.token_count is None:
+                # Add some overhead for role/formatting (heuristic)
+                msg.token_count = llm.count_tokens(msg.content) + 4
+
+            tokens = msg.token_count
             message_tokens.append(tokens)
             total_tokens += tokens
 

@@ -7,6 +7,7 @@ This module provides text-to-speech processing functionality using ONNX models.
 """
 
 import os
+import functools
 from kokoro_onnx import Kokoro as KokoroONNX
 from kokoro_onnx.tokenizer import Tokenizer
 
@@ -35,6 +36,10 @@ class Kokoro:
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
+
+    @functools.lru_cache(maxsize=1000)
+    def _get_phonemes(self, text: str, lang: str):
+        return self.tokenizer.phonemize(text, lang=lang)
 
     @classmethod
     def download(cls):
@@ -69,7 +74,7 @@ class Kokoro:
         Returns:
             tuple: (numpy array of audio samples, sample rate)
         """
-        phonemes = self.tokenizer.phonemize(text, lang=language)
+        phonemes = self._get_phonemes(text, lang=language)
         samples, sample_rate = self.kokoro.create(
             phonemes,
             voice=voice,

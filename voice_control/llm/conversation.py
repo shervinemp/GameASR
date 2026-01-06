@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List, Dict
+from typing import Iterable, List, Dict, Optional
 from .tools import Tool
 
 
@@ -16,6 +16,7 @@ class Message:
 
     role: Role
     content: str
+    token_count: Optional[int] = None
 
     def asdict(self):
         return {"role": self.role.value, "content": self.content}
@@ -62,6 +63,9 @@ class MessageList(list):
 
     def __iter__(self) -> Iterable[Dict[str, str]]:
         return map(Message.asdict, super().__iter__())
+
+    def iter_raw(self) -> Iterable[Message]:
+        return super().__iter__()
 
     def __add__(self, other):
         if isinstance(other, list):
