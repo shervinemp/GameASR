@@ -21,6 +21,9 @@ from .common.utils import setup_logging, get_logger
 from .common.config import config
 
 
+SENTENCE_SPLIT_REGEX = re.compile(r"[^.][.!?]\s+")
+
+
 class Pipeline:
     """
     Orchestrates the integration between ASR, LLM, and TTS components
@@ -173,7 +176,6 @@ class Pipeline:
         loop.run_in_executor(None, llm_producer)
 
         # Async Stream Splitter Logic
-        sentences = re.compile(r"[^.][.!?]\s+")
         buffer = ""
         min_len = 8
 
@@ -188,7 +190,7 @@ class Pipeline:
                 if len(buffer) >= min_len:
                     # Implementation matching original stream_splitter logic but async compatible
                     while True:
-                         match = sentences.search(buffer)
+                         match = SENTENCE_SPLIT_REGEX.search(buffer)
                          if not match:
                              break
 
