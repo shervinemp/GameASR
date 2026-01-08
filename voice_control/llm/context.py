@@ -33,15 +33,10 @@ class ContextManager:
         # Effective limit for history
         history_limit = context_limit - max_gen_tokens
 
-        # Calculate current tokens
-        # We need to construct the prompt as it would be sent to the model to get accurate count.
-        # However, exact formatting depends on the model.
-        # We'll sum up tokens of individual messages as a reasonable approximation.
-
+        # Calculate current tokens using cached values where possible
         total_tokens = 0
         message_tokens = []
 
-        # Access raw messages to use caching
         all_messages = conversation._messages.iter_raw()
 
         # Calculate tokens for all messages
@@ -59,14 +54,7 @@ class ContextManager:
 
         self.logger.info(f"Context usage ({total_tokens}) exceeds limit ({history_limit}). Pruning...")
 
-        # Prune until we are under the limit
-        # We must keep the system message if it exists (usually index 0? No, system message is separate in Conversation)
-        # Conversation has _system field.
-        # _messages are user/assistant/tool messages.
-
-        # Start pruning from the beginning of _messages
-        # We update cutoff_idx
-
+        # Prune older messages by updating cutoff_idx
         current_tokens = total_tokens
         new_cutoff = 0
 

@@ -143,13 +143,6 @@ class Pipeline:
             if self.current_interaction_task and not self.current_interaction_task.done():
                 self.logger.info("Interrupting current interaction.")
                 self.current_interaction_task.cancel()
-                # Stop current TTS audio immediately
-                # self.tts calls AudioPlayer. We assume calling with interrupt=True works,
-                # but here we just want to stop output.
-                # Since we are starting a NEW interaction, the new TTS calls will handle interrupt if passed.
-                # Or we can explicitly stop.
-                # Given current TTS implementation, calling self.tts with interrupt=True stops previous.
-                # We can do that in the new task.
 
             self.current_interaction_task = asyncio.create_task(
                 self.handle_interaction(text, loop)
@@ -188,7 +181,6 @@ class Pipeline:
                 buffer += chunk
                 # Check for sentences
                 if len(buffer) >= min_len:
-                    # Implementation matching original stream_splitter logic but async compatible
                     while True:
                          match = SENTENCE_SPLIT_REGEX.search(buffer)
                          if not match:
@@ -207,8 +199,6 @@ class Pipeline:
 
         except asyncio.CancelledError:
             self.logger.debug("Interaction cancelled.")
-            # Verify TTS stops?
-            # We can optionally call self.tts(..., interrupt=True) with empty string to stop?
             pass
 
     async def speak(self, text: str, loop, interrupt: bool = False):
