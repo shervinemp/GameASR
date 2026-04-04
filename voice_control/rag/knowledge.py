@@ -24,6 +24,27 @@ class KnowledgeGraph:
     def verify_connectivity(self) -> bool:
         return self._driver.verify_connectivity()
 
+    def k_shortest_paths(self, source_id: str, target_id: str, k: int = 3) -> List[Dict]:
+        """
+        Executes APOC k-shortest paths between two entities to find multi-hop semantic links.
+        """
+        query = f"""
+            MATCH (source:Entity {{id: $source_id}})
+            MATCH (target:Entity {{id: $target_id}})
+            CALL apoc.algo.kShortestPaths(source, target, '>', '', $k)
+            YIELD path, weight
+            RETURN [node in nodes(path) | apoc.map.removeKey(properties(node), 'embedding')] AS nodes,
+                   [rel in relationships(path) | apoc.map.merge(properties(rel), {self._rel_addendum})] AS relations,
+                   weight
+            ORDER BY weight ASC
+        """
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(query, source_id=source_id, target_id=target_id)
+                return [r.data() for r in records]
+
+        return self._execute_with_retry(_run)
+
     def close(self):
         self._driver.close()
 
