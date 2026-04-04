@@ -20,4 +20,4 @@ neo4j~=5.28.1
 neo4j-graphrag~=1.9.0
 pynput~=1.7.6
 openai~=1.37.0
-google-generativeai~=0.10.0
+google-generativeai

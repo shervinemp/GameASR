@@ -4,6 +4,7 @@ from voice_control.llm.context import ContextManager
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.model import LLM
 
+
 class MockLLM(LLM):
     def __init__(self, n_ctx=100, max_tokens=10):
         super().__init__()
@@ -18,9 +19,10 @@ class MockLLM(LLM):
         # 1 char = 1 token for simplicity in test
         return len(text)
 
+
 class TestContextPruning(unittest.TestCase):
     def test_pruning(self):
-        llm = MockLLM(n_ctx=50, max_tokens=10) # History limit = 40
+        llm = MockLLM(n_ctx=50, max_tokens=10)  # History limit = 40
         cm = ContextManager()
 
         conv = Conversation()
@@ -47,11 +49,11 @@ class TestContextPruning(unittest.TestCase):
         # So we expect 5 messages remaining (msg1..msg5)
 
         self.assertEqual(len(conv.messages), 5)
-        self.assertEqual(conv.messages[0]['content'], "msg1")
-        self.assertEqual(conv.messages[-1]['content'], "msg5")
+        self.assertEqual(conv.messages[0]["content"], "msg1")
+        self.assertEqual(conv.messages[-1]["content"], "msg5")
 
     def test_no_pruning_needed(self):
-        llm = MockLLM(n_ctx=100, max_tokens=10) # History limit = 90
+        llm = MockLLM(n_ctx=100, max_tokens=10)  # History limit = 90
         cm = ContextManager()
 
         conv = Conversation()
@@ -63,5 +65,6 @@ class TestContextPruning(unittest.TestCase):
 
         self.assertEqual(len(conv.messages), 5)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

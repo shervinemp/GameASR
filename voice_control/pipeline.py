@@ -8,7 +8,7 @@ from .llm.conversation import Conversation
 
 from .asr.model import ASRProviders
 from .tts.model import TTSProviders
-from .rag.model import SimpleRAG
+from .rag.model import SimpleRAG, SPathRAG
 from .hotkey_dispatcher import HotkeyDispatcher
 from .llm import Session, LLMProviders
 from .llm.tools import Tool
@@ -49,8 +49,10 @@ class Pipeline:
 
         llm_provider = config.get("llm.provider")
         llm_cls = getattr(LLMProviders, llm_provider)
-        
-        llm_settings = config.get("llm.providers").get(llm_provider.lower(), {})
+
+        llm_settings = config.get("llm.providers").get(
+            llm_provider.lower(), {}
+        )
         self.session = session or Session(llm=llm_cls(**llm_settings))
 
         self.rag = rag
@@ -213,9 +215,13 @@ def main():
             press_to_reset="<ctrl_l>+<ctrl_r>",
         )
         llm = pipe.session.llm
-        rag = SimpleRAG(llm=llm, graph=graph, web_search=True)
+
+        # Switch from SimpleRAG to SPathRAG
+        # Note: Ensure config.yaml sets llm.provider to 'Gemma4E2B'
+        rag = SPathRAG(llm=llm, graph=graph, web_search=True)
         pipe.rag = rag
-        logger.info("Starting voice control pipeline...")
+
+        logger.info("Starting voice control pipeline with S-Path-RAG...")
         pipe.run()
     except Exception as e:
         logger.error(f"Error in main(): {e}", exc_info=True)

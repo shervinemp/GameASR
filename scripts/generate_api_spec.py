@@ -30,8 +30,7 @@ class LuaParser(BaseParser):
         # Group 1: Comment content
         # Group 2: Function name
         pattern = re.compile(
-            r"--\[\[(.*?)\]\]\s*function\s+rpc_api\.(\w+)",
-            re.DOTALL
+            r"--\[\[(.*?)\]\]\s*function\s+rpc_api\.(\w+)", re.DOTALL
         )
 
         functions = []

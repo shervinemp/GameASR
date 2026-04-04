@@ -38,7 +38,9 @@ class LLM(ABC):
             )
         except Exception as e:
             # Check for specific timeouts or generic errors
-            self.logger.error(f"Error during LLM inference: {e}", exc_info=True)
+            self.logger.error(
+                f"Error during LLM inference: {e}", exc_info=True
+            )
             yield "Sorry, I encountered an error or timed out while processing your request."
 
     @abstractmethod
@@ -57,12 +59,14 @@ class LLM(ABC):
         stream: Iterator[str],
         flush: bool = False,
     ) -> Generator[str | Dict[str, Any], None, None]:
+        # Updated to support Gemma 4 E2B channel tags alongside standard think tags
         tag_boundaries = [
             ("<", ">"),
             ("&lt;", "&gt;"),
+            ("<|", "|>"),  # Added for Gemma 4
         ]
         tool_tags = ("toolcall", "tool_call")
-        think_tags = ("think",)
+        think_tags = ("think", "channel>thought\n", "channel")
 
         buffer = ""
         tag_body = ""
@@ -88,37 +92,48 @@ class LLM(ABC):
             if bounds:
                 if b_.endswith(bounds[1]):
                     tag = b_[len(bounds[0]) : -len(bounds[1])]
-                    if tag[0] == "/":
+                    # Normalize tag for Gemma 4 e.g. <channel|> -> channel
+                    if tag.startswith("/"):
                         tag = tag[1:]
-                        if is_thought and any(tag == t for t in think_tags):
+                        if tag.endswith("|"):
+                            tag = tag[:-1]
+
+                        if is_thought and any(t in tag for t in think_tags):
                             is_thought = False
-                        elif is_call and any(tag == t for t in tool_tags):
+                        elif is_call and any(t in tag for t in tool_tags):
                             is_call = False
                             tb_ = tag_body.strip()
                             try:
-                                tool_call = json.loads(tb_)
-                                yield tool_call
+                                yield json.loads(tb_)
                             except (json.JSONDecodeError, KeyError) as e:
                                 self.logger.error(
                                     f"Failed to parse tool call: {tb_}. Error: {e}"
                                 )
                         tag_body = ""
                     else:
-                        if any(tag == t for t in think_tags):
+                        if tag.endswith("|"):
+                            tag = tag[:-1]
+                        if any(t in tag for t in think_tags):
                             is_thought = True
-                        elif any(tag == t for t in tool_tags):
+                        elif any(t in tag for t in tool_tags):
                             is_call = True
                     buffer = ""
                     bounds = None
+                continue
 
             if buffer and not bounds:
+                # Catch Gemma's specific start token: <|channel>thought\n
+                if "<|channel>thought" in buffer:
+                    is_thought = True
+                    buffer = buffer.replace("<|channel>thought", "").strip()
+
                 if is_call or is_thought:
                     tag_body += buffer
                 else:
                     yield buffer
                 buffer = ""
 
-        if buffer and flush:
+        if buffer and flush and not is_thought:
             yield buffer
 
 
@@ -130,7 +145,7 @@ class GGUFLLM(LLM):
     max_tokens: int = 128
 
     def __init__(self):
-        super().__init__() # Call base init if it exists
+        super().__init__()  # Call base init if it exists
         from llama_cpp import Llama
 
         self.logger = get_logger(self.__class__.__name__)
@@ -313,12 +328,28 @@ class Gemini(LLM):
 # ----------------------------------------------------------------------
 
 
+class Gemma4E2B(Ollama):
+    """
+    Gemma 4 E2B implementation via Ollama.
+    Defaults to the edge-optimized gemma4:e2b model with the 128k context window.
+    """
+
+    def __init__(
+        self, model: str = "gemma4:e2b", host: str = "http://localhost:11434"
+    ):
+        super().__init__(model=model, host=host)
+
+
+# ----------------------------------------------------------------------
+
+
 class LLMProviders:
     NemotronMini: type = NemotronMini
     Qwen3: type = Qwen3
     Ollama: type = Ollama
     ChatGPT: type = ChatGPT
     Gemini: type = Gemini
+    Gemma4E2B: type = Gemma4E2B
 
 
 # ----------------------------------------------------------------------

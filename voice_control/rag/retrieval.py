@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import json
 from typing import Any, List, Dict, Tuple
-from itertools import chain, cycle
+from itertools import chain, cycle, combinations
 
 from ..llm.session import Session
 from .knowledge import KnowledgeGraph
@@ -161,6 +161,65 @@ class GraphRetriever(Retriever):
                 formatted_strings.append(statement)
 
         return list(dict.fromkeys(formatted_strings).keys())
+
+
+class SPathRetriever(GraphRetriever):
+    """
+    Implements the semantic-aware shortest-path retrieval logic.
+    """
+
+    def search(
+        self, query: str, top_k_anchors: int = 3, max_paths: int = 3
+    ) -> List[Dict]:
+        # 1. Identify multiple semantic anchor entities from the query
+        keywords = self.extract_keywords(query)
+        if len(keywords) < 2:
+            # Fallback to standard neighborhood expansion if only one entity is found
+            return super().search(query)
+
+        embeddings = self.graph.embedding_model.encode(keywords)
+        anchor_nodes = []
+
+        # Gather top anchor nodes for each keyword
+        for emb in embeddings:
+            res = self.graph.vector_search([emb.tolist()], top_k=1)
+            if res and res[0]:
+                anchor_nodes.append(res[0][0]["id"])
+
+        anchor_nodes = list(set(anchor_nodes))
+        all_paths = []
+
+        # 2. Extract k-shortest paths between all combinations of anchors
+        for src, tgt in combinations(anchor_nodes, 2):
+            paths = self.graph.k_shortest_paths(
+                source_id=src, target_id=tgt, k=max_paths
+            )
+            all_paths.extend(paths)
+
+        return all_paths
+
+    def format_results(self, results: List[Dict]) -> List[str]:
+        """
+        Formats paths into logical traces (Node A -> [REL] -> Node B -> [REL] -> Node C)
+        """
+        formatted_traces = []
+        for path_data in results:
+            if "nodes" not in path_data or "relations" not in path_data:
+                continue
+
+            nodes = path_data["nodes"]
+            rels = path_data["relations"]
+
+            trace = []
+            for i, node in enumerate(nodes):
+                trace.append(node.get("label", "Unknown"))
+                if i < len(rels):
+                    rel_type = rels[i].get("type", "RELATED_TO")
+                    trace.append(f"-[{rel_type}]->")
+
+            formatted_traces.append(" ".join(trace))
+
+        return list(dict.fromkeys(formatted_traces))
 
 
 class WebRetriever(Retriever):
