@@ -8,7 +8,6 @@ from .base import ModelBase
 from ...common.base import ConsumerProducer
 from ...common.utils import get_logger
 
-
 _vad_lock = threading.Lock()
 
 

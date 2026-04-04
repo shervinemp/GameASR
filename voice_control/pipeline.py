@@ -49,8 +49,10 @@ class Pipeline:
 
         llm_provider = config.get("llm.provider")
         llm_cls = getattr(LLMProviders, llm_provider)
-        
-        llm_settings = config.get("llm.providers").get(llm_provider.lower(), {})
+
+        llm_settings = config.get("llm.providers").get(
+            llm_provider.lower(), {}
+        )
         self.session = session or Session(llm=llm_cls(**llm_settings))
 
         self.rag = rag

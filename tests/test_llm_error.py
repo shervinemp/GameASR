@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from voice_control.llm.model import LLM
 from voice_control.llm.conversation import Conversation
 
+
 class ErrorLLM(LLM):
     def __init__(self):
         super().__init__()
@@ -10,6 +11,7 @@ class ErrorLLM(LLM):
 
     def _infer(self, conversation, *, session_state, **kwargs):
         raise RuntimeError("Something went wrong!")
+
 
 class TestLLMErrorHandling(unittest.TestCase):
     def test_error_handling(self):
@@ -22,5 +24,6 @@ class TestLLMErrorHandling(unittest.TestCase):
         # Check that we got the error message
         self.assertIn("Sorry, I encountered an error", "".join(result))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

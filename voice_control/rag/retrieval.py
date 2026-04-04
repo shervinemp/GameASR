@@ -167,7 +167,10 @@ class SPathRetriever(GraphRetriever):
     """
     Implements the semantic-aware shortest-path retrieval logic.
     """
-    def search(self, query: str, top_k_anchors: int = 3, max_paths: int = 3) -> List[Dict]:
+
+    def search(
+        self, query: str, top_k_anchors: int = 3, max_paths: int = 3
+    ) -> List[Dict]:
         # 1. Identify multiple semantic anchor entities from the query
         keywords = self.extract_keywords(query)
         if len(keywords) < 2:
@@ -181,14 +184,16 @@ class SPathRetriever(GraphRetriever):
         for emb in embeddings:
             res = self.graph.vector_search([emb.tolist()], top_k=1)
             if res and res[0]:
-                anchor_nodes.append(res[0][0]['id'])
+                anchor_nodes.append(res[0][0]["id"])
 
         anchor_nodes = list(set(anchor_nodes))
         all_paths = []
 
         # 2. Extract k-shortest paths between all combinations of anchors
         for src, tgt in combinations(anchor_nodes, 2):
-            paths = self.graph.k_shortest_paths(source_id=src, target_id=tgt, k=max_paths)
+            paths = self.graph.k_shortest_paths(
+                source_id=src, target_id=tgt, k=max_paths
+            )
             all_paths.extend(paths)
 
         return all_paths
@@ -199,17 +204,17 @@ class SPathRetriever(GraphRetriever):
         """
         formatted_traces = []
         for path_data in results:
-            if 'nodes' not in path_data or 'relations' not in path_data:
+            if "nodes" not in path_data or "relations" not in path_data:
                 continue
 
-            nodes = path_data['nodes']
-            rels = path_data['relations']
+            nodes = path_data["nodes"]
+            rels = path_data["relations"]
 
             trace = []
             for i, node in enumerate(nodes):
-                trace.append(node.get('label', 'Unknown'))
+                trace.append(node.get("label", "Unknown"))
                 if i < len(rels):
-                    rel_type = rels[i].get('type', 'RELATED_TO')
+                    rel_type = rels[i].get("type", "RELATED_TO")
                     trace.append(f"-[{rel_type}]->")
 
             formatted_traces.append(" ".join(trace))

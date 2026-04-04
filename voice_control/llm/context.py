@@ -64,7 +64,9 @@ class ContextManager:
         if total_tokens <= history_limit:
             return
 
-        self.logger.info(f"Context usage ({total_tokens}) exceeds limit ({history_limit}). Pruning...")
+        self.logger.info(
+            f"Context usage ({total_tokens}) exceeds limit ({history_limit}). Pruning..."
+        )
 
         # Prune until we are under the limit
         # We must keep the system message if it exists (usually index 0? No, system message is separate in Conversation)
@@ -89,4 +91,6 @@ class ContextManager:
         # conversation._cutoff_idx is an integer
         if new_cutoff > conversation._cutoff_idx:
             conversation.cutoff_idx = new_cutoff
-            self.logger.info(f"Pruned {new_cutoff} messages. New context usage: {current_tokens}")
+            self.logger.info(
+                f"Pruned {new_cutoff} messages. New context usage: {current_tokens}"
+            )

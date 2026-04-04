@@ -24,7 +24,9 @@ class KnowledgeGraph:
     def verify_connectivity(self) -> bool:
         return self._driver.verify_connectivity()
 
-    def k_shortest_paths(self, source_id: str, target_id: str, k: int = 3) -> List[Dict]:
+    def k_shortest_paths(
+        self, source_id: str, target_id: str, k: int = 3
+    ) -> List[Dict]:
         """
         Executes APOC k-shortest paths between two entities to find multi-hop semantic links.
         """
@@ -38,9 +40,12 @@ class KnowledgeGraph:
                    weight
             ORDER BY weight ASC
         """
+
         def _run():
             with self._driver.session() as session:
-                records = session.run(query, source_id=source_id, target_id=target_id)
+                records = session.run(
+                    query, source_id=source_id, target_id=target_id
+                )
                 return [r.data() for r in records]
 
         return self._execute_with_retry(_run)
@@ -50,7 +55,11 @@ class KnowledgeGraph:
 
     def _execute_with_retry(self, func, *args, **kwargs):
         """Helper to execute a function with retry logic for Neo4j connection errors."""
-        from neo4j.exceptions import ServiceUnavailable, SessionExpired, DriverError
+        from neo4j.exceptions import (
+            ServiceUnavailable,
+            SessionExpired,
+            DriverError,
+        )
 
         max_retries = 3
         delay = 1
@@ -59,12 +68,16 @@ class KnowledgeGraph:
             try:
                 return func(*args, **kwargs)
             except (ServiceUnavailable, SessionExpired, DriverError) as e:
-                self.logger.warning(f"Neo4j connection error: {e}. Retrying {attempt+1}/{max_retries}...")
+                self.logger.warning(
+                    f"Neo4j connection error: {e}. Retrying {attempt+1}/{max_retries}..."
+                )
                 if attempt < max_retries - 1:
                     sleep(delay)
                     delay *= 2  # Exponential backoff
                 else:
-                    self.logger.error("Max retries reached for Neo4j connection.")
+                    self.logger.error(
+                        "Max retries reached for Neo4j connection."
+                    )
                     raise e
 
     def keyword_search(
@@ -85,6 +98,7 @@ class KnowledgeGraph:
             RETURN q_data.id AS query_id, result_list AS results
             ORDER BY query_id ASC
         """
+
         def _run():
             with self._driver.session() as session:
                 records = session.run(
@@ -113,6 +127,7 @@ class KnowledgeGraph:
             RETURN q_data.id AS query_id, result_list AS results
             ORDER BY query_id ASC
         """
+
         def _run():
             with self._driver.session() as session:
                 records = session.run(
@@ -130,6 +145,7 @@ class KnowledgeGraph:
             RETURN [node in nodes | apoc.map.removeKey(properties(node), 'embedding')] AS nodes,
                    [rel in rels | apoc.map.merge(properties(rel), {self._rel_addendum})] AS relations
         """
+
         def _run():
             with self._driver.session() as session:
                 record = session.run(query, nodes=node_ids).single()
@@ -177,6 +193,7 @@ class KnowledgeGraph:
             }}
             RETURN single_result AS results
         """
+
         def _run():
             with self._driver.session() as session:
                 records = session.run(
@@ -224,6 +241,7 @@ class KnowledgeGraph:
                     for record in records
                     for key in record.keys()
                 ]
+
         return self._execute_with_retry(_run)
 
     def add_triplets(self, triplets: List[Dict[str, str]]):
@@ -246,10 +264,12 @@ class KnowledgeGraph:
         YIELD rel
         RETURN count(rel) AS created_relationships
         """
+
         def _run():
             with self._driver.session() as session:
                 result = session.run(query, triplets=triplets)
                 self.logger.info(
                     f"Added {result.single()['created_relationships']} new relationships to the graph."
                 )
+
         self._execute_with_retry(_run)

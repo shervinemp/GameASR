@@ -38,7 +38,9 @@ class LLM(ABC):
             )
         except Exception as e:
             # Check for specific timeouts or generic errors
-            self.logger.error(f"Error during LLM inference: {e}", exc_info=True)
+            self.logger.error(
+                f"Error during LLM inference: {e}", exc_info=True
+            )
             yield "Sorry, I encountered an error or timed out while processing your request."
 
     @abstractmethod
@@ -80,7 +82,10 @@ class LLM(ABC):
             b_ = buffer.strip()
 
             bounds = bounds or next(
-                filter(lambda p: b_ and b_.startswith(p[0][: len(b_)]), tag_boundaries),
+                filter(
+                    lambda p: b_ and b_.startswith(p[0][: len(b_)]),
+                    tag_boundaries,
+                ),
                 None,
             )
 
@@ -90,7 +95,8 @@ class LLM(ABC):
                     # Normalize tag for Gemma 4 e.g. <channel|> -> channel
                     if tag.startswith("/"):
                         tag = tag[1:]
-                        if tag.endswith("|"): tag = tag[:-1]
+                        if tag.endswith("|"):
+                            tag = tag[:-1]
 
                         if is_thought and any(t in tag for t in think_tags):
                             is_thought = False
@@ -100,10 +106,13 @@ class LLM(ABC):
                             try:
                                 yield json.loads(tb_)
                             except (json.JSONDecodeError, KeyError) as e:
-                                self.logger.error(f"Failed to parse tool call: {tb_}. Error: {e}")
+                                self.logger.error(
+                                    f"Failed to parse tool call: {tb_}. Error: {e}"
+                                )
                         tag_body = ""
                     else:
-                        if tag.endswith("|"): tag = tag[:-1]
+                        if tag.endswith("|"):
+                            tag = tag[:-1]
                         if any(t in tag for t in think_tags):
                             is_thought = True
                         elif any(t in tag for t in tool_tags):
@@ -136,7 +145,7 @@ class GGUFLLM(LLM):
     max_tokens: int = 128
 
     def __init__(self):
-        super().__init__() # Call base init if it exists
+        super().__init__()  # Call base init if it exists
         from llama_cpp import Llama
 
         self.logger = get_logger(self.__class__.__name__)
@@ -324,8 +333,12 @@ class Gemma4E2B(Ollama):
     Gemma 4 E2B implementation via Ollama.
     Defaults to the edge-optimized gemma4:e2b model with the 128k context window.
     """
-    def __init__(self, model: str = "gemma4:e2b", host: str = "http://localhost:11434"):
+
+    def __init__(
+        self, model: str = "gemma4:e2b", host: str = "http://localhost:11434"
+    ):
         super().__init__(model=model, host=host)
+
 
 # ----------------------------------------------------------------------
 

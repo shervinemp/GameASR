@@ -23,32 +23,35 @@ import textwrap
 from dotenv import load_dotenv
 import langextract as lx
 
+
 def main():
     """Main function to run the knowledge extraction process."""
-    parser = argparse.ArgumentParser(description="Extract structured knowledge from text using langextract.")
+    parser = argparse.ArgumentParser(
+        description="Extract structured knowledge from text using langextract."
+    )
     parser.add_argument(
         "--input-file",
         type=str,
         required=True,
-        help="Path to the input text file."
+        help="Path to the input text file.",
     )
     parser.add_argument(
         "--output-file",
         type=str,
         required=True,
-        help="Path to the output JSONL file."
+        help="Path to the output JSONL file.",
     )
     parser.add_argument(
         "--model-id",
         type=str,
         default="gemini-1.5-flash",
-        help="The ID of the language model to use (e.g., 'gemini-1.5-pro', 'gpt-4o')."
+        help="The ID of the language model to use (e.g., 'gemini-1.5-pro', 'gpt-4o').",
     )
     parser.add_argument(
         "--api-key-env",
         type=str,
         default="LANGEXTRACT_API_KEY",
-        help="The name of the environment variable holding the API key."
+        help="The name of the environment variable holding the API key.",
     )
     args = parser.parse_args()
 
@@ -57,7 +60,9 @@ def main():
 
     api_key = os.getenv(args.api_key_env)
     if not api_key:
-        raise ValueError(f"API key not found. Please set the {args.api_key_env} environment variable.")
+        raise ValueError(
+            f"API key not found. Please set the {args.api_key_env} environment variable."
+        )
 
     print(f"Starting knowledge extraction from '{args.input_file}'...")
     print(f"Using model: {args.model_id}")
@@ -80,24 +85,24 @@ def main():
                 lx.data.Extraction(
                     extraction_class="subject",
                     extraction_text="Albert Einstein",
-                    attributes={"type": "person"}
+                    attributes={"type": "person"},
                 ),
                 lx.data.Extraction(
                     extraction_class="predicate",
                     extraction_text="developed",
-                    attributes={"context": "in his Annus Mirabilis papers"}
+                    attributes={"context": "in his Annus Mirabilis papers"},
                 ),
                 lx.data.Extraction(
                     extraction_class="object",
                     extraction_text="the theory of relativity",
-                    attributes={"type": "concept"}
+                    attributes={"type": "concept"},
                 ),
-            ]
+            ],
         )
     ]
 
     # 3. Read the input text
-    with open(args.input_file, 'r', encoding='utf-8') as f:
+    with open(args.input_file, "r", encoding="utf-8") as f:
         input_text = f.read()
 
     # 4. Run the extraction
@@ -108,7 +113,7 @@ def main():
         examples=examples,
         model_id=args.model_id,
         api_key=api_key,
-        max_workers=10 # Use parallel processing for speed
+        max_workers=10,  # Use parallel processing for speed
     )
 
     # 5. Save the results
@@ -118,14 +123,18 @@ def main():
         os.makedirs(output_dir, exist_ok=True)
 
     print(f"Saving results to '{args.output_file}'...")
-    lx.io.save_annotated_documents([result], output_name=output_name, output_dir=output_dir)
+    lx.io.save_annotated_documents(
+        [result], output_name=output_name, output_dir=output_dir
+    )
 
     print("Extraction complete.")
-    print(f"To visualize the results, you can add the following to a Python script:\n"
-          f"import langextract as lx\n"
-          f"html_content = lx.visualize('{args.output_file}')\n"
-          f"with open('visualization.html', 'w') as f:\n"
-          f"    f.write(html_content)\n")
+    print(
+        f"To visualize the results, you can add the following to a Python script:\n"
+        f"import langextract as lx\n"
+        f"html_content = lx.visualize('{args.output_file}')\n"
+        f"with open('visualization.html', 'w') as f:\n"
+        f"    f.write(html_content)\n"
+    )
 
 
 if __name__ == "__main__":

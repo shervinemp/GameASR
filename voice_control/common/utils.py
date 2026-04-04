@@ -87,7 +87,9 @@ def download_file(url: str, destination: str):
         logger.error(f"Failed to download {url}: {e}", exc_info=True)
         raise
     except IOError as e:
-        logger.error(f"Failed to write file to {destination}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to write file to {destination}: {e}", exc_info=True
+        )
         raise
     except Exception as e:
         logger.error(
