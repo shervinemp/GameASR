@@ -26,12 +26,12 @@ class LLMConfig(BaseModel):
 
 class TTSConfig(BaseModel):
     provider: str
-    model_dir: str
+    weights_dir: str
 
 
 class ASRConfig(BaseModel):
     provider: str
-    model_dir: str
+    weights_dir: str
 
 
 class LLMServerConfig(BaseModel):

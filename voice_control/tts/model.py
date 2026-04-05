@@ -27,19 +27,19 @@ class Kokoro:
         """
         self.logger = get_logger(__name__)
 
-        model_dir = config.get("tts.model_dir", "model_files/tts")
+        weights_dir = config.get("tts.weights_dir", "model_files/tts")
 
         self.kokoro = KokoroONNX(
-            model_path=os.path.join(model_dir, "kokoro-v1.0.onnx"),
-            voices_path=os.path.join(model_dir, "voices-v1.0.bin"),
+            model_path=os.path.join(weights_dir, "kokoro-v1.0.onnx"),
+            voices_path=os.path.join(weights_dir, "voices-v1.0.bin"),
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
 
     @classmethod
     def download(cls):
-        model_dir = config.get("tts.model_dir", "model_files/tts")
-        os.makedirs(model_dir, exist_ok=True)
+        weights_dir = config.get("tts.weights_dir", "model_files/tts")
+        os.makedirs(weights_dir, exist_ok=True)
 
         required_files = [
             "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
@@ -48,7 +48,7 @@ class Kokoro:
 
         for url in required_files:
             filename = url.split("/")[-1]
-            destination = os.path.join(model_dir, filename)
+            destination = os.path.join(weights_dir, filename)
             if not os.path.exists(destination):
                 download_file(url, destination)
 
