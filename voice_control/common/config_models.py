@@ -25,15 +25,13 @@ class LLMConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
-    model_config = {'protected_namespaces': ()}
     provider: str
-    model_dir: str
+    weights_dir: str
 
 
 class ASRConfig(BaseModel):
-    model_config = {'protected_namespaces': ()}
     provider: str
-    model_dir: str
+    weights_dir: str
 
 
 class LLMServerConfig(BaseModel):

@@ -40,12 +40,12 @@ llm:
 tts:
   provider: "Kokoro"
   # Base directory for TTS models
-  model_dir: "model_files/tts"
+  weights_dir: "model_files/tts"
 
 # --- ASR Configuration ---
 asr:
   provider: "ParakeetV2"
-  model_dir: "model_files/asr"
+  weights_dir: "model_files/asr"
 
 #----------------------------
 
