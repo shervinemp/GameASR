@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-import os
 import sys
 from typing import Optional
 from dotenv import load_dotenv
@@ -8,7 +7,7 @@ from .llm.conversation import Conversation
 
 from .asr.model import ASRProviders
 from .tts.model import TTSProviders
-from .rag.model import SimpleRAG, SPathRAG
+from .rag.model import SPathRAG
 from .hotkey_dispatcher import HotkeyDispatcher
 from .llm import Session, LLMProviders
 from .llm.tools import Tool
