@@ -258,7 +258,14 @@ class Qwen3(GGUFLLM):
     hf_repo: str = "Qwen/Qwen3-4B-GGUF"
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
     n_ctx: int = 40960
-    max_tokens: int = 10240
+    max_tokens: int = 8192
+
+
+class Gemma4E2B(GGUFLLM):
+    hf_repo: str = "unsloth/gemma-4-E2B-it-GGUF"
+    filename: str = "gemma-4-E2B-it-Q4_K_M.gguf"
+    n_ctx: int = 131072
+    max_tokens: int = 8192
 
 
 class ChatGPT(LLM):
@@ -323,21 +330,6 @@ class Gemini(LLM):
         for chunk in response:
             if content := chunk.text:
                 yield content
-
-
-# ----------------------------------------------------------------------
-
-
-class Gemma4E2B(Ollama):
-    """
-    Gemma 4 E2B implementation via Ollama.
-    Defaults to the edge-optimized gemma4:e2b model with the 128k context window.
-    """
-
-    def __init__(
-        self, model: str = "gemma4:e2b", host: str = "http://localhost:11434"
-    ):
-        super().__init__(model=model, host=host)
 
 
 # ----------------------------------------------------------------------
