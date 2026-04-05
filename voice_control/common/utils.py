@@ -24,6 +24,7 @@ def setup_logging(log_level=logging.INFO, log_format=None, stream=None):
             format=log_format,
             datefmt="%Y-%m-%d %H:%M:%S",
             stream=stream,
+            force=True
         )
 
 
