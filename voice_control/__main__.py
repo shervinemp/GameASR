@@ -3,7 +3,7 @@ import sys
 
 from .pipeline import Pipeline
 
-from .bridge.rpc_tool_client import ToolClient
+from .bridge.tool_client import ToolClient
 
 from .common.utils import load_specs, setup_logging, get_logger
 from .common.config import config
