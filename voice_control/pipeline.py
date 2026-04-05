@@ -86,7 +86,7 @@ class Pipeline:
         """Start the voice control pipeline."""
         self.asr.start()
         self.tts.start()
-        self._hotkey_dispatcher.start()
+        self.hotkey_dispatcher.start()
         if server := getattr(self, "llm_server", None):
             server.start()
         self._running = True
@@ -123,15 +123,15 @@ class Pipeline:
 
     @property
     def push_to_talk(self):
-        return self.__push_to_talk
+        return self._push_to_talk
 
     @push_to_talk.setter
     def push_to_talk(self, value: str | None):
-        dispatcher = self._hotkey_dispatcher
-        if k_ := getattr(self, "__push_to_talk", None):
+        dispatcher = self.hotkey_dispatcher
+        if k_ := getattr(self, "_push_to_talk", None):
             dispatcher.unregister(k_)
 
-        self.__push_to_talk = value
+        self._push_to_talk = value
         if value is None:
             self.asr.enable()
             self.logger.info("Push-to-talk disabled")
@@ -151,15 +151,15 @@ class Pipeline:
 
     @property
     def press_to_reset(self):
-        return self.__press_to_reset
+        return self._press_to_reset
 
     @press_to_reset.setter
     def press_to_reset(self, value: str | None):
-        dispatcher = self._hotkey_dispatcher
-        if k_ := getattr(self, "__press_to_reset", None):
+        dispatcher = self.hotkey_dispatcher
+        if k_ := getattr(self, "_press_to_reset", None):
             dispatcher.unregister(k_)
 
-        self.__press_to_reset = value
+        self._press_to_reset = value
         if value:
 
             def cb():
@@ -173,8 +173,8 @@ class Pipeline:
             self.logger.info(f"Press-to-reset enabled with hotkey '{value}'")
 
     @property
-    def _hotkey_dispatcher(self) -> HotkeyDispatcher:
-        attr_name = "__hotkey_dispatcher"
+    def hotkey_dispatcher(self) -> HotkeyDispatcher:
+        attr_name = "_hotkey_dispatcher"
         if dispatcher := getattr(self, attr_name, None):
             return dispatcher
         else:
