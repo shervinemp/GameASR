@@ -7,7 +7,9 @@ This script handles installing dependencies and setting up the environment.
 
 import sys
 
-from voice_control.tts.model import TTS
+from .model import TTSProviders
+
+from ..common.config import config
 from ..common.utils import get_logger, setup_logging
 
 
@@ -19,7 +21,8 @@ def main():
     logger = get_logger(__name__)
 
     try:
-        TTS.download()
+        provider = config.get("tts.provider")
+        getattr(TTSProviders, provider).download()
         logger.info("Model download completed successfully.")
     except Exception as e:
         logger.error(f"Failed to download model: {e}")
