@@ -263,7 +263,7 @@ class Ollama(LLM):
 
     def _infer(
         self, conversation: Conversation, *, session_state: dict
-    ) -> Generator[str | Dict[str, Any], None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
 
         stream = self.client.chat(
             model=self.model,
@@ -273,8 +273,17 @@ class Ollama(LLM):
         )
 
         for chunk in stream:
-            if "content" in chunk["message"]:
-                yield chunk["message"]["content"]
+            message = chunk.get("message", {})
+            if "content" in message and message["content"]:
+                yield message["content"]
+
+            if "tool_calls" in message:
+                for tool_call in message["tool_calls"]:
+                    func_info = tool_call.get("function", {})
+                    yield ToolCall(
+                        name=func_info.get("name"),
+                        arguments=func_info.get("arguments", {})
+                    )
 
 
 class NemotronMini(GGUFLLM):
