@@ -7,6 +7,7 @@ This module provides text-to-speech processing functionality using ONNX models.
 """
 
 import os
+import re
 from kokoro_onnx import Kokoro as KokoroONNX
 from kokoro_onnx.tokenizer import Tokenizer
 
@@ -69,6 +70,7 @@ class Kokoro:
         Returns:
             tuple: (numpy array of audio samples, sample rate)
         """
+        text = re.sub(r'[*_~`´]', '', text)
         phonemes = self.tokenizer.phonemize(text, lang=language)
         samples, sample_rate = self.kokoro.create(
             phonemes,
