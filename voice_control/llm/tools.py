@@ -5,6 +5,13 @@ from typing import Callable, List, Dict, Optional, Any, Type, Union
 
 
 @dataclass
+class ToolCall:
+    """Represents a requested tool call from the LLM."""
+    name: str
+    arguments: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Tool:
     """
     Represents a tool callable by an AI model, structured according to OpenAI's function calling schema.

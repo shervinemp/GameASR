@@ -7,6 +7,7 @@ from typing import Any, Dict, Generator, Iterator
 
 from .conversation import Conversation
 from .context import ContextManager  # Added import
+from .tools import ToolCall
 
 from ..common.utils import download_hf_file, get_logger
 
@@ -21,7 +22,7 @@ class LLM(ABC):
         conversation: Conversation,
         session_state: dict | None = None,
         **kwargs,
-    ) -> Generator[str | dict, None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
         session_state = session_state or dict()
 
         # Manage context before inference
@@ -56,9 +57,9 @@ class LLM(ABC):
 
     def _parse(
         self,
-        stream: Iterator[str | dict],
+        stream: Iterator[str | ToolCall],
         flush: bool = False,
-    ) -> Generator[str | Dict[str, Any], None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
         # Updated to support Gemma 4 E2B channel tags alongside standard think tags
         tag_boundaries = [
             ("<", ">"),
@@ -75,7 +76,7 @@ class LLM(ABC):
         is_thought = False
 
         for item in stream:
-            if isinstance(item, dict):
+            if isinstance(item, ToolCall):
                 yield item
                 continue
 
@@ -109,8 +110,12 @@ class LLM(ABC):
                                 is_call = False
                                 tb_ = tag_body.strip()
                                 try:
-                                    yield json.loads(tb_)
-                                except (json.JSONDecodeError, KeyError) as e:
+                                    call_dict = json.loads(tb_)
+                                    yield ToolCall(
+                                        name=call_dict.get("name") or call_dict.get("function"),
+                                        arguments=call_dict.get("arguments", {})
+                                    )
+                                except (json.JSONDecodeError, KeyError, TypeError) as e:
                                     self.logger.error(
                                         f"Failed to parse tool call: {tb_}. Error: {e}"
                                     )
@@ -195,7 +200,7 @@ class GGUFLLM(LLM):
         session_state: dict,
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
-    ) -> Generator[str | dict, None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
         with self._lock:
             if self._last_state and id(self._last_state) != id(session_state):
                 k_ = "model_state"
@@ -233,11 +238,11 @@ class GGUFLLM(LLM):
                             except json.JSONDecodeError:
                                 args_dict = {}
 
-                            # Yield the dictionary format expected by Session._generate_response
-                            yield {
-                                "name": func_info["name"],
-                                "arguments": args_dict
-                            }
+                            # Yield the ToolCall format expected by Session._generate_response
+                            yield ToolCall(
+                                name=func_info["name"],
+                                arguments=args_dict
+                            )
 
 
 class Ollama(LLM):
