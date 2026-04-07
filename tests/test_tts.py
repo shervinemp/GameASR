@@ -1,7 +1,8 @@
 import unittest
 import os
 import soundfile as sf
-from voice_control.tts.model import Kokoro
+from voice_control.tts.model import TTSProviders
+from voice_control.common.config import config
 from unittest.mock import patch
 
 
@@ -11,31 +12,32 @@ class TestTTS(unittest.TestCase):
         """
         Test that the TTS can generate audio and save it to a file.
         """
-        # Download the TTS models
-        Kokoro.download()
-        # Initialize the TTS
-        tts = Kokoro()
+        for provider_name in dir(TTSProviders):
+            if provider_name.startswith("__"):
+                continue
 
-        # Generate audio for a sample sentence
-        text = "This is a test sentence for the voice detection system."
-        # We need to manually call the __call__ method to get the samples
-        # because the tts object itself is a callable that plays the audio
-        phonemes = tts.tokenizer.phonemize(text, lang="en-us")
-        samples, sample_rate = tts.kokoro.create(
-            phonemes,
-            voice="af_heart",
-            speed=1.0,
-            is_phonemes=True,
-        )
+            with self.subTest(provider=provider_name):
+                tts_cls = getattr(TTSProviders, provider_name)
 
-        # Check that the audio is generated
-        self.assertIsNotNone(samples)
-        self.assertGreater(len(samples), 0)
-        self.assertEqual(sample_rate, 24000)
+                # Download the TTS models
+                tts_cls.download()
+                # Initialize the TTS
+                tts = tts_cls()
 
-        # Save the audio to a file
-        output_path = os.path.join(os.path.dirname(__file__), "test_audio.wav")
-        sf.write(output_path, samples, sample_rate)
+                # Generate audio for a sample sentence
+                text = "This is a test sentence for the voice detection system."
 
-        # Check that the file was created
-        self.assertTrue(os.path.exists(output_path))
+                # Call the TTS provider's __call__ method
+                samples, sample_rate = tts(text, interrupt=False)
+
+                # Check that the audio is generated
+                self.assertIsNotNone(samples)
+                self.assertGreater(len(samples), 0)
+                self.assertEqual(sample_rate, 24000)
+
+                # Save the audio to a file
+                output_path = os.path.join(os.path.dirname(__file__), f"test_audio_{provider_name.lower()}.wav")
+                sf.write(output_path, samples, sample_rate)
+
+                # Check that the file was created
+                self.assertTrue(os.path.exists(output_path))

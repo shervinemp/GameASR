@@ -3,22 +3,18 @@ import os
 import soundfile as sf
 from unittest.mock import patch, MagicMock
 from voice_control.asr.models import ParakeetV2
-from voice_control.tts.model import Kokoro
+from voice_control.tts.model import TTSProviders
+from voice_control.common.config import config
 
 
 def generate_test_audio(text, output_path):
     """
-    Generate a test audio file using the kokoro TTS model.
+    Generate a test audio file using the configured TTS provider.
     """
     with patch("voice_control.tts.model.AudioPlayer"):
-        tts = Kokoro()
-        phonemes = tts.tokenizer.phonemize(text, lang="en-us")
-        samples, sample_rate = tts.kokoro.create(
-            phonemes,
-            voice="af_heart",
-            speed=1.0,
-            is_phonemes=True,
-        )
+        tts_cls = getattr(TTSProviders, config.get("tts.provider"))
+        tts = tts_cls()
+        samples, sample_rate = tts(text, interrupt=False)
         sf.write(output_path, samples, sample_rate)
         return samples, sample_rate
 
