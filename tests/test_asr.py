@@ -3,7 +3,7 @@ import os
 import soundfile as sf
 from unittest.mock import patch, MagicMock
 from voice_control.asr.models import ParakeetV2
-from voice_control.tts.model import TTS
+from voice_control.tts.model import Kokoro
 
 
 def generate_test_audio(text, output_path):
@@ -11,7 +11,7 @@ def generate_test_audio(text, output_path):
     Generate a test audio file using the kokoro TTS model.
     """
     with patch("voice_control.tts.model.AudioPlayer"):
-        tts = TTS()
+        tts = Kokoro()
         phonemes = tts.tokenizer.phonemize(text, lang="en-us")
         samples, sample_rate = tts.kokoro.create(
             phonemes,
@@ -24,7 +24,7 @@ def generate_test_audio(text, output_path):
 
 
 class TestASR(unittest.TestCase):
-    @patch("voice_control.asr.models.parakeetv2.sd.InputStream")
+    @patch("voice_control.asr.models.parakeetv2.ParakeetV2._inputstream")
     @patch("voice_control.asr.models.parakeetv2.Silero")
     def test_parakeet_v2_transcribe(self, mock_silero, mock_input_stream):
         """
