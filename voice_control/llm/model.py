@@ -56,7 +56,7 @@ class LLM(ABC):
 
     def _parse(
         self,
-        stream: Iterator[str],
+        stream: Iterator[str | dict],
         flush: bool = False,
     ) -> Generator[str | Dict[str, Any], None, None]:
         # Updated to support Gemma 4 E2B channel tags alongside standard think tags
@@ -74,64 +74,69 @@ class LLM(ABC):
         is_call = False
         is_thought = False
 
-        for content in chain.from_iterable(stream):
-            buffer += content
-            if content.isspace():
+        for item in stream:
+            if isinstance(item, dict):
+                yield item
                 continue
 
-            b_ = buffer.strip()
+            for content in item:
+                buffer += content
+                if content.isspace():
+                    continue
 
-            bounds = bounds or next(
-                filter(
-                    lambda p: b_ and b_.startswith(p[0][: len(b_)]),
-                    tag_boundaries,
-                ),
-                None,
-            )
+                b_ = buffer.strip()
 
-            if bounds:
-                if b_.endswith(bounds[1]):
-                    tag = b_[len(bounds[0]) : -len(bounds[1])]
-                    # Normalize tag for Gemma 4 e.g. <channel|> -> channel
-                    if tag.startswith("/"):
-                        tag = tag[1:]
-                        if tag.endswith("|"):
-                            tag = tag[:-1]
+                bounds = bounds or next(
+                    filter(
+                        lambda p: b_ and b_.startswith(p[0][: len(b_)]),
+                        tag_boundaries,
+                    ),
+                    None,
+                )
 
-                        if is_thought and any(t in tag for t in think_tags):
-                            is_thought = False
-                        elif is_call and any(t in tag for t in tool_tags):
-                            is_call = False
-                            tb_ = tag_body.strip()
-                            try:
-                                yield json.loads(tb_)
-                            except (json.JSONDecodeError, KeyError) as e:
-                                self.logger.error(
-                                    f"Failed to parse tool call: {tb_}. Error: {e}"
-                                )
-                        tag_body = ""
+                if bounds:
+                    if b_.endswith(bounds[1]):
+                        tag = b_[len(bounds[0]) : -len(bounds[1])]
+                        # Normalize tag for Gemma 4 e.g. <channel|> -> channel
+                        if tag.startswith("/"):
+                            tag = tag[1:]
+                            if tag.endswith("|"):
+                                tag = tag[:-1]
+
+                            if is_thought and any(t in tag for t in think_tags):
+                                is_thought = False
+                            elif is_call and any(t in tag for t in tool_tags):
+                                is_call = False
+                                tb_ = tag_body.strip()
+                                try:
+                                    yield json.loads(tb_)
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    self.logger.error(
+                                        f"Failed to parse tool call: {tb_}. Error: {e}"
+                                    )
+                            tag_body = ""
+                        else:
+                            if tag.endswith("|"):
+                                tag = tag[:-1]
+                            if any(t in tag for t in think_tags):
+                                is_thought = True
+                            elif any(t in tag for t in tool_tags):
+                                is_call = True
+                        buffer = ""
+                        bounds = None
+                    continue
+
+                if buffer and not bounds:
+                    # Catch Gemma's specific start token: <|channel>thought\n
+                    if "<|channel>thought" in buffer:
+                        is_thought = True
+                        buffer = buffer.replace("<|channel>thought", "").strip()
+
+                    if is_call or is_thought:
+                        tag_body += buffer
                     else:
-                        if tag.endswith("|"):
-                            tag = tag[:-1]
-                        if any(t in tag for t in think_tags):
-                            is_thought = True
-                        elif any(t in tag for t in tool_tags):
-                            is_call = True
+                        yield buffer
                     buffer = ""
-                    bounds = None
-                continue
-
-            if buffer and not bounds:
-                # Catch Gemma's specific start token: <|channel>thought\n
-                if "<|channel>thought" in buffer:
-                    is_thought = True
-                    buffer = buffer.replace("<|channel>thought", "").strip()
-
-                if is_call or is_thought:
-                    tag_body += buffer
-                else:
-                    yield buffer
-                buffer = ""
 
         if buffer and flush and not is_thought:
             yield buffer
