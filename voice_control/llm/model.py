@@ -190,7 +190,7 @@ class GGUFLLM(LLM):
         session_state: dict,
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
-    ) -> Generator[str, None, None]:
+    ) -> Generator[str | dict, None, None]:
         with self._lock:
             if self._last_state and id(self._last_state) != id(session_state):
                 k_ = "model_state"
@@ -211,8 +211,28 @@ class GGUFLLM(LLM):
             )
 
             for chunk in stream:
-                if (k := "content") in (delta := chunk["choices"][0]["delta"]):
-                    yield delta[k]
+                delta = chunk["choices"][0]["delta"]
+
+                # Handle standard text content
+                if "content" in delta and delta["content"]:
+                    yield delta["content"]
+
+                # Handle native tool calls from llama.cpp
+                elif "tool_calls" in delta:
+                    for tool_call in delta["tool_calls"]:
+                        if tool_call.get("type") == "function":
+                            func_info = tool_call["function"]
+                            try:
+                                # Parse the JSON string arguments into a dictionary
+                                args_dict = json.loads(func_info.get("arguments", "{}"))
+                            except json.JSONDecodeError:
+                                args_dict = {}
+
+                            # Yield the dictionary format expected by Session._generate_response
+                            yield {
+                                "name": func_info["name"],
+                                "arguments": args_dict
+                            }
 
 
 class Ollama(LLM):
