@@ -8,6 +8,7 @@ from ..common.utils import get_logger
 
 from .model import LLM
 from .conversation import Conversation
+from .tools import ToolCall
 
 
 class Session:
@@ -52,10 +53,10 @@ class Session:
         for chunk in self.llm(
             self.conversation, session_state=self._session_state, **kwargs
         ):
-            if isinstance(chunk, dict):
+            if isinstance(chunk, ToolCall):
                 try:
-                    tool_name = chunk.get("name", None) or chunk["function"]
-                    tool_args = chunk["arguments"]
+                    tool_name = chunk.name
+                    tool_args = chunk.arguments
                 except Exception as e:
                     self.logger.warning(
                         f"Error parsing tool response: {repr(e)}"

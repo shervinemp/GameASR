@@ -7,6 +7,7 @@ from typing import Any, Dict, Generator, Iterator
 
 from .conversation import Conversation
 from .context import ContextManager  # Added import
+from .tools import ToolCall
 
 from ..common.utils import download_hf_file, get_logger
 
@@ -21,7 +22,7 @@ class LLM(ABC):
         conversation: Conversation,
         session_state: dict | None = None,
         **kwargs,
-    ) -> Generator[str | dict, None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
         session_state = session_state or dict()
 
         # Manage context before inference
@@ -56,9 +57,9 @@ class LLM(ABC):
 
     def _parse(
         self,
-        stream: Iterator[str],
+        stream: Iterator[str | ToolCall],
         flush: bool = False,
-    ) -> Generator[str | Dict[str, Any], None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
         # Updated to support Gemma 4 E2B channel tags alongside standard think tags
         tag_boundaries = [
             ("<", ">"),
@@ -74,64 +75,73 @@ class LLM(ABC):
         is_call = False
         is_thought = False
 
-        for content in chain.from_iterable(stream):
-            buffer += content
-            if content.isspace():
+        for item in stream:
+            if isinstance(item, ToolCall):
+                yield item
                 continue
 
-            b_ = buffer.strip()
+            for content in item:
+                buffer += content
+                if content.isspace():
+                    continue
 
-            bounds = bounds or next(
-                filter(
-                    lambda p: b_ and b_.startswith(p[0][: len(b_)]),
-                    tag_boundaries,
-                ),
-                None,
-            )
+                b_ = buffer.strip()
 
-            if bounds:
-                if b_.endswith(bounds[1]):
-                    tag = b_[len(bounds[0]) : -len(bounds[1])]
-                    # Normalize tag for Gemma 4 e.g. <channel|> -> channel
-                    if tag.startswith("/"):
-                        tag = tag[1:]
-                        if tag.endswith("|"):
-                            tag = tag[:-1]
+                bounds = bounds or next(
+                    filter(
+                        lambda p: b_ and b_.startswith(p[0][: len(b_)]),
+                        tag_boundaries,
+                    ),
+                    None,
+                )
 
-                        if is_thought and any(t in tag for t in think_tags):
-                            is_thought = False
-                        elif is_call and any(t in tag for t in tool_tags):
-                            is_call = False
-                            tb_ = tag_body.strip()
-                            try:
-                                yield json.loads(tb_)
-                            except (json.JSONDecodeError, KeyError) as e:
-                                self.logger.error(
-                                    f"Failed to parse tool call: {tb_}. Error: {e}"
-                                )
-                        tag_body = ""
+                if bounds:
+                    if b_.endswith(bounds[1]):
+                        tag = b_[len(bounds[0]) : -len(bounds[1])]
+                        # Normalize tag for Gemma 4 e.g. <channel|> -> channel
+                        if tag.startswith("/"):
+                            tag = tag[1:]
+                            if tag.endswith("|"):
+                                tag = tag[:-1]
+
+                            if is_thought and any(t in tag for t in think_tags):
+                                is_thought = False
+                            elif is_call and any(t in tag for t in tool_tags):
+                                is_call = False
+                                tb_ = tag_body.strip()
+                                try:
+                                    call_dict = json.loads(tb_)
+                                    yield ToolCall(
+                                        name=call_dict.get("name") or call_dict.get("function"),
+                                        arguments=call_dict.get("arguments", {})
+                                    )
+                                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                                    self.logger.error(
+                                        f"Failed to parse tool call: {tb_}. Error: {e}"
+                                    )
+                            tag_body = ""
+                        else:
+                            if tag.endswith("|"):
+                                tag = tag[:-1]
+                            if any(t in tag for t in think_tags):
+                                is_thought = True
+                            elif any(t in tag for t in tool_tags):
+                                is_call = True
+                        buffer = ""
+                        bounds = None
+                    continue
+
+                if buffer and not bounds:
+                    # Catch Gemma's specific start token: <|channel>thought\n
+                    if "<|channel>thought" in buffer:
+                        is_thought = True
+                        buffer = buffer.replace("<|channel>thought", "").strip()
+
+                    if is_call or is_thought:
+                        tag_body += buffer
                     else:
-                        if tag.endswith("|"):
-                            tag = tag[:-1]
-                        if any(t in tag for t in think_tags):
-                            is_thought = True
-                        elif any(t in tag for t in tool_tags):
-                            is_call = True
+                        yield buffer
                     buffer = ""
-                    bounds = None
-                continue
-
-            if buffer and not bounds:
-                # Catch Gemma's specific start token: <|channel>thought\n
-                if "<|channel>thought" in buffer:
-                    is_thought = True
-                    buffer = buffer.replace("<|channel>thought", "").strip()
-
-                if is_call or is_thought:
-                    tag_body += buffer
-                else:
-                    yield buffer
-                buffer = ""
 
         if buffer and flush and not is_thought:
             yield buffer
@@ -190,7 +200,7 @@ class GGUFLLM(LLM):
         session_state: dict,
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
-    ) -> Generator[str, None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
         with self._lock:
             if self._last_state and id(self._last_state) != id(session_state):
                 k_ = "model_state"
@@ -211,8 +221,28 @@ class GGUFLLM(LLM):
             )
 
             for chunk in stream:
-                if (k := "content") in (delta := chunk["choices"][0]["delta"]):
-                    yield delta[k]
+                delta = chunk["choices"][0]["delta"]
+
+                # Handle standard text content
+                if "content" in delta and delta["content"]:
+                    yield delta["content"]
+
+                # Handle native tool calls from llama.cpp
+                elif "tool_calls" in delta:
+                    for tool_call in delta["tool_calls"]:
+                        if tool_call.get("type") == "function":
+                            func_info = tool_call["function"]
+                            try:
+                                # Parse the JSON string arguments into a dictionary
+                                args_dict = json.loads(func_info.get("arguments", "{}"))
+                            except json.JSONDecodeError:
+                                args_dict = {}
+
+                            # Yield the ToolCall format expected by Session._generate_response
+                            yield ToolCall(
+                                name=func_info["name"],
+                                arguments=args_dict
+                            )
 
 
 class Ollama(LLM):
@@ -233,7 +263,7 @@ class Ollama(LLM):
 
     def _infer(
         self, conversation: Conversation, *, session_state: dict
-    ) -> Generator[str | Dict[str, Any], None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
 
         stream = self.client.chat(
             model=self.model,
@@ -243,8 +273,17 @@ class Ollama(LLM):
         )
 
         for chunk in stream:
-            if "content" in chunk["message"]:
-                yield chunk["message"]["content"]
+            message = chunk.get("message", {})
+            if "content" in message and message["content"]:
+                yield message["content"]
+
+            if "tool_calls" in message:
+                for tool_call in message["tool_calls"]:
+                    func_info = tool_call.get("function", {})
+                    yield ToolCall(
+                        name=func_info.get("name"),
+                        arguments=func_info.get("arguments", {})
+                    )
 
 
 class NemotronMini(GGUFLLM):
