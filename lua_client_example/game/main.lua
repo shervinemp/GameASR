@@ -126,6 +126,15 @@ function love.update(dt)
 
     game_states.play:update(dt)
   end
+
+  if llm_client and llm_client.poll then
+      local llm_response = llm_client:poll()
+      if llm_response then
+          if execute_game_command then
+              execute_game_command(llm_response)
+          end
+      end
+  end
 end
 
 function love.draw()

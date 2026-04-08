@@ -1,5 +1,6 @@
 from functools import partial
 import asyncio
+import inspect
 from queue import Queue
 import threading
 from typing import Any, Dict, Generator, Optional, Tuple
@@ -49,7 +50,7 @@ class Session:
                 yield from self._generate_response(tool_choice="none")
 
     def _generate_response(self, **kwargs) -> Generator[str, None, None]:
-        response = ""
+        response_chunks = []
         for chunk in self.llm(
             self.conversation, session_state=self._session_state, **kwargs
         ):
@@ -65,12 +66,13 @@ class Session:
                 tool = self.conversation.tools[tool_name]
                 self.tool_caller(tool, **tool_args)
             else:
-                response += chunk
+                response_chunks.append(chunk)
                 yield chunk
 
-        if response:
-            self.conversation.add_assistant_message(response)
-            self.logger.info(f"{response=}")
+        final_response = "".join(response_chunks)
+        if final_response:
+            self.conversation.add_assistant_message(final_response)
+            self.logger.info(f"response={final_response}")
 
 
 class ToolCaller:
@@ -83,11 +85,16 @@ class ToolCaller:
         self.logger = get_logger(__name__)
 
     def __call__(self, tool, **tool_args):
-        sync_tool_callable = partial(tool.__call__, **tool_args)
+        tool_callable = partial(tool.__call__, **tool_args)
 
-        future = asyncio.run_coroutine_threadsafe(
-            asyncio.to_thread(sync_tool_callable), self._loop
-        )
+        if asyncio.iscoroutinefunction(tool.callback) or inspect.iscoroutinefunction(getattr(tool_callable, "func", None)):
+            future = asyncio.run_coroutine_threadsafe(
+                tool_callable(), self._loop
+            )
+        else:
+            future = asyncio.run_coroutine_threadsafe(
+                asyncio.to_thread(tool_callable), self._loop
+            )
         self._futures.put((tool.name, future))
 
     def gather(self) -> Dict[str, Any]:

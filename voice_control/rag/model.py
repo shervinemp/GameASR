@@ -28,7 +28,9 @@ class RAG:
         self.composer = composer
 
     def __call__(self, query: str, top_k: int = 5) -> str:
-        results = [r for fn in self.retrievers for r in fn(query)]
+        results = []
+        for fn in self.retrievers:
+            results.extend(fn(query))
         reranked, scores = self.reranker(query, results=results)
         context = "\n".join(
             str(r)
@@ -102,7 +104,9 @@ class SPathRAG(RAG):
             self.logger.info(f"Retrieval Iteration {iteration + 1}")
 
             # Retrieve structural paths
-            results = [r for fn in self.retrievers for r in fn(current_query)]
+            results = []
+            for fn in self.retrievers:
+                results.extend(fn(current_query))
 
             if not results:
                 break

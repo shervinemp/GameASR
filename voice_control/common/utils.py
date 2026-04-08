@@ -1,9 +1,20 @@
 import json
 import logging
 import os
+import re
 from huggingface_hub import hf_hub_download
 import requests
 from typing import Dict, Any
+
+
+def safe_json_loads(text: str, fallback: Any = None) -> Any:
+    """Robustly parses JSON from LLM output, stripping Markdown/filler."""
+    try:
+        match = re.search(r'(\[.*\]|\{.*\})', text.strip(), re.DOTALL)
+        clean_text = match.group(0) if match else text
+        return json.loads(clean_text)
+    except (json.JSONDecodeError, AttributeError):
+        return fallback if fallback is not None else []
 
 
 def setup_logging(log_level=logging.INFO, log_format=None, stream=None):
