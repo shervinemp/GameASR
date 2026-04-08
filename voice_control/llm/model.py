@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from itertools import chain
 import json
 import os
+import re
 from threading import Lock
 from typing import Any, Dict, Generator, Iterator
 
@@ -12,7 +12,133 @@ from .tools import ToolCall
 from ..common.utils import download_hf_file, get_logger
 
 
+class StreamDecoder(ABC):
+    """Strategy interface for interpreting and intercepting LLM streams."""
+    @abstractmethod
+    def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]: ...
+
+
+class NativeDecoder(StreamDecoder):
+    """Yields stream exactly as it arrives (used for ChatGPT, Gemini, and native tools)."""
+    def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]:
+        yield from stream
+
+
+class LegacyXMLDecoder(StreamDecoder):
+    """Legacy parser for standard <toolcall>...</toolcall> used by Qwen/Nemotron."""
+    def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]:
+        buffer, in_tool = "", False
+        for chunk in stream:
+            if isinstance(chunk, (dict, ToolCall)):
+                yield chunk; return
+            buffer += chunk
+
+            while buffer:
+                if in_tool:
+                    if "</toolcall>" in buffer:
+                        try:
+                            # Isolate the tool body
+                            tool_body = buffer.split("</toolcall>")[0]
+                            tool_dict = json.loads(tool_body.strip())
+                            yield ToolCall(
+                                name=tool_dict.get("name") or tool_dict.get("function"),
+                                arguments=tool_dict.get("arguments", {})
+                            )
+                        except Exception: pass
+                        return # Halt stream to execute tool
+                    else:
+                        break # Wait for more chunks
+                else:
+                    if "<toolcall>" in buffer:
+                        pre = buffer.split("<toolcall>")[0]
+                        if pre: yield pre
+                        in_tool = True
+                        buffer = buffer.split("<toolcall>", 1)[1]
+                        continue # Re-evaluate buffer
+                    else:
+                        safe_idx = buffer.rfind("<")
+                        if safe_idx != -1 and len(buffer) - safe_idx < 15:
+                            if safe_idx > 0: yield buffer[:safe_idx]; buffer = buffer[safe_idx:]
+                            break # Wait for more chunks
+                        else:
+                            yield buffer; buffer = ""
+                            break
+
+        if buffer and not in_tool: yield buffer
+
+
+class GemmaE2BDecoder(StreamDecoder):
+    """Clean, chunk-based sliding window parser for Gemma 4's unique custom syntax."""
+    def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]:
+        buffer = ""
+        in_tool, in_thought = False, False
+
+        for chunk in stream:
+            if isinstance(chunk, (dict, ToolCall)):
+                yield chunk
+                return
+
+            buffer += chunk
+
+            while buffer:
+                # 1. Handle Tool Execution
+                if in_tool:
+                    if "<tool_call|>" in buffer:
+                        body = buffer.split("<tool_call|>")[0].replace("<|tool_call>", "").strip()
+                        if body.startswith("call:"):
+                            match = re.match(r"call:([a-zA-Z0-9_]+)(.*)", body, re.DOTALL)
+                            if match:
+                                name, args = match.group(1).strip(), match.group(2).strip()
+                                args = args.replace('<|"|>', '"')
+                                args = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)(\s*:)', r'\1"\2"\3', args)
+                                try:
+                                    yield ToolCall(name=name, arguments=json.loads(args))
+                                except json.JSONDecodeError: pass
+                        return  # CRITICAL: Halt stream to allow RAG pipeline to trigger
+                    break # Wait for more chunks
+
+                # 2. Filter Thoughts
+                if in_thought:
+                    if "<channel|>" in buffer:
+                        in_thought = False
+                        buffer = buffer.split("<channel|>", 1)[1]
+                        continue # Re-evaluate buffer
+                    break # Wait for more chunks
+
+                # 3. Detect Openers
+                if "<|tool_call>" in buffer:
+                    in_tool = True
+                    pre = buffer.split("<|tool_call>")[0]
+                    if pre: yield pre
+                    buffer = buffer.split("<|tool_call>", 1)[1]
+                    continue # Re-evaluate buffer
+
+                if "<|channel>thought" in buffer:
+                    in_thought = True
+                    pre = buffer.split("<|channel>thought")[0]
+                    if pre: yield pre
+                    buffer = buffer.split("<|channel>thought", 1)[1]
+                    continue # Re-evaluate buffer
+
+                # 4. Safe Yield (Wait for partial tags to resolve)
+                safe_idx = max(buffer.rfind("<"), buffer.rfind("&"))
+                if safe_idx != -1 and (len(buffer) - safe_idx) < 15:
+                    if safe_idx > 0:
+                        yield buffer[:safe_idx]
+                        buffer = buffer[safe_idx:]
+                    break # Wait for more chunks
+                else:
+                    if buffer: yield buffer
+                    buffer = ""
+                    break # Finished processing this chunk
+
+        if buffer and not in_tool and not in_thought:
+            yield buffer
+
+
 class LLM(ABC):
+    decoder: StreamDecoder = NativeDecoder()
+
     def __init__(self):
         # Initialize ContextManager in the base class or let subclasses handle it.
         pass
@@ -30,13 +156,12 @@ class LLM(ABC):
         context_manager.manage_context(conversation, self)
 
         try:
-            yield from self._parse(
-                self._infer(
-                    conversation=conversation,
-                    session_state=session_state,
-                    **kwargs,
-                )
+            raw_stream = self._infer(
+                conversation=conversation,
+                session_state=session_state,
+                **kwargs,
             )
+            yield from self.decoder(raw_stream)
         except Exception as e:
             # Check for specific timeouts or generic errors
             self.logger.error(
@@ -55,97 +180,6 @@ class LLM(ABC):
         """
         return len(text) // 4
 
-    def _parse(
-        self,
-        stream: Iterator[str | ToolCall],
-        flush: bool = False,
-    ) -> Generator[str | ToolCall, None, None]:
-        # Updated to support Gemma 4 E2B channel tags alongside standard think tags
-        tag_boundaries = [
-            ("<", ">"),
-            ("&lt;", "&gt;"),
-            ("<|", "|>"),  # Added for Gemma 4
-        ]
-        tool_tags = ("toolcall", "tool_call")
-        think_tags = ("think", "channel>thought\n", "channel")
-
-        buffer = ""
-        tag_body = ""
-        bounds = None
-        is_call = False
-        is_thought = False
-
-        for item in stream:
-            if isinstance(item, ToolCall):
-                yield item
-                continue
-
-            for content in item:
-                buffer += content
-                if content.isspace():
-                    continue
-
-                b_ = buffer.strip()
-
-                bounds = bounds or next(
-                    filter(
-                        lambda p: b_ and b_.startswith(p[0][: len(b_)]),
-                        tag_boundaries,
-                    ),
-                    None,
-                )
-
-                if bounds:
-                    if b_.endswith(bounds[1]):
-                        tag = b_[len(bounds[0]) : -len(bounds[1])]
-                        # Normalize tag for Gemma 4 e.g. <channel|> -> channel
-                        if tag.startswith("/"):
-                            tag = tag[1:]
-                            if tag.endswith("|"):
-                                tag = tag[:-1]
-
-                            if is_thought and any(t in tag for t in think_tags):
-                                is_thought = False
-                            elif is_call and any(t in tag for t in tool_tags):
-                                is_call = False
-                                tb_ = tag_body.strip()
-                                try:
-                                    call_dict = json.loads(tb_)
-                                    yield ToolCall(
-                                        name=call_dict.get("name") or call_dict.get("function"),
-                                        arguments=call_dict.get("arguments", {})
-                                    )
-                                except (json.JSONDecodeError, KeyError, TypeError) as e:
-                                    self.logger.error(
-                                        f"Failed to parse tool call: {tb_}. Error: {e}"
-                                    )
-                            tag_body = ""
-                        else:
-                            if tag.endswith("|"):
-                                tag = tag[:-1]
-                            if any(t in tag for t in think_tags):
-                                is_thought = True
-                            elif any(t in tag for t in tool_tags):
-                                is_call = True
-                        buffer = ""
-                        bounds = None
-                    continue
-
-                if buffer and not bounds:
-                    # Catch Gemma's specific start token: <|channel>thought\n
-                    if "<|channel>thought" in buffer:
-                        is_thought = True
-                        buffer = buffer.replace("<|channel>thought", "").strip()
-
-                    if is_call or is_thought:
-                        tag_body += buffer
-                    else:
-                        yield buffer
-                    buffer = ""
-
-        if buffer and flush and not is_thought:
-            yield buffer
-
 
 class GGUFLLM(LLM):
     hf_repo: str = ""
@@ -160,7 +194,6 @@ class GGUFLLM(LLM):
 
         self.logger = get_logger(self.__class__.__name__)
         model_path = os.path.join(self.local_dir, self.filename)
-        self.stream_processor = self._parse
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(
@@ -243,6 +276,7 @@ class GGUFLLM(LLM):
                                 name=func_info["name"],
                                 arguments=args_dict
                             )
+                            return # Halt stream!
 
 
 class Ollama(LLM):
@@ -291,6 +325,7 @@ class NemotronMini(GGUFLLM):
     filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
     n_ctx: int = 4096
     max_tokens: int = 1024
+    decoder = LegacyXMLDecoder()
 
 
 class Qwen3(GGUFLLM):
@@ -298,6 +333,7 @@ class Qwen3(GGUFLLM):
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
     n_ctx: int = 40960
     max_tokens: int = 8192
+    decoder = LegacyXMLDecoder()
 
 
 class Gemma4E2B(GGUFLLM):
@@ -305,6 +341,7 @@ class Gemma4E2B(GGUFLLM):
     filename: str = "gemma-4-E2B-it-Q4_K_M.gguf"
     n_ctx: int = 131072
     max_tokens: int = 8192
+    decoder = GemmaE2BDecoder()
 
 
 class ChatGPT(LLM):

@@ -25,7 +25,6 @@ class TestLLM(unittest.TestCase):
         llm.max_tokens = 128
         llm._last_state = None
         llm._lock = MagicMock()
-        llm._parse = MagicMock(side_effect=lambda x: x)
         llm.logger = MagicMock()
 
         # Create a conversation
@@ -80,7 +79,6 @@ class TestLLM(unittest.TestCase):
         llm.max_tokens = 128
         llm._last_state = None
         llm._lock = MagicMock()
-        llm._parse = MagicMock(side_effect=lambda x: x)
         llm.logger = MagicMock()
 
         # Create a conversation
