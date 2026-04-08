@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import json
+import re
 from typing import Any, List, Dict, Tuple
 from itertools import chain, cycle, combinations
 
@@ -105,8 +106,20 @@ class GraphRetriever(Retriever):
             ""
         )
 
-        response = "".join(self.session(prompt)).strip()
-        keywords = json.loads(response)
+        raw_text = "".join(self.session(prompt)).strip()
+
+        match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+
+        if match:
+            clean_json_str = match.group(0)
+        else:
+            clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
+
+        try:
+            keywords = json.loads(clean_json_str)
+        except json.JSONDecodeError as e:
+            self.logger.warning(f"Failed to parse keywords. Raw LLM output: {repr(raw_text)}")
+            keywords = []
 
         return keywords
 
