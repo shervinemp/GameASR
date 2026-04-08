@@ -18,7 +18,7 @@ class Reranker:
 
         self.reranker = CrossEncoder(cross_encoder)
 
-    async def __call__(
+    def __call__(
         self, query: str, results: List[str]
     ) -> Tuple[List[str], List[float]]:
         pairs = list(zip(cycle(query), results))
@@ -34,18 +34,18 @@ class Reranker:
 
 
 class Retriever(ABC):
-    async def __call__(
+    def __call__(
         self, query: str, **kwargs
     ) -> List[str] | Tuple[List[str], List[float]]:
-        search_results = await self.search(query=query, **kwargs)
-        results = await self.format_results(search_results)
+        search_results = self.search(query=query, **kwargs)
+        results = self.format_results(search_results)
         return results
 
     @abstractmethod
-    async def search(self, query: str, **kwargs) -> List[Dict]: ...
+    def search(self, query: str, **kwargs) -> List[Dict]: ...
 
     @abstractmethod
-    async def format_results(self, results: List[dict]) -> List[str]: ...
+    def format_results(self, results: List[dict]) -> List[str]: ...
 
 
 class GraphRetriever(Retriever):
@@ -58,7 +58,7 @@ class GraphRetriever(Retriever):
         self.graph = graph
         self.session = session
 
-    async def search(
+    def search(
         self,
         query: str,
         *,
@@ -77,15 +77,20 @@ class GraphRetriever(Retriever):
                 f"Failed to extract keywords due to an error. Using original query as a keyword. Error: {e}"
             )
 
-        import asyncio
         # Utilize the original query for vector embeddings as per the plan
         queries_for_vector = [query] + keywords
         embeddings = self.graph.embedding_model.encode(queries_for_vector)
 
-        vector_results, keyword_results = await asyncio.gather(
-            self.graph.vector_search(embeddings, top_k=top_k_vector),
-            self.graph.keyword_search(keywords, top_k=top_k_keyword)
-        )
+        with ThreadPoolExecutor() as executor:
+            vector_future = executor.submit(
+                self.graph.vector_search, embeddings.tolist(), top_k=top_k_vector
+            )
+            keyword_future = executor.submit(
+                self.graph.keyword_search, keywords, top_k=top_k_keyword
+            )
+
+            vector_results = vector_future.result()
+            keyword_results = keyword_future.result()
 
         combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
         for item in chain.from_iterable(keyword_results):
@@ -96,11 +101,13 @@ class GraphRetriever(Retriever):
 
         if n_hops:
             node_ids = [n["id"] for n in results]
-            results = await self.expand(node_ids=node_ids, n_hops=n_hops)
+            results = self.expand(node_ids=node_ids, n_hops=n_hops)
 
         return results
 
     def extract_keywords(self, query: str) -> List[str]:
+        from ..common.utils import safe_json_loads
+
         prompt = (
             "Extract key entities and keywords from the following query. "
             "Focus on the most important terms that represent the core of the user's intent. "
@@ -110,23 +117,10 @@ class GraphRetriever(Retriever):
         )
 
         raw_text = "".join(self.session(prompt)).strip()
-
-        match = re.search(r'\[.*\]', raw_text, re.DOTALL)
-
-        if match:
-            clean_json_str = match.group(0)
-        else:
-            clean_json_str = raw_text.replace("```json", "").replace("```", "").strip()
-
-        try:
-            keywords = json.loads(clean_json_str)
-        except json.JSONDecodeError as e:
-            self.logger.warning(f"Failed to parse keywords. Raw LLM output: {repr(raw_text)}")
-            keywords = []
-
+        keywords = safe_json_loads(raw_text, fallback=[])
         return keywords
 
-    async def expand(self, node_ids: List[str], n_hops: int) -> List[Dict[str, Any]]:
+    def expand(self, node_ids: List[str], n_hops: int) -> List[Dict[str, Any]]:
         """
         Expands from seed nodes to find neighbors and combines them into a single list
         of dictionaries for formatting.
@@ -135,10 +129,10 @@ class GraphRetriever(Retriever):
             f"Starting {n_hops}-hop exploration from {len(node_ids)} initial nodes."
         )
 
-        subgraph_res = await self.graph.subgraph(node_ids)
+        subgraph_res = self.graph.subgraph(node_ids)
         seed_nodes = subgraph_res.get("nodes", [])
 
-        expansion_results = await self.graph.expansion(
+        expansion_results = self.graph.expansion(
             frontier_ids=node_ids,
             excluded_ids=node_ids,
             n_hops=n_hops,
@@ -152,7 +146,7 @@ class GraphRetriever(Retriever):
 
         return seed_nodes + neighbor_paths
 
-    async def format_results(self, results: List[Dict]) -> List[str]:
+    def format_results(self, results: List[Dict]) -> List[str]:
         """
         Formats a list of nodes and path dictionaries into
         human-readable strings for the LLM.
@@ -185,7 +179,7 @@ class SPathRetriever(GraphRetriever):
     Implements the semantic-aware shortest-path retrieval logic.
     """
 
-    async def search(
+    def search(
         self, query: str, top_k_anchors: int = 3, max_paths: int = 3
     ) -> List[Dict]:
         # 1. Identify multiple semantic anchor entities from the query
@@ -197,31 +191,25 @@ class SPathRetriever(GraphRetriever):
         embeddings = self.graph.embedding_model.encode(keywords)
         anchor_nodes = []
 
-        # Gather top anchor nodes for each keyword
-        import asyncio
-        for emb in embeddings:
-            res = await self.graph.vector_search([emb.tolist()], top_k=1)
-            if res and res[0]:
-                anchor_nodes.append(res[0][0]["id"])
+        # Gather top anchor nodes for each keyword IN A SINGLE BATCH CALL
+        res_list = self.graph.vector_search(embeddings.tolist(), top_k=1)
+        for res in res_list:
+            if res:
+                anchor_nodes.append(res[0]["id"])
 
         anchor_nodes = list(set(anchor_nodes))
         all_paths = []
 
         # 2. Extract k-shortest paths between all combinations of anchors
-        path_tasks = []
         for src, tgt in combinations(anchor_nodes, 2):
-            path_tasks.append(self.graph.k_shortest_paths(
+            paths = self.graph.k_shortest_paths(
                 source_id=src, target_id=tgt, k=max_paths
-            ))
-
-        if path_tasks:
-            results = await asyncio.gather(*path_tasks)
-            for paths in results:
-                all_paths.extend(paths)
+            )
+            all_paths.extend(paths)
 
         return all_paths
 
-    async def format_results(self, results: List[Dict]) -> List[str]:
+    def format_results(self, results: List[Dict]) -> List[str]:
         """
         Formats paths into logical traces (Node A -> [REL] -> Node B -> [REL] -> Node C)
         """
@@ -254,7 +242,7 @@ class WebRetriever(Retriever):
         self.session = session
         self.ddgs = DDGS()
 
-    async def search(self, query: str, *, top_k: int = 3) -> List[dict]:
+    def search(self, query: str, *, top_k: int = 3) -> List[dict]:
         """Performs a web search for the given query using the DuckDuckGo API."""
         search_query = query
         try:
@@ -292,7 +280,7 @@ class WebRetriever(Retriever):
 
         return search_query
 
-    async def format_results(self, results: List[dict]) -> List[str]:
+    def format_results(self, results: List[dict]) -> List[str]:
         return [
             f"{r.get('title', '')}: {r.get('body', '')} -- <href>{r.get('href', '#')}</href>"
             for r in results

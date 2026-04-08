@@ -27,11 +27,11 @@ class RAG:
         self.reranker = reranker
         self.composer = composer
 
-    async def __call__(self, query: str, top_k: int = 5) -> str:
+    def __call__(self, query: str, top_k: int = 5) -> str:
         results = []
         for fn in self.retrievers:
-            results.extend(await fn(query))
-        reranked, scores = await self.reranker(query, results=results)
+            results.extend(fn(query))
+        reranked, scores = self.reranker(query, results=results)
         context = "\n".join(
             str(r)
             # " (score: {s})"
@@ -92,7 +92,7 @@ class SPathRAG(RAG):
             composer=Composer(session=session),
         )
 
-    async def __call__(
+    def __call__(
         self, query: str, top_k: int = 5, max_iterations: int = 3
     ) -> str:
         self.logger.info("Starting S-Path-RAG Neural-Socratic Dialogue")
@@ -106,12 +106,12 @@ class SPathRAG(RAG):
             # Retrieve structural paths
             results = []
             for fn in self.retrievers:
-                results.extend(await fn(current_query))
+                results.extend(fn(current_query))
 
             if not results:
                 break
 
-            reranked, scores = await self.reranker(query, results=results)
+            reranked, scores = self.reranker(query, results=results)
             top_results = [
                 r for _, r, s in zip(range(top_k), reranked, scores)
             ]
