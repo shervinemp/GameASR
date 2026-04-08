@@ -12,7 +12,7 @@ class KnowledgeGraph:
         from sentence_transformers import SentenceTransformer
         from neo4j import GraphDatabase
 
-        self.logger = logger
+        self.logger = get_logger(__file__)
         self._driver = GraphDatabase.driver(
             uri,
             auth=(user, password),
