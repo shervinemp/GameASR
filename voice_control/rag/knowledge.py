@@ -1,8 +1,8 @@
 import time
 from typing import Any, Dict, List, Tuple
 
-from ..common.config import config
-from ..common.utils import get_logger
+from voice_control.config import config
+from loguru import logger
 
 NODE_PROJ = "properties(node) { .*, embedding: null }"
 REL_PROJ = "properties(rel) { .*, source: startNode(rel).id, target: endNode(rel).id, type: coalesce(rel.type, type(rel)) }"
