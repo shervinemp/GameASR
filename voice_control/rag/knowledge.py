@@ -13,6 +13,7 @@ class KnowledgeGraph:
     def __init__(self, uri: str, user: str, password: str):
         from sentence_transformers import SentenceTransformer
         from neo4j import GraphDatabase
+        import concurrent.futures
 
         self.logger = get_logger(__file__)
         self._driver = GraphDatabase.driver(
@@ -25,11 +26,12 @@ class KnowledgeGraph:
             "llm.models.embedding", "google/embeddinggemma-300m"
         )
         self.embedding_model = SentenceTransformer(embedding_model_name)
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
 
     def verify_connectivity(self) -> bool:
         return self._driver.verify_connectivity()
 
-    def k_shortest_paths(
+    async def k_shortest_paths(
         self, source_id: str, target_id: str, k: int = 3
     ) -> List[Dict]:
         """
@@ -53,12 +55,14 @@ class KnowledgeGraph:
                 )
                 return [r.data() for r in records]
 
-        return self._execute_with_retry(_run)
+        return await self._execute_with_retry(_run)
 
     def close(self):
         self._driver.close()
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=True)
 
-    def _execute_with_retry(self, func, *args, **kwargs):
+    async def _execute_with_retry(self, func, *args, **kwargs):
         """Helper to execute a function with retry logic for Neo4j connection errors."""
         from neo4j.exceptions import (
             ServiceUnavailable,
@@ -87,32 +91,14 @@ class KnowledgeGraph:
                         )
                         raise e
 
+        import asyncio
         try:
             loop = asyncio.get_running_loop()
-            is_running = True
+            return await loop.run_in_executor(self._executor, _sync_exec)
         except RuntimeError:
-            loop = asyncio.get_event_loop()
-            is_running = False
+            return self._executor.submit(_sync_exec).result()
 
-        if is_running:
-            import concurrent.futures
-            # The issue explicitly instructed: "Wrap the session.run() execution inside asyncio.get_event_loop().run_in_executor(None, sync_db_call)".
-            # We fix the previous double-execution bug by wrapping the future in a proper coroutine before calling run_coroutine_threadsafe.
-            async def _wait_for_future():
-                return await loop.run_in_executor(None, _sync_exec)
-
-            try:
-                return asyncio.run_coroutine_threadsafe(_wait_for_future(), loop).result()
-            except Exception as e:
-                self.logger.error(f"Error executing DB call in background thread: {e}")
-                raise
-        else:
-            # Synchronous execution fallback if no event loop is active
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(_sync_exec).result()
-
-    def keyword_search(
+    async def keyword_search(
         self, keywords: List[str], top_k: int = 5
     ) -> List[List[Dict]]:
         queries_data = [
@@ -138,13 +124,9 @@ class KnowledgeGraph:
                 )
                 return [record["results"] for record in records]
 
-        res = self._execute_with_retry(_run)
-        import asyncio
-        if asyncio.isfuture(res):
-            res = asyncio.run_coroutine_threadsafe(asyncio.wrap_future(res), asyncio.get_event_loop()).result()
-        return res
+        return await self._execute_with_retry(_run)
 
-    def vector_search(
+    async def vector_search(
         self, embeddings: List[List[float]], top_k: int = 5
     ) -> List[List[Dict]]:
         queries_data = [
@@ -171,13 +153,9 @@ class KnowledgeGraph:
                 )
                 return [record["results"] for record in records]
 
-        res = self._execute_with_retry(_run)
-        import asyncio
-        if asyncio.isfuture(res):
-            res = asyncio.run_coroutine_threadsafe(asyncio.wrap_future(res), asyncio.get_event_loop()).result()
-        return res
+        return await self._execute_with_retry(_run)
 
-    def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
+    async def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
         query = f"""
             MATCH (n:Entity) WHERE n.id IN $nodes
             OPTIONAL MATCH (n)-[r]-(m:Entity) WHERE m.id IN $nodes
@@ -191,13 +169,9 @@ class KnowledgeGraph:
                 record = session.run(query, nodes=node_ids).single()
                 return record.data()
 
-        res = self._execute_with_retry(_run)
-        import asyncio
-        if asyncio.isfuture(res):
-            res = asyncio.run_coroutine_threadsafe(asyncio.wrap_future(res), asyncio.get_event_loop()).result()
-        return res
+        return await self._execute_with_retry(_run)
 
-    def expansion(
+    async def expansion(
         self,
         frontier_ids: List[str],
         excluded_ids: List[str],
@@ -245,13 +219,9 @@ class KnowledgeGraph:
                 )
                 return [r["results"] for r in records]
 
-        res = self._execute_with_retry(_run)
-        import asyncio
-        if asyncio.isfuture(res):
-            res = asyncio.run_coroutine_threadsafe(asyncio.wrap_future(res), asyncio.get_event_loop()).result()
-        return res
+        return await self._execute_with_retry(_run)
 
-    def triplet_search(self, triplet: Dict) -> List[Dict]:
+    async def triplet_search(self, triplet: Dict) -> List[Dict]:
         s, p, o = (
             triplet.get("subject"),
             triplet.get("predicate"),
@@ -290,13 +260,9 @@ class KnowledgeGraph:
                     for key in record.keys()
                 ]
 
-        res = self._execute_with_retry(_run)
-        import asyncio
-        if asyncio.isfuture(res):
-            res = asyncio.run_coroutine_threadsafe(asyncio.wrap_future(res), asyncio.get_event_loop()).result()
-        return res
+        return await self._execute_with_retry(_run)
 
-    def add_triplets(self, triplets: List[Dict[str, str]]):
+    async def add_triplets(self, triplets: List[Dict[str, str]]):
         """Adds new triplets to the knowledge graph, creating nodes and relationships as needed."""
         if not triplets:
             return
@@ -324,7 +290,4 @@ class KnowledgeGraph:
                     f"Added {result.single()['created_relationships']} new relationships to the graph."
                 )
 
-        res = self._execute_with_retry(_run)
-        import asyncio
-        if asyncio.isfuture(res):
-            asyncio.run_coroutine_threadsafe(asyncio.wrap_future(res), asyncio.get_event_loop()).result()
+        await self._execute_with_retry(_run)

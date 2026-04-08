@@ -18,7 +18,7 @@ class Reranker:
 
         self.reranker = CrossEncoder(cross_encoder)
 
-    def __call__(
+    async def __call__(
         self, query: str, results: List[str]
     ) -> Tuple[List[str], List[float]]:
         pairs = list(zip(cycle(query), results))
@@ -34,18 +34,18 @@ class Reranker:
 
 
 class Retriever(ABC):
-    def __call__(
+    async def __call__(
         self, query: str, **kwargs
     ) -> List[str] | Tuple[List[str], List[float]]:
-        search_results = self.search(query=query, **kwargs)
-        results = self.format_results(search_results)
+        search_results = await self.search(query=query, **kwargs)
+        results = await self.format_results(search_results)
         return results
 
     @abstractmethod
-    def search(self, query: str, **kwargs) -> List[Dict]: ...
+    async def search(self, query: str, **kwargs) -> List[Dict]: ...
 
     @abstractmethod
-    def format_results(self, results: List[dict]) -> List[str]: ...
+    async def format_results(self, results: List[dict]) -> List[str]: ...
 
 
 class GraphRetriever(Retriever):
@@ -58,7 +58,7 @@ class GraphRetriever(Retriever):
         self.graph = graph
         self.session = session
 
-    def search(
+    async def search(
         self,
         query: str,
         *,
@@ -66,6 +66,8 @@ class GraphRetriever(Retriever):
         top_k_keyword: int = 5,
         n_hops: int = 1,
     ) -> List[Dict]:
+        from concurrent.futures import ThreadPoolExecutor
+
         keywords = [query]
         try:
             keywords = self.extract_keywords(query=query)
@@ -75,13 +77,14 @@ class GraphRetriever(Retriever):
                 f"Failed to extract keywords due to an error. Using original query as a keyword. Error: {e}"
             )
 
-        embeddings = self.graph.embedding_model.encode(keywords)
-        vector_results = self.graph.vector_search(
-            embeddings, top_k=top_k_vector
-        )
+        import asyncio
+        # Utilize the original query for vector embeddings as per the plan
+        queries_for_vector = [query] + keywords
+        embeddings = self.graph.embedding_model.encode(queries_for_vector)
 
-        keyword_results = self.graph.keyword_search(
-            keywords, top_k=top_k_keyword
+        vector_results, keyword_results = await asyncio.gather(
+            self.graph.vector_search(embeddings, top_k=top_k_vector),
+            self.graph.keyword_search(keywords, top_k=top_k_keyword)
         )
 
         combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
@@ -93,7 +96,7 @@ class GraphRetriever(Retriever):
 
         if n_hops:
             node_ids = [n["id"] for n in results]
-            results = self.expand(node_ids=node_ids, n_hops=n_hops)
+            results = await self.expand(node_ids=node_ids, n_hops=n_hops)
 
         return results
 
@@ -123,7 +126,7 @@ class GraphRetriever(Retriever):
 
         return keywords
 
-    def expand(self, node_ids: List[str], n_hops: int) -> List[Dict[str, Any]]:
+    async def expand(self, node_ids: List[str], n_hops: int) -> List[Dict[str, Any]]:
         """
         Expands from seed nodes to find neighbors and combines them into a single list
         of dictionaries for formatting.
@@ -132,9 +135,10 @@ class GraphRetriever(Retriever):
             f"Starting {n_hops}-hop exploration from {len(node_ids)} initial nodes."
         )
 
-        seed_nodes = self.graph.subgraph(node_ids).get("nodes", [])
+        subgraph_res = await self.graph.subgraph(node_ids)
+        seed_nodes = subgraph_res.get("nodes", [])
 
-        expansion_results = self.graph.expansion(
+        expansion_results = await self.graph.expansion(
             frontier_ids=node_ids,
             excluded_ids=node_ids,
             n_hops=n_hops,
@@ -148,7 +152,7 @@ class GraphRetriever(Retriever):
 
         return seed_nodes + neighbor_paths
 
-    def format_results(self, results: List[Dict]) -> List[str]:
+    async def format_results(self, results: List[Dict]) -> List[str]:
         """
         Formats a list of nodes and path dictionaries into
         human-readable strings for the LLM.
@@ -181,7 +185,7 @@ class SPathRetriever(GraphRetriever):
     Implements the semantic-aware shortest-path retrieval logic.
     """
 
-    def search(
+    async def search(
         self, query: str, top_k_anchors: int = 3, max_paths: int = 3
     ) -> List[Dict]:
         # 1. Identify multiple semantic anchor entities from the query
@@ -194,8 +198,9 @@ class SPathRetriever(GraphRetriever):
         anchor_nodes = []
 
         # Gather top anchor nodes for each keyword
+        import asyncio
         for emb in embeddings:
-            res = self.graph.vector_search([emb.tolist()], top_k=1)
+            res = await self.graph.vector_search([emb.tolist()], top_k=1)
             if res and res[0]:
                 anchor_nodes.append(res[0][0]["id"])
 
@@ -203,15 +208,20 @@ class SPathRetriever(GraphRetriever):
         all_paths = []
 
         # 2. Extract k-shortest paths between all combinations of anchors
+        path_tasks = []
         for src, tgt in combinations(anchor_nodes, 2):
-            paths = self.graph.k_shortest_paths(
+            path_tasks.append(self.graph.k_shortest_paths(
                 source_id=src, target_id=tgt, k=max_paths
-            )
-            all_paths.extend(paths)
+            ))
+
+        if path_tasks:
+            results = await asyncio.gather(*path_tasks)
+            for paths in results:
+                all_paths.extend(paths)
 
         return all_paths
 
-    def format_results(self, results: List[Dict]) -> List[str]:
+    async def format_results(self, results: List[Dict]) -> List[str]:
         """
         Formats paths into logical traces (Node A -> [REL] -> Node B -> [REL] -> Node C)
         """
@@ -244,7 +254,7 @@ class WebRetriever(Retriever):
         self.session = session
         self.ddgs = DDGS()
 
-    def search(self, query: str, *, top_k: int = 3) -> List[dict]:
+    async def search(self, query: str, *, top_k: int = 3) -> List[dict]:
         """Performs a web search for the given query using the DuckDuckGo API."""
         search_query = query
         try:
@@ -282,7 +292,7 @@ class WebRetriever(Retriever):
 
         return search_query
 
-    def format_results(self, results: List[dict]) -> List[str]:
+    async def format_results(self, results: List[dict]) -> List[str]:
         return [
             f"{r.get('title', '')}: {r.get('body', '')} -- <href>{r.get('href', '#')}</href>"
             for r in results

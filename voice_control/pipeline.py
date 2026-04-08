@@ -177,7 +177,7 @@ class Pipeline:
         if dispatcher := getattr(self, attr_name, None):
             return dispatcher
         else:
-            dispatcher = HotkeyDispatcher(asr=self.asr)
+            dispatcher = HotkeyDispatcher()
             setattr(self, attr_name, dispatcher)
             return dispatcher
 

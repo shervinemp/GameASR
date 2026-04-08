@@ -7,12 +7,11 @@ HotkeyAction: TypeAlias = Union[
 
 
 class HotkeyDispatcher:
-    def __init__(self, asr=None):
+    def __init__(self):
         """Initializes the hotkey dispatcher."""
         self.hotkeys: Dict[frozenset, HotkeyAction] = {}
         self.active_contexts: Dict[frozenset, ContextManager[None]] = {}
         self.pressed_keys: Set[keyboard.Key | keyboard.KeyCode] = set()
-        self.asr = asr
         self.listener = keyboard.Listener(
             on_press=self._on_press, on_release=self._on_release
         )
@@ -56,8 +55,6 @@ class HotkeyDispatcher:
                 hotkey.issubset(self.pressed_keys)
                 and hotkey not in self.active_contexts
             ):
-                if self.asr and hasattr(self.asr, "_is_muted"):
-                    self.asr._is_muted.set()
                 context_manager = action()
                 if hasattr(context_manager, "__enter__") and hasattr(
                     context_manager, "__exit__"
@@ -73,8 +70,6 @@ class HotkeyDispatcher:
 
         for hotkey, context_manager in list(self.active_contexts.items()):
             if not hotkey.issubset(self.pressed_keys):
-                if self.asr and hasattr(self.asr, "_is_muted"):
-                    self.asr._is_muted.clear()
                 context_manager.__exit__(None, None, None)
                 del self.active_contexts[hotkey]
 
