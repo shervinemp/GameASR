@@ -131,7 +131,51 @@ end
 
 function LLMClient:query(content, role)
     role = role or "user"
-    return self:_request("query", {role = role, content = content})
+    if not self.socket then
+        return nil, "Not connected to ZeroMQ. Call connect() first."
+    end
+
+    self.id_counter = self.id_counter + 1
+    local request_body = {
+        jsonrpc = "2.0",
+        method = "query",
+        params = {role = role, content = content},
+        id = self.id_counter
+    }
+
+    local encoded_request = json.encode(request_body)
+
+    local send_success, send_result_or_err = pcall(function()
+        return self.socket:send(encoded_request)
+    end)
+
+    if not send_success then
+        return nil, "Failed to send ZeroMQ message: " .. tostring(send_result_or_err)
+    end
+
+    return true, nil
+end
+
+function LLMClient:poll()
+    if not self.socket then
+        return nil, "Not connected"
+    end
+
+    local recv_success, recv_data = pcall(function()
+        return self.socket:recv(zmq.DONTWAIT)
+    end)
+
+    if not recv_success or not recv_data then
+        return nil
+    end
+
+    local decoded_response
+    local json_decode_success, _ = pcall(function() decoded_response = json.decode(recv_data) end)
+    if not json_decode_success then
+        return nil
+    end
+
+    return decoded_response.result or decoded_response
 end
 
 return LLMClient
