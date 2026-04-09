@@ -1,7 +1,7 @@
 import time
 from typing import Any, Dict, List, Tuple
 
-from voice_control.config import config
+from ..common.config import config
 from loguru import logger
 
 NODE_PROJ = "properties(node) { .*, embedding: null }"
