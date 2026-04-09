@@ -34,63 +34,36 @@ class Reranker:
 
 
 class Retriever(ABC):
-    def __call__(
-        self, query: str, **kwargs
-    ) -> List[str] | Tuple[List[str], List[float]]:
-        search_results = self.search(query=query, **kwargs)
-        results = self.format_results(search_results)
-        return results
-
+    """The unified interface expected by the RAG orchestrator."""
     @abstractmethod
-    def search(self, query: str, **kwargs) -> List[Dict]: ...
-
-    @abstractmethod
-    def format_results(self, results: List[dict]) -> List[str]: ...
+    def __call__(self, query: str, **kwargs) -> List[str]:
+        pass
 
 
-class GraphRetriever(Retriever):
-    def __init__(
-        self,
-        session: Session,
-        graph: KnowledgeGraph,
-    ):
-        self.logger = get_logger(__file__)
+class GraphSearchStrategy(ABC):
+    """Defines the specific mathematical approach to traversing the Knowledge Graph."""
+    def __init__(self, graph: KnowledgeGraph):
         self.graph = graph
-        self.session = session
 
-    def search(
-        self,
-        query: str,
-        *,
-        top_k_vector: int = 7,
-        top_k_keyword: int = 5,
-        n_hops: int = 1,
-    ) -> List[Dict]:
-        from concurrent.futures import ThreadPoolExecutor
+    @abstractmethod
+    def search(self, keywords: List[str], **kwargs) -> List[Dict]:
+        pass
 
-        keywords = [query]
-        try:
-            keywords = self.extract_keywords(query=query)
-            self.logger.debug(f"Extracted keywords: {keywords}")
-        except Exception as e:
-            self.logger.warning(
-                f"Failed to extract keywords due to an error. Using original query as a keyword. Error: {e}"
-            )
+    @abstractmethod
+    def format_results(self, results: List[Dict]) -> List[str]:
+        pass
 
-        # Utilize the original query for vector embeddings as per the plan
-        queries_for_vector = [query] + keywords
-        embeddings = self.graph.embedding_model.encode(queries_for_vector)
 
-        with ThreadPoolExecutor() as executor:
-            vector_future = executor.submit(
-                self.graph.vector_search, embeddings.tolist(), top_k=top_k_vector
-            )
-            keyword_future = executor.submit(
-                self.graph.keyword_search, keywords, top_k=top_k_keyword
-            )
+class NeighborhoodStrategy(GraphSearchStrategy):
+    """Standard 1-hop to N-hop semantic neighborhood expansion."""
 
-            vector_results = vector_future.result()
-            keyword_results = keyword_future.result()
+    def search(self, keywords: List[str], top_k_vector: int = 7, top_k_keyword: int = 5, n_hops: int = 1, **kwargs) -> List[Dict]:
+        if not self.graph:
+            return []
+
+        embeddings = self.graph.embedding_model.encode(keywords).tolist()
+        vector_results = self.graph.vector_search(embeddings, top_k=top_k_vector)
+        keyword_results = self.graph.keyword_search(keywords, top_k=top_k_keyword)
 
         combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
         for item in chain.from_iterable(keyword_results):
@@ -98,139 +71,95 @@ class GraphRetriever(Retriever):
                 combined[id_] = item
 
         results = list(combined.values())
-
         if n_hops:
-            node_ids = [n["id"] for n in results]
-            results = self.expand(node_ids=node_ids, n_hops=n_hops)
+            seed_nodes = self.graph.subgraph([n["id"] for n in results]).get("nodes", [])
+            expansion = self.graph.expansion(
+                frontier_ids=[n["id"] for n in results], excluded_ids=[n["id"] for n in results], n_hops=n_hops
+            )
+            results = seed_nodes + [item for sublist in expansion for item in sublist]
 
         return results
 
-    def extract_keywords(self, query: str) -> List[str]:
-        from ..common.utils import safe_json_loads
-
-        prompt = (
-            "Extract key entities and keywords from the following query. "
-            "Focus on the most important terms that represent the core of the user's intent. "
-            "Return a JSON array of strings."
-            f'\nQuery: "{query}"'
-            ""
-        )
-
-        raw_text = "".join(self.session(prompt)).strip()
-        keywords = safe_json_loads(raw_text, fallback=[])
-        return keywords
-
-    def expand(self, node_ids: List[str], n_hops: int) -> List[Dict[str, Any]]:
-        """
-        Expands from seed nodes to find neighbors and combines them into a single list
-        of dictionaries for formatting.
-        """
-        self.logger.info(
-            f"Starting {n_hops}-hop exploration from {len(node_ids)} initial nodes."
-        )
-
-        subgraph_res = self.graph.subgraph(node_ids)
-        seed_nodes = subgraph_res.get("nodes", [])
-
-        expansion_results = self.graph.expansion(
-            frontier_ids=node_ids,
-            excluded_ids=node_ids,
-            n_hops=n_hops,
-        )
-        neighbor_paths = [
-            item for sublist in expansion_results for item in sublist
-        ]
-        self.logger.info(
-            f"Found {len(neighbor_paths)} relationships within {n_hops} hops."
-        )
-
-        return seed_nodes + neighbor_paths
-
     def format_results(self, results: List[Dict]) -> List[str]:
-        """
-        Formats a list of nodes and path dictionaries into
-        human-readable strings for the LLM.
-        """
-        formatted_strings = []
+        formatted = []
         for item in results:
             if "parent" in item and "node" in item:
-                node = item.get("node", {})
-                parent = item.get("parent", {})
-                rel = item.get("relationship", {})
-
-                parent_label = parent.get("label", "")
-                node_label = node.get("label", "")
-                rel_type = rel.get("type", "RELATED_TO")
-
-                statement = f"{parent_label} -[{rel_type}]-> {node_label}"
-                formatted_strings.append(statement)
-
+                formatted.append(f"{item.get('parent', {}).get('label', '')} -[{item.get('relationship', {}).get('type', 'RELATED_TO')}]-> {item.get('node', {}).get('label', '')}")
             else:
-                label = item.get("label", "")
-                description = item.get("description", "")
-                statement = f"{label}: {description}"
-                formatted_strings.append(statement)
-
-        return list(dict.fromkeys(formatted_strings).keys())
+                formatted.append(f"{item.get('label', '')}: {item.get('description', '')}")
+        return list(dict.fromkeys(formatted))
 
 
-class SPathRetriever(GraphRetriever):
-    """
-    Implements the semantic-aware shortest-path retrieval logic.
-    """
+class ShortestPathStrategy(GraphSearchStrategy):
+    """Semantic-aware multi-hop shortest path logic between multiple anchors."""
 
-    def search(
-        self, query: str, top_k_anchors: int = 3, max_paths: int = 3
-    ) -> List[Dict]:
-        # 1. Identify multiple semantic anchor entities from the query
-        keywords = self.extract_keywords(query)
-        if len(keywords) < 2:
-            # Fallback to standard neighborhood expansion if only one entity is found
-            return super().search(query)
+    def search(self, keywords: List[str], top_k_vector: int = 3, max_paths: int = 3, **kwargs) -> List[Dict]:
+        if not self.graph or len(keywords) < 2:
+            return [] # S-Path mathematically requires 2+ anchors
 
-        embeddings = self.graph.embedding_model.encode(keywords)
-        anchor_nodes = []
+        embeddings = self.graph.embedding_model.encode(keywords).tolist()
+        batch_results = self.graph.vector_search(embeddings, top_k=top_k_vector)
 
-        # Gather top anchor nodes for each keyword IN A SINGLE BATCH CALL
-        res_list = self.graph.vector_search(embeddings.tolist(), top_k=1)
-        for res in res_list:
-            if res:
-                anchor_nodes.append(res[0]["id"])
+        anchor_nodes = list(set(
+            node["id"] for res_list in batch_results for node in res_list if node.get("id")
+        ))
 
-        anchor_nodes = list(set(anchor_nodes))
         all_paths = []
-
-        # 2. Extract k-shortest paths between all combinations of anchors
         for src, tgt in combinations(anchor_nodes, 2):
-            paths = self.graph.k_shortest_paths(
-                source_id=src, target_id=tgt, k=max_paths
-            )
-            all_paths.extend(paths)
-
+            all_paths.extend(self.graph.k_shortest_paths(source_id=src, target_id=tgt, k=max_paths))
         return all_paths
 
     def format_results(self, results: List[Dict]) -> List[str]:
-        """
-        Formats paths into logical traces (Node A -> [REL] -> Node B -> [REL] -> Node C)
-        """
-        formatted_traces = []
+        formatted = []
         for path_data in results:
             if "nodes" not in path_data or "relations" not in path_data:
                 continue
-
-            nodes = path_data["nodes"]
-            rels = path_data["relations"]
-
             trace = []
-            for i, node in enumerate(nodes):
+            for i, node in enumerate(path_data["nodes"]):
                 trace.append(node.get("label", "Unknown"))
-                if i < len(rels):
-                    rel_type = rels[i].get("type", "RELATED_TO")
-                    trace.append(f"-[{rel_type}]->")
+                if i < len(path_data["relations"]):
+                    trace.append(f"-[{path_data['relations'][i].get('type', 'RELATED_TO')}]->")
+            formatted.append(" ".join(trace))
+        return list(dict.fromkeys(formatted))
 
-            formatted_traces.append(" ".join(trace))
 
-        return list(dict.fromkeys(formatted_traces))
+class SmartGraphRetriever(Retriever):
+    """
+    Coordinates LLM intent extraction and delegates to the injected Graph Strategies.
+    """
+    def __init__(self, session: Session, primary_strategy: GraphSearchStrategy, fallback_strategy: GraphSearchStrategy | None = None):
+        self.logger = get_logger(__file__)
+        self.session = session
+        self.primary = primary_strategy
+        self.fallback = fallback_strategy
+
+    def _extract_keywords(self, query: str) -> List[str]:
+        from ..common.utils import safe_json_loads
+        prompt = (
+            "Extract key entities and keywords from the following query. "
+            "Focus on the most important terms representing the core intent. Return a JSON array of strings."
+            f'\nQuery: "{query}"'
+        )
+        response = "".join(self.session(prompt)).strip()
+        return safe_json_loads(response, fallback=[query])
+
+    def __call__(self, query: str, **kwargs) -> List[str]:
+        try:
+            keywords = self._extract_keywords(query)
+        except Exception as e:
+            self.logger.warning(f"Keyword extraction failed. Error: {e}")
+            keywords = [query]
+
+        # 1. Execute Primary Strategy
+        raw_results = self.primary.search(keywords, **kwargs)
+
+        # 2. Seamless Fallback (e.g., if SPath lacks 2+ keywords)
+        if not raw_results and self.fallback:
+            self.logger.info(f"Primary strategy yielded no results. Engaging fallback.")
+            raw_results = self.fallback.search(keywords, **kwargs)
+            return self.fallback.format_results(raw_results)
+
+        return self.primary.format_results(raw_results)
 
 
 class WebRetriever(Retriever):
@@ -241,6 +170,10 @@ class WebRetriever(Retriever):
 
         self.session = session
         self.ddgs = DDGS()
+
+    def __call__(self, query: str, **kwargs) -> List[str]:
+        search_results = self.search(query=query, **kwargs)
+        return self.format_results(search_results)
 
     def search(self, query: str, *, top_k: int = 3) -> List[dict]:
         """Performs a web search for the given query using the DuckDuckGo API."""

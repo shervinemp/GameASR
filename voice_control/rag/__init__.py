@@ -1,7 +1,7 @@
 from .data import DataLoader, CodexDataLoader
 from .generation import Composer
-from .retrieval import Retriever, GraphRetriever, WebRetriever, Reranker
-from .model import SimpleRAG, RAG
+from .retrieval import Retriever, SmartGraphRetriever, WebRetriever, Reranker
+from .model import SimpleRAG, BaseRAG
 from .knowledge import KnowledgeGraph
 from .triplet import KnowledgeExtractor
 
@@ -10,11 +10,11 @@ __all__ = [
     "CodexDataLoader",
     "Composer",
     "Retriever",
-    "GraphRetriever",
+    "SmartGraphRetriever",
     "WebRetriever",
     "Reranker",
     "KnowledgeGraph",
     "SimpleRAG",
-    "RAG",
+    "BaseRAG",
     "KnowledgeExtractor",
 ]
