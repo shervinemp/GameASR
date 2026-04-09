@@ -2,95 +2,104 @@ from typing import List
 
 from ..llm.session import Session
 from ..llm.model import LLM
+from abc import ABC, abstractmethod
+
 from .retrieval import (
-    GraphRetriever,
-    SPathRetriever,
     Retriever,
     WebRetriever,
     Reranker,
+    SmartGraphRetriever,
+    NeighborhoodStrategy,
+    ShortestPathStrategy,
 )
 from .generation import Composer
 from .knowledge import KnowledgeGraph
 from ..common.utils import get_logger
 
 
-class RAG:
+class BaseRAG(ABC):
     def __init__(
         self,
-        retrievers: List[Retriever],
-        reranker: Reranker,
-        composer: Composer,
+        session: Session,
+        web_search: bool = False,
     ):
         self.logger = get_logger(__file__)
+        self.session = session
+        self.session.conversation.cutoff_idx = -1
 
-        self.retrievers = retrievers
-        self.reranker = reranker
-        self.composer = composer
+        self.retrievers: List[Retriever] = []
+        if web_search:
+            self.retrievers.append(WebRetriever(session=self.session))
 
-    def __call__(self, query: str, top_k: int = 5) -> str:
+        self.reranker = Reranker()
+        self.composer = Composer(session=self.session)
+
+    @abstractmethod
+    def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
+        pass
+
+    def _get_top_k_context(self, query: str, top_k: int) -> List[str]:
         results = []
         for fn in self.retrievers:
             results.extend(fn(query))
+
+        if not results:
+            return []
+
         reranked, scores = self.reranker(query, results=results)
-        context = "\n".join(
-            str(r)
-            # " (score: {s})"
-            for _, r, s in zip(range(top_k), reranked, scores)
-        )
-        answer = self.composer(query, context=context)
 
-        return answer
+        top_results = []
+        for _, r, s in zip(range(top_k), reranked, scores):
+            top_results.append(str(r))
+        return top_results
+
+    @abstractmethod
+    def __call__(self, query: str, **kwargs) -> str:
+        pass
 
 
-class SimpleRAG(RAG):
-    def __init__(
-        self,
-        llm: LLM | None = None,
-        graph: KnowledgeGraph | None = None,
-        web_search: bool = True,
-    ):
-        session = Session(llm=llm)
-        session.conversation.cutoff_idx = -1
+class SimpleRAG(BaseRAG):
+    """Standard single-pass retrieval augmented generation."""
 
-        retrievers = []
+    def __init__(self, llm: LLM | None = None, graph: KnowledgeGraph | None = None, web_search: bool = True):
+        super().__init__(session=Session(llm=llm), web_search=web_search)
+        self._attach_graph_retriever(graph)
 
+    def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
         if graph:
-            retrievers.append(GraphRetriever(session=session, graph=graph))
+            # Simple RAG only uses Neighborhood expansion
+            strategy = NeighborhoodStrategy(graph)
 
-        if web_search:
-            retrievers.append(WebRetriever(session=session))
+            retriever = SmartGraphRetriever(
+                session=self.session,
+                primary_strategy=strategy
+            )
+            self.retrievers.append(retriever)
 
-        reranker = Reranker()
-        composer = Composer(session=session)
-
-        super().__init__(
-            retrievers=retrievers,
-            reranker=reranker,
-            composer=composer,
-        )
+    def __call__(self, query: str, top_k: int = 5) -> str:
+        context_str = "\n".join(self._get_top_k_context(query, top_k))
+        return self.composer(query, context=context_str)
 
 
-class SPathRAG(RAG):
-    """
-    Implements the Neural-Socratic Graph Dialogue loop utilizing S-Path-RAG principles.
-    """
+class SPathRAG(BaseRAG):
+    """Implements the Neural-Socratic Graph Dialogue loop utilizing S-Path-RAG principles."""
 
-    def __init__(
-        self, llm: LLM, graph: KnowledgeGraph, web_search: bool = False
-    ):
-        session = Session(llm=llm)
-        session.conversation.cutoff_idx = -1
+    def __init__(self, llm: LLM | None = None, graph: KnowledgeGraph | None = None, web_search: bool = False):
+        super().__init__(session=Session(llm=llm), web_search=web_search)
+        self._attach_graph_retriever(graph)
 
-        # Use the S-Path Retriever instead of the standard GraphRetriever
-        retrievers = [SPathRetriever(session=session, graph=graph)]
-        if web_search:
-            retrievers.append(WebRetriever(session=session))
+    def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
+        if graph:
+            # S-Path RAG uses Shortest Paths primarily, but falls back to Neighborhoods
+            primary = ShortestPathStrategy(graph)
+            fallback = NeighborhoodStrategy(graph)
 
-        super().__init__(
-            retrievers=retrievers,
-            reranker=Reranker(),
-            composer=Composer(session=session),
-        )
+            retriever = SmartGraphRetriever(
+                session=self.session,
+                primary_strategy=primary,
+                fallback_strategy=fallback
+            )
+            self.retrievers.append(retriever)
 
     def __call__(
         self, query: str, top_k: int = 5, max_iterations: int = 3

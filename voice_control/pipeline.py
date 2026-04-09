@@ -11,7 +11,7 @@ from .rag.model import SPathRAG
 from .hotkey_dispatcher import HotkeyDispatcher
 from .llm import Session, LLMProviders
 from .llm.tools import Tool
-from .rag import RAG
+from .rag import BaseRAG
 from .rag.knowledge import KnowledgeGraph
 from .bridge.llm_server import LLMServer, LLMService
 
@@ -28,7 +28,7 @@ class Pipeline:
     def __init__(
         self,
         session: Optional[Session] = None,
-        rag: Optional[RAG] = None,
+        rag: Optional[BaseRAG] = None,
         server_endpoint: str | None = None,
         push_to_talk: str | None = None,
         press_to_reset: str | None = None,
@@ -112,11 +112,11 @@ class Pipeline:
             self.session.conversation._tools.update({name: rag_tool})
 
     @property
-    def rag(self) -> RAG:
+    def rag(self) -> BaseRAG:
         return self._rag
 
     @rag.setter
-    def rag(self, value: RAG):
+    def rag(self, value: BaseRAG):
         self._rag = value
         self._configure_session()
 
