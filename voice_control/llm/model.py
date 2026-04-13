@@ -228,6 +228,7 @@ class ChatGPT(LLM):
         self.logger = get_logger(self.__class__.__name__)
         self.model = model
 
+        api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("An API key for OpenAI is required.")
 

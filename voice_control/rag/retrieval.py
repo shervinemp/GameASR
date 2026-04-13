@@ -14,14 +14,18 @@ class Reranker:
         self,
         cross_encoder: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
-        from sentence_transformers import CrossEncoder
-
-        self.reranker = CrossEncoder(cross_encoder)
+        self.cross_encoder_name = cross_encoder
+        self.reranker = None
 
     def __call__(
         self, query: str, results: List[str]
     ) -> Tuple[List[str], List[float]]:
-        pairs = list(zip(cycle(query), results))
+        if self.reranker is None:
+            from sentence_transformers import CrossEncoder
+            self.reranker = CrossEncoder(self.cross_encoder_name)
+
+        truncated_results = [r[:500] for r in results]
+        pairs = list(zip(cycle([query]), truncated_results))
         scores = self.reranker.predict(pairs, show_progress_bar=False)
 
         sorted_pairs = sorted(
@@ -141,7 +145,7 @@ class SmartGraphRetriever(Retriever):
             f'\nQuery: "{query}"'
         )
         response = "".join(self.session(prompt)).strip()
-        return safe_json_loads(response, fallback=[query])
+        return safe_json_loads(response, fallback=query.split())
 
     def __call__(self, query: str, **kwargs) -> List[str]:
         try:
