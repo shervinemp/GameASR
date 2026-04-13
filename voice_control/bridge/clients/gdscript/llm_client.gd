@@ -44,6 +44,11 @@ func _request(method, params):
         request_body["auth_token"] = auth_token
 
     socket.send_json(request_body)
-    var response_json = socket.recv_json()
+
+    # Non-blocking poll to prevent freezing the Godot engine
+    while socket.poll(0) == 0:
+        OS.delay_msec(1)
+
+    var response_json = socket.recv_json(ZMQ.DONTWAIT)
 
     return response_json

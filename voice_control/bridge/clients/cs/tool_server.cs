@@ -95,10 +95,22 @@ public class ToolServer : IDisposable
             server.Bind(_endpoint);
             while (_isRunning)
             {
-                if (server.TryReceiveFrameString(TimeSpan.FromSeconds(1), out var message))
+                try
                 {
-                    var response = _HandleRequest(message);
-                    server.SendFrame(response);
+                    if (server.TryReceiveFrameString(TimeSpan.FromSeconds(1), out var message))
+                    {
+                        var response = _HandleRequest(message);
+                        server.SendFrame(response);
+                    }
+                }
+                catch (TimeoutException)
+                {
+                    // Ignore and loop
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ToolServer] Error receiving: {ex.Message}");
+                    Thread.Sleep(100);
                 }
             }
         }

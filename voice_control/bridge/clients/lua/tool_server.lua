@@ -72,36 +72,36 @@ function ToolServer:_worker_loop()
     if self.auth_token then
         print("[ToolServer] Authentication is enabled.")
     end
-
-    while self.running do
-        local ok, request_str = pcall(self.socket.recv, self.socket)
-        if ok and request_str then
-            local response_str = self:_handle_request(request_str)
-            self.socket:send(response_str)
-        end
-    end
-
-    self.socket:close()
-    self.context:term()
-    print("[ToolServer] Stopped.")
 end
 
 function ToolServer:start()
     if self.running then return end
     self.running = true
-    self.thread = love.thread.newThread(function()
-        self:_worker_loop()
-    end)
-    self.thread:start()
+    self:_worker_loop()
     print("[ToolServer] Started.")
+end
+
+function ToolServer:update(dt)
+    if not self.running then return end
+
+    local ok, request_str = pcall(self.socket.recv, self.socket, zmq.DONTWAIT)
+    if ok and request_str then
+        local response_str = self:_handle_request(request_str)
+        self.socket:send(response_str)
+    end
 end
 
 function ToolServer:stop()
     if not self.running then return end
     self.running = false
-    -- We can't join the thread here as it might block.
-    -- The loop will exit on its own.
-    print("[ToolServer] Stopping...")
+
+    if self.socket then
+        self.socket:close()
+    end
+    if self.context then
+        self.context:term()
+    end
+    print("[ToolServer] Stopped.")
 end
 
 return ToolServer
