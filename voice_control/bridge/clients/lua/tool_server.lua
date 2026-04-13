@@ -10,7 +10,7 @@ ToolServer.__index = ToolServer
 function ToolServer:new(api, endpoint, auth_token)
     local obj = setmetatable({
         api = api,
-        endpoint = endpoint or "tcp://127.0.0.1:8080",
+        endpoint = endpoint or "tcp://0.0.0.0:8080",
         auth_token = auth_token or nil,
         context = nil,
         socket = nil,

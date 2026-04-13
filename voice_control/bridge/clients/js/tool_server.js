@@ -34,7 +34,7 @@ const RPC_METHODS = {
 };
 
 class ToolServer {
-    constructor(endpoint = "tcp://127.0.0.1:8080", authToken = null) {
+    constructor(endpoint = "tcp://0.0.0.0:8080", authToken = null) {
         this.endpoint = endpoint;
         this.authToken = authToken;
         this.socket = new zmq.Reply();

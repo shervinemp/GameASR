@@ -21,7 +21,7 @@ public class ToolServer : IDisposable
     // --- RPC Method Dispatcher ---
     private readonly Dictionary<string, Func<JObject, JObject>> _rpcMethods;
 
-    public ToolServer(string endpoint = "tcp://127.0.0.1:8080", string authToken = null)
+    public ToolServer(string endpoint = "tcp://0.0.0.0:8080", string authToken = null)
     {
         _endpoint = endpoint;
         _authToken = authToken;

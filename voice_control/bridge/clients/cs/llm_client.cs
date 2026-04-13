@@ -16,7 +16,7 @@ public class LLMClient : IDisposable
     private readonly string _authToken;
     private int _idCounter = 0;
 
-    public LLMClient(string endpoint = "tcp://127.0.0.1:8000", string authToken = null)
+    public LLMClient(string endpoint = "tcp://0.0.0.0:8000", string authToken = null)
     {
         _endpoint = endpoint;
         _authToken = authToken;

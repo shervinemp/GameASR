@@ -10,7 +10,7 @@ using json = nlohmann::json;
 class LLMClient
 {
 public:
-    LLMClient(const std::string &endpoint = "tcp://127.0.0.1:8000", const std::string &authToken = "");
+    LLMClient(const std::string &endpoint = "tcp://0.0.0.0:8000", const std::string &authToken = "");
     ~LLMClient();
 
     void connect();
