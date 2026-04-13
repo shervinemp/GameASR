@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import inspect
 import re
-from typing import Callable, List, Dict, Optional, Any, Type, Union
+from typing import Callable, List, Dict, Optional, Any, Type, Union, Literal, get_origin, get_args
 
 
 @dataclass
@@ -124,12 +124,17 @@ class Tool:
             json_type = _get_json_type(param_obj.annotation)
             param_desc = doc_info["params"].get(param_name, None)
 
+            enum_values = None
+            if get_origin(param_obj.annotation) is Literal:
+                enum_values = list(get_args(param_obj.annotation))
+
             if param_obj.default is inspect.Parameter.empty:
                 required_property_names.append(param_name)
 
             method_properties[param_name] = Tool.Parameter(
                 type=json_type,
                 description=param_desc,
+                enum=enum_values
             )
 
         tool_parameters_obj: Optional[Tool.Parameter] = None
@@ -304,14 +309,23 @@ def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
 
 def _get_json_type(py_type) -> str:
     """Converts a Python type hint to a JSON schema type string."""
-    if hasattr(py_type, "__origin__") and py_type.__origin__ is Union:
+    origin = get_origin(py_type)
+
+    if origin is Union:
         non_none_types = [
-            arg for arg in py_type.__args__ if arg is not type(None)
+            arg for arg in get_args(py_type) if arg is not type(None)
         ]
         if non_none_types:
             py_type = non_none_types[0]
+            origin = get_origin(py_type)
         else:
             return "string"
+
+    if origin is Literal:
+        args = get_args(py_type)
+        if args:
+            return _get_json_type(type(args[0]))
+        return "string"
 
     if py_type is int:
         return "integer"
@@ -322,10 +336,9 @@ def _get_json_type(py_type) -> str:
     if py_type is bool:
         return "boolean"
 
-    if hasattr(py_type, "__origin__"):
-        if py_type.__origin__ is list:
-            return "array"
-        if py_type.__origin__ is dict:
-            return "object"
+    if origin is list:
+        return "array"
+    if origin is dict:
+        return "object"
 
     return "string"
