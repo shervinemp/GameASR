@@ -118,8 +118,9 @@ class Composer:
             "**New Triplets (JSON List):**"
         )
         try:
+            from ..common.utils import safe_json_loads
             response = "".join(self.session(prompt))
-            triplets = json.loads(response)
+            triplets = safe_json_loads(response)
             return triplets
         except Exception as e:
             self.logger.error(

@@ -44,7 +44,7 @@ def stream_splitter(
     Splits a text into sentences, ensuring each sentence is at least `min_len`
     characters long.
     """
-    sentences = re.compile(r"[^.][.!?]\s+")
+    sentences = re.compile(r"[^.][.!?][\"']*\s+")
     buffer = ""
     for chunk in text_stream:
         buffer += chunk

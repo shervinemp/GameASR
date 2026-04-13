@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict
 
 
@@ -48,9 +48,13 @@ class ToolClientConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     database: DatabaseConfig
     llm: LLMConfig
     tts: TTSConfig
     asr: ASRConfig
     llm_server: Optional[LLMServerConfig] = None
     tool_client: Optional[ToolClientConfig] = None
+    rpc_server: Optional[LLMServerConfig] = None
+    tools_server: Optional[ToolClientConfig] = None

@@ -2,7 +2,7 @@ import time
 from typing import Any, Dict, List, Tuple
 
 from ..common.config import config
-from loguru import logger
+from ..common.utils import get_logger
 
 NODE_PROJ = "properties(node) { .*, embedding: null }"
 REL_PROJ = "properties(rel) { .*, source: startNode(rel).id, target: endNode(rel).id, type: coalesce(rel.type, type(rel)) }"
@@ -225,13 +225,22 @@ class KnowledgeGraph:
         if not triplets:
             return
 
+        import hashlib
+
+        # Calculate deterministic ids in python
+        for t in triplets:
+            sub = str(t.get('subject', '')).strip().lower()
+            obj = str(t.get('object', '')).strip().lower()
+            t['sub_id'] = hashlib.md5(sub.encode('utf-8')).hexdigest()
+            t['obj_id'] = hashlib.md5(obj.encode('utf-8')).hexdigest()
+
         query = """
         UNWIND $triplets AS triplet
         MERGE (s:Entity {label: triplet.subject})
-        ON CREATE SET s.id = randomUUID(), s.description = 'Created by RAG agent'
+        ON CREATE SET s.id = triplet.sub_id, s.description = 'Created by RAG agent'
 
         MERGE (o:Entity {label: triplet.object})
-        ON CREATE SET o.id = randomUUID(), o.description = 'Created by RAG agent'
+        ON CREATE SET o.id = triplet.obj_id, o.description = 'Created by RAG agent'
 
         // Pure Cypher workaround for dynamic relationship creation is difficult,
         // but if apoc is completely disabled, we use a generic relationship with type property
