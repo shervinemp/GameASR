@@ -39,13 +39,11 @@ class ParakeetV2(ModelBase):
     def _inputstream(self, sound_device: int, callback: Callable):
         import sounddevice as sd
 
-        channels = sd.query_devices(sound_device).get('max_input_channels', 1)
-
         return sd.InputStream(
             samplerate=self._vad._model.SAMPLE_RATE,
             blocksize=self._vad._model.HOP_SIZE,
             device=sound_device,
-            channels=min(channels, 1),
+            channels=1,
             callback=callback,
         )
 

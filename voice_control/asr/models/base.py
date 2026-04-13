@@ -27,11 +27,7 @@ class ModelBase(ConsumerProducer, ABC):
                 # Strictly wait-free. Copy to avoid memory corruption from C.
                 self.audio_queue.put_nowait(in_data.copy())
             except queue.Full:
-                try:
-                    self.audio_queue.get_nowait()
-                    self.audio_queue.put_nowait(in_data.copy())
-                except (queue.Empty, queue.Full):
-                    pass # Drop frame gracefully rather than crashing
+                pass # Drop frame gracefully rather than crashing
 
         self._input_stream = self._inputstream(sound_device, sound_cb)
 

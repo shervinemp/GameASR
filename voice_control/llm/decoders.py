@@ -41,9 +41,6 @@ class LegacyXMLDecoder(StreamDecoder):
                         except Exception: pass
                         return # Halt stream to execute tool
                     else:
-                        if len(buffer) > 500:
-                            yield buffer
-                            buffer = ""
                         break # Wait for more chunks
                 else:
                     if "<toolcall>" in buffer:
