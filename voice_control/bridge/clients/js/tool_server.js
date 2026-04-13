@@ -34,24 +34,38 @@ const RPC_METHODS = {
 };
 
 class ToolServer {
-    constructor(endpoint = "tcp://127.0.0.1:8080", authToken = null) {
+    constructor(endpoint = "tcp://0.0.0.0:8080", authToken = null) {
         this.endpoint = endpoint;
         this.authToken = authToken;
         this.socket = new zmq.Reply();
+        this.isRunning = false;
     }
 
     async start() {
         await this.socket.bind(this.endpoint);
+        this.isRunning = true;
         console.log(`[ToolServer] Listening on ${this.endpoint}`);
         if (this.authToken) {
             console.log("[ToolServer] Authentication is enabled.");
         }
 
-        for await (const [msg] of this.socket) {
-            const request = JSON.parse(msg.toString());
-            const response = this._handleRequest(request);
-            await this.socket.send(JSON.stringify(response));
+        while (this.isRunning) {
+            try {
+                const [msg] = await this.socket.receive();
+                const request = JSON.parse(msg.toString());
+                const response = this._handleRequest(request);
+                await this.socket.send(JSON.stringify(response));
+            } catch (e) {
+                if (!this.isRunning) break;
+                console.error("ZMQ receive error:", e);
+            }
         }
+    }
+
+    stop() {
+        this.isRunning = false;
+        this.socket.close();
+        console.log("[ToolServer] Stopped.");
     }
 
     _handleRequest(request) {

@@ -19,21 +19,27 @@ class BridgeLanguage(Enum):
 def get_bridge_source_path(language: BridgeLanguage) -> str:
     """
     Returns the absolute path to the source directory of the bridge files
-    for a given language.
+    for a given language using importlib.resources.
     """
-    try:
-        current_file_path = os.path.abspath(__file__)
-        # Navigate from scripts -> project root -> voice_control -> bridge -> clients -> [language]
-        scripts_dir = os.path.dirname(current_file_path)
-        project_root = os.path.dirname(scripts_dir)
-        bridge_path = os.path.join(
-            project_root, "voice_control", "bridge", "clients", language.value
-        )
-        return os.path.normpath(bridge_path)
-    except Exception as e:
-        # A fallback in case the file structure changes, though less robust.
-        import voice_control
+    import importlib.resources as pkg_resources
 
+    try:
+        # Get the path to voice_control.bridge.clients.[language]
+        package_name = f"voice_control.bridge.clients.{language.value}"
+
+        # We need an actual file to resolve the directory path
+        # Assuming there is an __init__.py or a specific file we can anchor to,
+        # but files() returns a Traversable which has a path if it's a local file.
+
+        if sys.version_info >= (3, 9):
+            path = pkg_resources.files(package_name)
+            return str(path)
+        else:
+            with pkg_resources.path(package_name, "__init__.py") as p:
+                return str(p.parent)
+    except Exception as e:
+        # Fallback to standard os.path navigation if importlib fails
+        import voice_control
         return os.path.join(
             os.path.dirname(voice_control.__file__),
             "bridge",

@@ -129,10 +129,11 @@ class SPathRAG(BaseRAG):
             context_str = "\n".join(set(accumulated_context))
 
             # Ask the LLM to verify if the context is sufficient (The Socratic Check)
+            draft_answer = self.composer.generate_answer(query, context_str)
             critique, is_correct = self.composer.critique_answer(
                 query=query,
                 context=context_str,
-                answer="Draft answer based on current knowledge.",
+                answer=draft_answer,
             )
 
             if is_correct:

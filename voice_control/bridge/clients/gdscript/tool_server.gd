@@ -6,7 +6,7 @@ extends Node
 
 var zmq = ZMQ.new()
 var socket
-var endpoint = "tcp://127.0.0.1:8080"
+var endpoint = "tcp://0.0.0.0:8080"
 var auth_token = null # Set this via environment variable or config
 
 # --- RPC Method Dispatcher ---

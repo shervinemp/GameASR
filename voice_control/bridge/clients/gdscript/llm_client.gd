@@ -6,7 +6,7 @@ extends Node
 
 var zmq = ZMQ.new()
 var socket
-var endpoint = "tcp://127.0.0.1:8000"
+var endpoint = "tcp://0.0.0.0:8000"
 var auth_token = null # Set this to your auth token if needed
 
 var _id_counter = 0
@@ -44,6 +44,11 @@ func _request(method, params):
         request_body["auth_token"] = auth_token
 
     socket.send_json(request_body)
-    var response_json = socket.recv_json()
+
+    # Non-blocking poll to prevent freezing the Godot engine
+    while socket.poll(0) == 0:
+        OS.delay_msec(1)
+
+    var response_json = socket.recv_json(ZMQ.DONTWAIT)
 
     return response_json

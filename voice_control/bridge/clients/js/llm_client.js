@@ -5,7 +5,7 @@
 const zmq = require("zeromq");
 
 class LLMClient {
-    constructor(endpoint = "tcp://127.0.0.1:8000", authToken = null) {
+    constructor(endpoint = "tcp://0.0.0.0:8000", authToken = null) {
         this.endpoint = endpoint;
         this.authToken = authToken;
         this.socket = new zmq.Request();

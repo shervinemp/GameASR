@@ -34,7 +34,7 @@ def main():
     parser.add_argument(
         "--tools-host",
         type=str,
-        default="127.0.0.1",
+        default="0.0.0.0",
         help="Host address of the tools server.",
     )
     parser.add_argument(
@@ -95,7 +95,7 @@ def main():
 
     try:
         pipe = Pipeline(
-            server_endpoint=f"{args.protocol}://127.0.0.1:{args.port}",
+            server_endpoint=f"{args.protocol}://0.0.0.0:{args.port}",
             push_to_talk=args.push_to_talk,
         )
         pipe.session.conversation.tools = tools

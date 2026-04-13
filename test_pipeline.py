@@ -2,6 +2,9 @@ import sys
 from unittest.mock import MagicMock
 sys.modules['pynput'] = MagicMock()
 sys.modules['pynput.keyboard'] = MagicMock()
+sys.modules['sounddevice'] = MagicMock()
+sys.modules['llama_cpp'] = MagicMock()
+sys.modules['ollama'] = MagicMock()
 
 from voice_control.pipeline import Pipeline
 from voice_control.rag.model import SPathRAG

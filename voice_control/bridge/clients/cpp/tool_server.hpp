@@ -12,7 +12,7 @@ using json = nlohmann::json;
 class ToolServer
 {
 public:
-    ToolServer(const std::string &endpoint = "tcp://127.0.0.1:8080", const std::string &authToken = "");
+    ToolServer(const std::string &endpoint = "tcp://0.0.0.0:8080", const std::string &authToken = "");
     ~ToolServer();
 
     void start();

@@ -17,7 +17,7 @@ function LLMClient:new(protocol, endpoint)
     protocol = protocol or "tcp"
 
     if protocol == "tcp" then
-        endpoint = endpoint or "127.0.0.1:8000" -- Default for the LLM Server
+        endpoint = endpoint or "0.0.0.0:8000" -- Default for the LLM Server
     end
 
     local obj = setmetatable({

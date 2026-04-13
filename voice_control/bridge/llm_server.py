@@ -125,7 +125,7 @@ class LLMServer:
         try:
             while self._running:
                 if self.socket.poll(100) & zmq.POLLIN:
-                    message = self.socket.recv_string()
+                    message = self.socket.recv_string(zmq.DONTWAIT)
                     self.logger.debug(f"Received: {message}")
                     response = self._handle_request(message)
                     self.socket.send_string(response)
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     llm_session = Session()
     llm_service_instance = LLMService(llm_session)
 
-    server_endpoint = "tcp://127.0.0.1:5555"
+    server_endpoint = "tcp://0.0.0.0:5555"
     auth_token = config.get("rpc_server.auth_token")
     llm_server = LLMServer(
         llm_service_instance, server_endpoint, auth_token=auth_token

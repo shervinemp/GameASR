@@ -35,7 +35,7 @@ RPC_METHODS = {
 
 
 class ToolServer:
-    def __init__(self, endpoint="tcp://127.0.0.1:8080", auth_token=None):
+    def __init__(self, endpoint="tcp://0.0.0.0:8080", auth_token=None):
         self.endpoint = endpoint
         self.auth_token = auth_token
         self.context = zmq.Context()

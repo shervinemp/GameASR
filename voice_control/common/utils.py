@@ -10,9 +10,23 @@ from typing import Dict, Any
 def safe_json_loads(text: str, fallback: Any = None) -> Any:
     """Robustly parses JSON from LLM output, stripping Markdown/filler."""
     try:
-        match = re.search(r'(\[.*\]|\{.*\})', text.strip(), re.DOTALL)
-        clean_text = match.group(0) if match else text
-        return json.loads(clean_text)
+        # Match array or object but parse aggressively to prevent early matching failures
+        matches = re.finditer(r'(\[.*\]|\{.*\})', text.strip(), re.DOTALL)
+        clean_texts = [match.group(0) for match in matches]
+
+        if not clean_texts:
+            return json.loads(text)
+
+        # Iterate backwards through possible matches (inner objects first, or last objects)
+        # to circumvent regex early capture
+        for clean_text in reversed(clean_texts):
+            try:
+                return json.loads(clean_text)
+            except json.JSONDecodeError:
+                continue
+
+        # If all regex captures fail, try the original text
+        return json.loads(text)
     except (json.JSONDecodeError, AttributeError):
         return fallback if fallback is not None else []
 
@@ -34,8 +48,7 @@ def setup_logging(log_level=logging.INFO, log_format=None, stream=None):
             level=log_level,
             format=log_format,
             datefmt="%Y-%m-%d %H:%M:%S",
-            stream=stream,
-            force=True
+            stream=stream
         )
 
 
