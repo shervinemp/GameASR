@@ -109,12 +109,16 @@ class Silero(ConsumerProducer):
                 pass
 
     def _consume(self, chunk: Iterable[np.ndarray]):
-        acquired = self._lock.acquire(timeout=2)
+        acquired = self._lock.acquire(blocking=False)
         if not acquired:
             return
 
         try:
-            chunk = np.mean(chunk, axis=1)
+            if len(chunk.shape) > 1 and chunk.shape[1] > 1:
+                chunk = np.mean(chunk, axis=1)
+            elif len(chunk.shape) > 1:
+                chunk = chunk[:, 0]
+
             self._model_input_frame = np.concatenate(
                 [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
             )
