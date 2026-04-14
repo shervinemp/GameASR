@@ -1,0 +1,4 @@
+40. C# Null Reference: ToolServer._HandleRequest passes request["params"] as JObject. If params are omitted, it passes null to tools expecting keys. Solution: Fallback to new JObject() if null.
+42. C++ Poll Timeout Cast: zmq::poll(..., std::chrono::milliseconds(100)) fails to compile on older ZMQ bindings expecting long. Solution: Cast to .count().
+44. No Disconnect Cleanup: The Godot tool_server.gd creates a thread but _exit_tree() doesn't explicitly join or kill the thread, causing zombie processes on quit. Solution: Add a should_exit flag and thread.wait_to_finish().
+45. JS Client Unhandled Promise: In llm_client.js, socket.receive() can throw if the socket is closed, causing Node.js to crash. Solution: Wrap the receive block in a try/catch.

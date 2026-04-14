@@ -136,7 +136,8 @@ public class ToolServer : IDisposable
                 throw new Exception("Method not found");
             }
 
-            var result = _rpcMethods[methodName](request["params"] as JObject);
+            var parameters = (request["params"] as JObject) ?? new JObject();
+            var result = _rpcMethods[methodName](parameters);
             response = new JObject
             {
                 ["jsonrpc"] = "2.0",
