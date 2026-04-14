@@ -1,4 +1,0 @@
-23. Async Loop Thread Isolation: ToolCaller.start calls asyncio.set_event_loop(loop). If not joined properly on exit, tasks are orphaned. Solution: Use asyncio.run() in a managed wrapper rather than manual thread lifecycle management.
-24. Hallucinated Success: Session._generate_response yields tool_choice="none" after tool execution. If the tool errored, the LLM isn't explicitly instructed on how to handle the error. Solution: Inject a system prompt dynamically summarizing tool failures.
-25. LegacyXMLDecoder Hanging: The LegacyXMLDecoder relies on <toolcall> string splitting. If chunks arrive byte-by-byte (e.g., <too then lcall>), the buffer logic fails. Solution: Use regex with partial match lookahead.
-26. System Message Wipe: Pipeline.press_to_reset reassigns Session but fails to re-inject the original system message. Solution: Cache and pass the original _system prompt during reset.
