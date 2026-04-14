@@ -52,9 +52,11 @@ class LLM(ABC):
 
     def count_tokens(self, text: str) -> int:
         """Counts the number of tokens in a string.
-        Default implementation is an approximation (4 characters per token).
+        Default implementation is an approximation using tiktoken.
         """
-        return len(text) // 4
+        import tiktoken
+        encoder = tiktoken.get_encoding("cl100k_base")
+        return len(encoder.encode(text))
 
 
 class GGUFLLM(LLM):

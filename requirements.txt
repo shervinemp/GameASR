@@ -23,3 +23,5 @@ pynput~=1.7.6
 openai~=1.37.0
 google-generativeai
 emoji
+
+tiktoken

@@ -111,7 +111,7 @@ class Tool:
         Transforms a callable into a Tool instance.
         """
         doc_info = _parse_method_docstring(inspect.getdoc(fn))
-        description = doc_info["description"]
+        description = doc_info["description"] or "No description provided."
 
         signature = inspect.signature(fn)
         method_properties: Dict[str, Tool.Parameter] = {}
