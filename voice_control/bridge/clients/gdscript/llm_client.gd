@@ -4,24 +4,24 @@
 
 extends Node
 
+signal response_received(response)
+
 var zmq = ZMQ.new()
 var socket
 var endpoint = "tcp://0.0.0.0:8000"
 var auth_token = null # Set this to your auth token if needed
 
 var _id_counter = 0
+var pending_requests = false
 
 func _ready():
     socket = zmq.socket(ZMQ.REQ)
     socket.connect(endpoint)
     print("[LLMClient] Connected to ", endpoint)
 
-    # Example query
-    var response = query("Hello from Godot!")
-    if response.error:
-        print("Error: ", response.error)
-    else:
-        print("Response from LLM: ", response.result)
+    # Example query - now requires yielding or connecting to signal in Godot
+    query("Hello from Godot!")
+    print("[LLMClient] Query sent, waiting for response via _process")
 
 func _exit_tree():
     socket.close()
@@ -31,6 +31,12 @@ func _exit_tree():
 func query(content, role="user"):
     var params = {"content": content, "role": role}
     return _request("query", params)
+
+func _process(delta):
+    if pending_requests and socket.poll(0) > 0:
+        var response_json = socket.recv_json(ZMQ.DONTWAIT)
+        pending_requests = false
+        emit_signal("response_received", response_json)
 
 func _request(method, params):
     _id_counter += 1
@@ -44,11 +50,4 @@ func _request(method, params):
         request_body["auth_token"] = auth_token
 
     socket.send_json(request_body)
-
-    # Non-blocking poll to prevent freezing the Godot engine
-    while socket.poll(0) == 0:
-        OS.delay_msec(1)
-
-    var response_json = socket.recv_json(ZMQ.DONTWAIT)
-
-    return response_json
+    pending_requests = true

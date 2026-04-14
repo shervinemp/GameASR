@@ -30,12 +30,11 @@ class LLMServer:
         self.endpoint = endpoint
         self.service_api = service_api
         self.auth_token = auth_token
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REP)
-        self.socket.bind(self.endpoint)
+        self.context = None
+        self.socket = None
         self._worker_thread = None
         self._running = False
-        self.logger.info(f"LLM Server bound to {self.endpoint}")
+        self.logger.info(f"LLM Server will bind to {self.endpoint}")
         if self.auth_token:
             self.logger.info("LLM Server authentication is enabled.")
 
@@ -120,11 +119,16 @@ class LLMServer:
         return json.dumps(response_obj)
 
     def _worker_loop(self):
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.REP)
+        self.socket.bind(self.endpoint)
+        self.logger.info(f"LLM Server bound to {self.endpoint}")
+
         self.logger.info("RPC Server worker thread started.")
         self._running = True
         try:
             while self._running:
-                if self.socket.poll(100) & zmq.POLLIN:
+                if self.socket.poll(1000) & zmq.POLLIN:
                     message = self.socket.recv_string(zmq.DONTWAIT)
                     self.logger.debug(f"Received: {message}")
                     response = self._handle_request(message)

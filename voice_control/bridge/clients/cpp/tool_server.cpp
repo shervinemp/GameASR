@@ -72,16 +72,20 @@ void ToolServer::server_loop()
     _socket.bind(_endpoint);
     while (_isRunning)
     {
-        zmq::message_t request_msg;
-        if (_socket.recv(request_msg, zmq::recv_flags::dontwait))
+        zmq::pollitem_t items[] = {
+            { static_cast<void*>(_socket), 0, ZMQ_POLLIN, 0 }
+        };
+        zmq::poll(items, 1, std::chrono::milliseconds(100));
+
+        if (items[0].revents & ZMQ_POLLIN)
         {
-            json request = json::parse(request_msg.to_string());
-            json response = handle_request(request);
-            _socket.send(zmq::buffer(response.dump()), zmq::send_flags::none);
-        }
-        else
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            zmq::message_t request_msg;
+            if (_socket.recv(request_msg, zmq::recv_flags::none))
+            {
+                json request = json::parse(request_msg.to_string());
+                json response = handle_request(request);
+                _socket.send(zmq::buffer(response.dump()), zmq::send_flags::none);
+            }
         }
     }
 }

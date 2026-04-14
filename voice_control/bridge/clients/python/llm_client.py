@@ -20,6 +20,7 @@ class LLMClient:
 
     def disconnect(self):
         """Disconnects from the server."""
+        self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.close()
         self.context.term()
         print("[LLMClient] Disconnected")

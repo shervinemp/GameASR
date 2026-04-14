@@ -80,4 +80,5 @@ class HotkeyDispatcher:
     def stop(self):
         """Stops the keyboard listener."""
         self.listener.stop()
-        self.listener.join()
+        if self.listener.is_alive():
+            self.listener.join()

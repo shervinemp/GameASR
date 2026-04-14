@@ -67,6 +67,7 @@ public class ToolServer : IDisposable
         if (_isRunning) return;
         _isRunning = true;
         _serverThread = new Thread(ServerLoop);
+        _serverThread.IsBackground = true;
         _serverThread.Start();
         Console.WriteLine($"[ToolServer] Listening on {_endpoint}");
         if (!string.IsNullOrEmpty(_authToken))

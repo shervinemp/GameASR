@@ -53,7 +53,7 @@ function ToolServer:_handle_request(request_str)
     end
 
     -- Call method
-    local ok, result = pcall(method, unpack(request.params or {}))
+    local ok, result = pcall(method, request.params or {})
     if not ok then
         response.error = { code = -32000, message = "Server error: " .. tostring(result) }
     else
@@ -96,6 +96,7 @@ function ToolServer:stop()
     self.running = false
 
     if self.socket then
+        self.socket:set_linger(0)
         self.socket:close()
     end
     if self.context then

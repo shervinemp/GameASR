@@ -11,10 +11,10 @@ var auth_token = null # Set this via environment variable or config
 
 # --- RPC Method Dispatcher ---
 var RPC_METHODS = {
-    "move_player": funcref(self, "_move_player"),
-    "get_player_position": funcref(self, "_get_player_position"),
-    "set_game_pause": funcref(self, "_set_game_pause"),
-    "get_game_time": funcref(self, "_get_game_time"),
+    "move_player": Callable(self, "_move_player"),
+    "get_player_position": Callable(self, "_get_player_position"),
+    "set_game_pause": Callable(self, "_set_game_pause"),
+    "get_game_time": Callable(self, "_get_game_time"),
 }
 
 # --- Dummy Tool Implementations ---
@@ -65,7 +65,7 @@ func _handle_request(request):
     if not method:
         return {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}, "id": request.get("id")}
 
-    var result = method.call_func(params)
+    var result = method.call(params)
     return {"jsonrpc": "2.0", "result": result, "id": request.get("id")}
 
 func _exit_tree():

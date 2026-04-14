@@ -40,8 +40,10 @@ class ToolClient:
             # Cleanup socket on timeout to reset state machine
             self.socket.setsockopt(zmq.LINGER, 0)
             self.socket.close()
+            self.context.term()
 
-            # Use the existing context if possible, or recreate carefully
+            # Recreate context carefully to ensure complete REQ state reset
+            self.context = zmq.asyncio.Context()
             self.socket = self.context.socket(zmq.REQ)
             self.socket.connect(self.endpoint)
             return {"error": "Game engine RPC timeout"}

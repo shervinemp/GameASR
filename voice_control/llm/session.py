@@ -120,7 +120,7 @@ class ToolCaller:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             self._loop = loop
-            self._loop_ready_event.set()
+            loop.call_soon_threadsafe(self._loop_ready_event.set)
             loop.run_forever()
             loop.close()
             self._loop = None
