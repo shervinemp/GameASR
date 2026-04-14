@@ -70,7 +70,9 @@ class Kokoro:
         Returns:
             tuple: (numpy array of audio samples, sample rate)
         """
-        text = re.sub(r'[*_~`´]', '', text)
+        text = re.sub(r'[*_~`´<>]', '', text)
+        import emoji
+        text = emoji.replace_emoji(text, replace="")
         phonemes = self.tokenizer.phonemize(text, lang=language)
         samples, sample_rate = self.kokoro.create(
             phonemes,

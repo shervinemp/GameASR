@@ -59,7 +59,7 @@ class AudioPlayer:
         self,
         audio_data: np.ndarray[np.float32 | np.int16],
         sample_rate: int,
-        pad_end_ms: int = 200,
+        pad_end_ms: int = 0,
     ):
         if audio_data.dtype != np.float32:
             audio_data = (
@@ -68,7 +68,7 @@ class AudioPlayer:
                 else audio_data.astype(np.float32)
             )
         if np.max(np.abs(audio_data)) > 1.0:
-            audio_data /= np.max(np.abs(audio_data))
+            audio_data /= (np.max(np.abs(audio_data)) + 1e-8)
 
         audio_data = np.concatenate(
             [
