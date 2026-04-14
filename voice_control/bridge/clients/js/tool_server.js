@@ -42,7 +42,14 @@ class ToolServer {
     }
 
     async start() {
-        await this.socket.bind(this.endpoint);
+        try {
+            await this.socket.bind(this.endpoint);
+        } catch (err) {
+            console.error(`[ToolServer] Failed to bind to ${this.endpoint}:`, err);
+            this.isRunning = false;
+            return;
+        }
+
         this.isRunning = true;
         console.log(`[ToolServer] Listening on ${this.endpoint}`);
         if (this.authToken) {

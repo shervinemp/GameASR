@@ -56,7 +56,16 @@ json LLMClient::_request(const std::string &method, const json &params)
     }
 
     const char* start = static_cast<const char*>(reply.data());
-    auto response = json::parse(start, start + reply.size());
+    json response;
+    try
+    {
+        response = json::parse(start, start + reply.size());
+    }
+    catch (const json::parse_error& e)
+    {
+        throw std::runtime_error("JSON Parse Error: " + std::string(e.what()));
+    }
+
     if (response.contains("error"))
     {
         throw std::runtime_error("RPC Error: " + response["error"].dump());
