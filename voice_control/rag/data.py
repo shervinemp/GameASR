@@ -259,7 +259,10 @@ class Neo4jImporter:
 
         def sanitize_label(label: str) -> str:
             label = label.upper().replace(" ", "_").replace("-", "_")
-            return re.sub(r"[^A-Z0-9_]", "", label)
+            cleaned = re.sub(r"[^A-Z0-9_]", "", label)
+            if not cleaned:
+                return "RELATED_TO"
+            return cleaned
 
         triples_list = []
         for _, row in triples_df.iterrows():

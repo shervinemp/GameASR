@@ -226,13 +226,18 @@ class KnowledgeGraph:
             return
 
         import hashlib
+        import re
 
         # Calculate deterministic ids in python
         for t in triplets:
             sub = str(t.get('subject', '')).strip().lower()
             obj = str(t.get('object', '')).strip().lower()
-            t['sub_id'] = hashlib.md5(sub.encode('utf-8')).hexdigest()
-            t['obj_id'] = hashlib.md5(obj.encode('utf-8')).hexdigest()
+
+            sub_clean = re.sub(r'[\W_]+', '', sub)
+            obj_clean = re.sub(r'[\W_]+', '', obj)
+
+            t['sub_id'] = hashlib.md5(sub_clean.encode('utf-8')).hexdigest()
+            t['obj_id'] = hashlib.md5(obj_clean.encode('utf-8')).hexdigest()
 
         query = """
         UNWIND $triplets AS triplet

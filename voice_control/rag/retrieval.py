@@ -187,20 +187,34 @@ class WebRetriever(Retriever):
 
         self.logger.info(f"Searching for '{search_query}'...")
         results = []
-        try:
-            results = self.ddgs.text(search_query, max_results=top_k)
-            if not results:
+
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                results = self.ddgs.text(search_query, max_results=top_k)
+                if not results:
+                    self.logger.warning(
+                        f"Web search for '{search_query}' yielded no results."
+                    )
+                break  # Success
+            except Exception as e:
                 self.logger.warning(
-                    f"Web search for '{search_query}' yielded no results."
+                    f"Web search failed on attempt {attempt + 1}: {e}"
                 )
-        except Exception as e:
-            self.logger.error(
-                f"Web search failed for query '{search_query}': {e}"
-            )
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    self.logger.error(
+                        f"Web search completely failed for query '{search_query}' after {max_retries} attempts."
+                    )
 
         return results
 
-    def transform_query(self, query: str) -> List[str]:
+    def transform_query(self, query: str) -> str:
+        if len(query.split()) < 6:
+            return query
+
         prompt = (
             "Transform the following conversational query into a concise, keyword-based search engine query. "
             "For example, 'Can you tell me who the members of the band Coldplay are?' should become {'search_query': 'Coldplay band members'}."
