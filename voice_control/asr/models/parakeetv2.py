@@ -60,7 +60,7 @@ class Silero(ConsumerProducer):
         self,
         vad_threshold: float = 0.4,
         leading_silence_duration: float = 1.0,
-        trailing_silence_duration: float = 2.4,
+        trailing_silence_duration: float = 0.8,
         trailing_buffer_duration: float = 1.2,
     ):
         from onnx_asr import load_vad

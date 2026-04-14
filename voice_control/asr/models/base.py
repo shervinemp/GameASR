@@ -30,7 +30,9 @@ class ModelBase(ConsumerProducer, ABC):
                 # Strictly wait-free. Copy to avoid memory corruption from C.
                 self.audio_queue.put_nowait(in_data.copy())
             except queue.Full:
-                pass # Drop frame gracefully rather than crashing
+                print("Warning: Audio queue full, dropping frames and resetting VAD buffer due to desynchronization.")
+                with self.audio_queue.mutex:
+                    self.audio_queue.queue.clear()
 
         self._input_stream = self._inputstream(sound_device, sound_cb)
 
@@ -42,10 +44,8 @@ class ModelBase(ConsumerProducer, ABC):
                 continue
 
             if self._is_muted.is_set():
-                # Safely evaluate state inside the consumer thread
-                # Shape of silence_frame should match the chunk shape
-                silence_frame = np.zeros(chunk.shape, dtype=chunk.dtype)
-                self.__call__(silence_frame)
+                # Bypass VAD inference entirely when muted to save CPU
+                continue
             else:
                 self.__call__(chunk)
 
