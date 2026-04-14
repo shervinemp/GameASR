@@ -163,9 +163,14 @@ class Pipeline:
 
             def cb():
                 self.logger.info("Conversation reset.")
+                old_system_msg = self.session.conversation._system
+
                 self.session = Session(
                     llm=self.session.llm, conversation=Conversation()
                 )
+                if old_system_msg:
+                    self.session.conversation.set_system_message(old_system_msg)
+
                 self._configure_session()
 
             dispatcher.register(value, cb)

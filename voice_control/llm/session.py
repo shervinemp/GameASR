@@ -41,12 +41,20 @@ class Session:
 
             tool_responses = self.tool_caller.gather()
             if tool_responses:
+                has_error = False
                 for k, v in tool_responses.items():
+                    if isinstance(v, str) and v.startswith("Tool Error:"):
+                        has_error = True
                     self.conversation.add_tool_message(f"{k}: {v}")
 
-                self.conversation.add_tool_message(
-                    "Now, generate an answer based only on the returned responses."
-                )
+                if has_error:
+                    self.conversation.add_tool_message(
+                        "One or more tools failed to execute. Please inform the user of the error and suggest an alternative action."
+                    )
+                else:
+                    self.conversation.add_tool_message(
+                        "Now, generate an answer based only on the returned responses."
+                    )
                 yield from self._generate_response(tool_choice="none")
 
     def _generate_response(self, **kwargs) -> Generator[str, None, None]:
