@@ -216,7 +216,7 @@ class Qwen3(GGUFLLM):
 
 class Gemma4E2B(GGUFLLM):
     hf_repo: str = "unsloth/gemma-4-E2B-it-GGUF"
-    filename: str = "gemma-4-E2B-it-Q4_K_M.gguf"
+    filename: str = "gemma-4-E2B-it-UD-Q4_K_XL.gguf"
     n_ctx: int = 131072
     max_tokens: int = 8192
     decoder = GemmaE2BDecoder()

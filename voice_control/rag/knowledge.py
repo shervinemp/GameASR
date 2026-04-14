@@ -17,7 +17,8 @@ class KnowledgeGraph:
             uri,
             auth=(user, password),
             max_connection_pool_size=100,
-            connection_acquisition_timeout=2.0
+            connection_acquisition_timeout=2.0,
+            keep_alive=True
         )
         embedding_model_name = config.get(
             "llm.models.embedding", "google/embeddinggemma-300m"

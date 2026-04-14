@@ -180,13 +180,15 @@ class Neo4jImporter:
         query = "CREATE FULLTEXT INDEX nodes_label_description_fulltext IF NOT EXISTS FOR (n:Entity) ON EACH [n.label, n.description]"
         self._run_query(query)
 
+        dimensions = self._embedding_model.get_sentence_embedding_dimension()
         create_vector_index(
             self._driver,
             name="embedding",
             label="Entity",
             embedding_property="embedding",
-            dimensions=384,
+            dimensions=dimensions,
             similarity_fn="cosine",
+            fail_if_exists=False,
         )
         print("Indexes are ready.")
 
