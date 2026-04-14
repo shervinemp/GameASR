@@ -10,6 +10,15 @@ using NetMQ.Sockets;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+public class RpcException : Exception
+{
+    public int Code { get; }
+    public RpcException(int code, string message) : base(message)
+    {
+        Code = code;
+    }
+}
+
 public class ToolServer : IDisposable
 {
     private ResponseSocket _server;
@@ -143,6 +152,15 @@ public class ToolServer : IDisposable
                 ["jsonrpc"] = "2.0",
                 ["result"] = result,
                 ["id"] = request["id"]
+            };
+        }
+        catch (RpcException ex)
+        {
+            response = new JObject
+            {
+                ["jsonrpc"] = "2.0",
+                ["error"] = new JObject {["code"] = ex.Code, ["message"] = ex.Message},
+                ["id"] = request?["id"]
             };
         }
         catch (Exception ex)

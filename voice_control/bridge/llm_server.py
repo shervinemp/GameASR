@@ -119,34 +119,44 @@ class LLMServer:
         return json.dumps(response_obj)
 
     def _worker_loop(self):
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REP)
-        self.socket.bind(self.endpoint)
-        self.logger.info(f"LLM Server bound to {self.endpoint}")
+        import asyncio
+        import zmq.asyncio
 
-        self.logger.info("RPC Server worker thread started.")
-        self._running = True
-        try:
-            while self._running:
-                if self.socket.poll(1000) & zmq.POLLIN:
-                    message = self.socket.recv_string(zmq.DONTWAIT)
-                    self.logger.debug(f"Received: {message}")
-                    response = self._handle_request(message)
-                    self.socket.send_string(response)
-                    self.logger.debug(f"Sent: {response}")
-        except KeyboardInterrupt:
-            self.logger.info(
-                "RPC Server shutting down due to KeyboardInterrupt."
-            )
-        except Exception as e:
-            self.logger.error(
-                f"Unhandled error in RPC Server worker loop: {e}"
-            )
-        finally:
-            self._running = False
-            self.socket.close()
-            self.context.term()
-            self.logger.info("ZeroMQ resources cleaned up.")
+        async def _async_worker_loop():
+            self.context = zmq.asyncio.Context()
+            self.socket = self.context.socket(zmq.REP)
+            self.socket.bind(self.endpoint)
+            self.logger.info(f"LLM Server bound to {self.endpoint}")
+
+            self.logger.info("RPC Server worker thread started.")
+            self._running = True
+            try:
+                while self._running:
+                    if await self.socket.poll(1000) & zmq.POLLIN:
+                        message = await self.socket.recv_string(zmq.DONTWAIT)
+                        self.logger.debug(f"Received: {message}")
+
+                        # Handle the request in a separate thread so it doesn't block other ZMQ operations
+                        response = await asyncio.to_thread(self._handle_request, message)
+
+                        await self.socket.send_string(response)
+                        self.logger.debug(f"Sent: {response}")
+            except KeyboardInterrupt:
+                self.logger.info(
+                    "RPC Server shutting down due to KeyboardInterrupt."
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"Unhandled error in RPC Server worker loop: {e}"
+                )
+            finally:
+                self._running = False
+                self.socket.setsockopt(zmq.LINGER, 0)
+                self.socket.close()
+                self.context.term()
+                self.logger.info("ZeroMQ resources cleaned up.")
+
+        asyncio.run(_async_worker_loop())
 
     def start(self):
         if not self._worker_thread:
