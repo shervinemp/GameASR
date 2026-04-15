@@ -46,6 +46,11 @@ end
 
 -- Updates all bodies and handles collision response (bounce back)
 function Collision:update(dt)
+  local displacements = {}
+  for i = 1, #self.bodies do
+    displacements[i] = {x = 0, y = 0}
+  end
+
   for i = 1, #self.bodies do
     local body1 = self.bodies[i]
     for j = i + 1, #self.bodies do
@@ -58,11 +63,11 @@ function Collision:update(dt)
         if overlapX < overlapY then
           -- X-axis collision
           if body1.x < body2.x then
-            body1.x = body1.x - overlapX * 0.5
-            body2.x = body2.x + overlapX * 0.5
+            displacements[i].x = displacements[i].x - overlapX * 0.5
+            displacements[j].x = displacements[j].x + overlapX * 0.5
           else
-            body1.x = body1.x + overlapX * 0.5
-            body2.x = body2.x - overlapX * 0.5
+            displacements[i].x = displacements[i].x + overlapX * 0.5
+            displacements[j].x = displacements[j].x - overlapX * 0.5
           end
 
           -- Reverse X velocity
@@ -72,11 +77,11 @@ function Collision:update(dt)
         else
           -- Y-axis collision
           if body1.y < body2.y then
-            body1.y = body1.y - overlapY * 0.5
-            body2.y = body2.y + overlapY * 0.5
+            displacements[i].y = displacements[i].y - overlapY * 0.5
+            displacements[j].y = displacements[j].y + overlapY * 0.5
           else
-            body1.y = body1.y + overlapY * 0.5
-            body2.y = body2.y - overlapY * 0.5
+            displacements[i].y = displacements[i].y + overlapY * 0.5
+            displacements[j].y = displacements[j].y - overlapY * 0.5
           end
 
           -- Reverse Y velocity
@@ -85,6 +90,15 @@ function Collision:update(dt)
           body2.dy = tempVy
         end
       end
+    end
+  end
+
+  -- Apply accumulated displacements
+  for i = 1, #self.bodies do
+    local body = self.bodies[i]
+    if displacements[i].x ~= 0 or displacements[i].y ~= 0 then
+      body.x = body.x + displacements[i].x
+      body.y = body.y + displacements[i].y
     end
   end
 end

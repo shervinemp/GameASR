@@ -41,4 +41,8 @@ function Input:isKeyReleased(key)
   return not self.pressedKeys[key]
 end
 
+function Input:clear()
+  self.pressedKeys = {}
+end
+
 return Input

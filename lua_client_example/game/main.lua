@@ -114,10 +114,10 @@ function love.update(dt)
 
       -- Reset velocities for next frame
       if input:isKeyReleased("up") or input:isKeyReleased("down") then
-        player.dy = 0
+        player.dy = player.dy * 0.9
       end
       if input:isKeyReleased("left") or input:isKeyReleased("right") then
-        player.dx = 0
+        player.dx = player.dx * 0.9
       end
     end
 
