@@ -114,10 +114,10 @@ function love.update(dt)
 
       -- Reset velocities for next frame
       if input:isKeyReleased("up") or input:isKeyReleased("down") then
-        player.dy = player.dy * 0.9
+        player.dy = 0
       end
       if input:isKeyReleased("left") or input:isKeyReleased("right") then
-        player.dx = player.dx * 0.9
+        player.dx = 0
       end
     end
 
@@ -128,14 +128,10 @@ function love.update(dt)
   end
 
   if llm_client and llm_client.poll then
-      llm_poll_timer = (llm_poll_timer or 0) + dt
-      if llm_poll_timer >= 0.1 then
-          llm_poll_timer = 0
-          local llm_response = llm_client:poll()
-          if llm_response then
-              if execute_game_command then
-                  execute_game_command(llm_response)
-              end
+      local llm_response = llm_client:poll()
+      if llm_response then
+          if execute_game_command then
+              execute_game_command(llm_response)
           end
       end
   end

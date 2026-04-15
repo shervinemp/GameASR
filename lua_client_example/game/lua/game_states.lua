@@ -28,15 +28,9 @@ function Unit:update(dt)
     local dy = self.target_y - self.y
     local dist = math.sqrt(dx*dx + dy*dy)
 
-    if dist > 0 then
-        local move_dist = self.speed * dt
-        if dist <= move_dist then
-            self.x = self.target_x
-            self.y = self.target_y
-        else
-            self.x = self.x + (dx / dist) * move_dist
-            self.y = self.y + (dy / dist) * move_dist
-        end
+    if dist > 1 then
+        self.x = self.x + (dx / dist) * self.speed * dt
+        self.y = self.y + (dy / dist) * self.speed * dt
     end
 end
 
@@ -98,8 +92,7 @@ function play_state:update(dt)
 
         -- Remove old bullets
         if b.life < 0 then
-            self.bullets[i] = self.bullets[#self.bullets]
-            self.bullets[#self.bullets] = nil
+            table.remove(self.bullets, i)
         end
     end
 end
@@ -133,9 +126,6 @@ GameState.states["play"] = play_state
 -- GameState Manager Functions
 function GameState.switch(state_name, ...)
     if GameState.states[state_name] then
-        if input and input.clear then
-            input:clear()
-        end
         GameState.current = GameState.states[state_name]
         if GameState.current.enter then
             GameState.current:enter(...)
