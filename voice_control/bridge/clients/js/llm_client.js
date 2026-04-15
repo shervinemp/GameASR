@@ -41,7 +41,14 @@ class LLMClient {
         }
 
         await this.socket.send(JSON.stringify(request));
-        const [result] = await this.socket.receive();
+
+        let result;
+        try {
+            [result] = await this.socket.receive();
+        } catch (error) {
+            throw new Error(`Socket Receive Error: ${error.message}`);
+        }
+
         const response = JSON.parse(result.toString());
 
         if (response.error) {

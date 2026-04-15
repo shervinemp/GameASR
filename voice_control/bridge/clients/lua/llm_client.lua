@@ -53,7 +53,7 @@ function LLMClient:connect()
         return false, "Failed to create ZeroMQ REQ socket: " .. tostring(err_msg)
     end
 
-    self.socket:set_option(zmq.RCVTIMEO, 5000)
+    self.socket:set_option(zmq.RCVTIMEO, 30000)
     self.socket:set_option(zmq.SNDTIMEO, 5000)
 
     local connected_ok, connect_err = pcall(function()

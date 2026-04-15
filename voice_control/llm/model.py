@@ -52,9 +52,11 @@ class LLM(ABC):
 
     def count_tokens(self, text: str) -> int:
         """Counts the number of tokens in a string.
-        Default implementation is an approximation (4 characters per token).
+        Default implementation is an approximation using tiktoken.
         """
-        return len(text) // 4
+        import tiktoken
+        encoder = tiktoken.get_encoding("cl100k_base")
+        return len(encoder.encode(text))
 
 
 class GGUFLLM(LLM):
@@ -214,7 +216,7 @@ class Qwen3(GGUFLLM):
 
 class Gemma4E2B(GGUFLLM):
     hf_repo: str = "unsloth/gemma-4-E2B-it-GGUF"
-    filename: str = "gemma-4-E2B-it-Q4_K_M.gguf"
+    filename: str = "gemma-4-E2B-it-UD-Q4_K_XL.gguf"
     n_ctx: int = 131072
     max_tokens: int = 8192
     decoder = GemmaE2BDecoder()

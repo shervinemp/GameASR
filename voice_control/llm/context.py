@@ -83,6 +83,11 @@ class ContextManager:
             if current_tokens <= history_limit:
                 break
 
+            # Retain at least 1 message (the current prompt)
+            if i == len(message_tokens) - 1:
+                self.logger.error("Context too long: even a single message exceeds the context limit.")
+                break
+
             # Remove this message from the count
             current_tokens -= tokens
             new_cutoff = i + 1

@@ -106,8 +106,10 @@ class SPathRAG(BaseRAG):
     ) -> str:
         self.logger.info("Starting S-Path-RAG Neural-Socratic Dialogue")
 
+        import hashlib
         current_query = query
         accumulated_context = []
+        seen_hashes = set()
 
         for iteration in range(max_iterations):
             self.logger.info(f"Retrieval Iteration {iteration + 1}")
@@ -121,12 +123,14 @@ class SPathRAG(BaseRAG):
                 break
 
             reranked, scores = self.reranker(query, results=results)
-            top_results = [
-                r for _, r, s in zip(range(top_k), reranked, scores)
-            ]
-            accumulated_context.extend(top_results)
 
-            context_str = "\n".join(set(accumulated_context))
+            for _, r, s in zip(range(top_k), reranked, scores):
+                h = hashlib.md5(r.encode('utf-8')).hexdigest()
+                if h not in seen_hashes:
+                    seen_hashes.add(h)
+                    accumulated_context.append(r)
+
+            context_str = "\n".join(accumulated_context)
 
             # Ask the LLM to verify if the context is sufficient (The Socratic Check)
             draft_answer = self.composer.generate_answer(query, context_str)
@@ -147,5 +151,5 @@ class SPathRAG(BaseRAG):
                 current_query = f"{query}. We are missing: {critique}"
 
         # Final generation
-        final_context = "\n".join(set(accumulated_context))
+        final_context = "\n".join(accumulated_context)
         return self.composer(query, context=final_context)

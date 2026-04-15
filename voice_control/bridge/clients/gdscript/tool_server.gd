@@ -8,6 +8,8 @@ var zmq = ZMQ.new()
 var socket
 var endpoint = "tcp://0.0.0.0:8080"
 var auth_token = null # Set this via environment variable or config
+var should_exit = false
+var thread
 
 # --- RPC Method Dispatcher ---
 var RPC_METHODS = {
@@ -45,11 +47,11 @@ func _ready():
         print("[ToolServer] Authentication is enabled.")
 
     # Run the server loop in a separate thread
-    var thread = Thread.new()
+    thread = Thread.new()
     thread.start(self, "_server_loop")
 
 func _server_loop(_userdata):
-    while true:
+    while not should_exit:
         var message = socket.recv_json()
         var response = _handle_request(message)
         socket.send_json(response)
@@ -69,6 +71,9 @@ func _handle_request(request):
     return {"jsonrpc": "2.0", "result": result, "id": request.get("id")}
 
 func _exit_tree():
+    should_exit = true
+    if thread:
+        thread.wait_to_finish()
     socket.close()
     zmq.term()
     print("[ToolServer] Stopped.")

@@ -17,7 +17,8 @@ class KnowledgeGraph:
             uri,
             auth=(user, password),
             max_connection_pool_size=100,
-            connection_acquisition_timeout=2.0
+            connection_acquisition_timeout=2.0,
+            keep_alive=True
         )
         embedding_model_name = config.get(
             "llm.models.embedding", "google/embeddinggemma-300m"
@@ -226,13 +227,18 @@ class KnowledgeGraph:
             return
 
         import hashlib
+        import re
 
         # Calculate deterministic ids in python
         for t in triplets:
             sub = str(t.get('subject', '')).strip().lower()
             obj = str(t.get('object', '')).strip().lower()
-            t['sub_id'] = hashlib.md5(sub.encode('utf-8')).hexdigest()
-            t['obj_id'] = hashlib.md5(obj.encode('utf-8')).hexdigest()
+
+            sub_clean = re.sub(r'[\W_]+', '', sub)
+            obj_clean = re.sub(r'[\W_]+', '', obj)
+
+            t['sub_id'] = hashlib.md5(sub_clean.encode('utf-8')).hexdigest()
+            t['obj_id'] = hashlib.md5(obj_clean.encode('utf-8')).hexdigest()
 
         query = """
         UNWIND $triplets AS triplet

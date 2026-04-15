@@ -17,8 +17,11 @@ class ModelBase(ConsumerProducer, ABC):
     ):
         self.audio_queue = queue.Queue(maxsize=100)
         self._is_muted = threading.Event()
+        self._is_running = threading.Event()
+        self._is_running.set()
 
-        threading.Thread(target=self._vad_worker, daemon=True).start()
+        self._vad_thread = threading.Thread(target=self._vad_worker, daemon=True)
+        self._vad_thread.start()
 
         def sound_cb(in_data, frames, time, status):
             if status:
@@ -27,18 +30,22 @@ class ModelBase(ConsumerProducer, ABC):
                 # Strictly wait-free. Copy to avoid memory corruption from C.
                 self.audio_queue.put_nowait(in_data.copy())
             except queue.Full:
-                pass # Drop frame gracefully rather than crashing
+                print("Warning: Audio queue full, dropping frames and resetting VAD buffer due to desynchronization.")
+                with self.audio_queue.mutex:
+                    self.audio_queue.queue.clear()
 
         self._input_stream = self._inputstream(sound_device, sound_cb)
 
     def _vad_worker(self):
-        while True:
-            chunk = self.audio_queue.get()
+        while self._is_running.is_set():
+            try:
+                chunk = self.audio_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
             if self._is_muted.is_set():
-                # Safely evaluate state inside the consumer thread
-                # Shape of silence_frame should match the chunk shape
-                silence_frame = np.zeros(chunk.shape, dtype=chunk.dtype)
-                self.__call__(silence_frame)
+                # Bypass VAD inference entirely when muted to save CPU
+                continue
             else:
                 self.__call__(chunk)
 
@@ -64,6 +71,9 @@ class ModelBase(ConsumerProducer, ABC):
 
     def stop(self):
         self._input_stream.stop()
+        self._is_running.clear()
+        if hasattr(self, "_vad_thread"):
+            self._vad_thread.join(timeout=1.0)
 
     def __enter__(self):
         self.start()

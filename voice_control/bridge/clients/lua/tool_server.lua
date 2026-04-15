@@ -88,6 +88,8 @@ function ToolServer:update(dt)
     if ok and request_str then
         local response_str = self:_handle_request(request_str)
         self.socket:send(response_str)
+        -- Force a small GC step to clean up decoded JSON strings
+        collectgarbage("step", 2)
     end
 end
 

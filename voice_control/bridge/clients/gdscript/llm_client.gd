@@ -36,6 +36,9 @@ func _process(delta):
     if pending_requests and socket.poll(0) > 0:
         var response_json = socket.recv_json(ZMQ.DONTWAIT)
         pending_requests = false
+        if typeof(response_json) != TYPE_DICTIONARY:
+            push_error("LLMClient received non-dictionary JSON response")
+            return
         emit_signal("response_received", response_json)
 
 func _request(method, params):

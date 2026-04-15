@@ -60,7 +60,7 @@ class Silero(ConsumerProducer):
         self,
         vad_threshold: float = 0.4,
         leading_silence_duration: float = 1.0,
-        trailing_silence_duration: float = 2.4,
+        trailing_silence_duration: float = 0.8,
         trailing_buffer_duration: float = 1.2,
     ):
         from onnx_asr import load_vad
@@ -109,12 +109,16 @@ class Silero(ConsumerProducer):
                 pass
 
     def _consume(self, chunk: Iterable[np.ndarray]):
-        acquired = self._lock.acquire(timeout=2)
+        acquired = self._lock.acquire(blocking=False)
         if not acquired:
             return
 
         try:
-            chunk = np.mean(chunk, axis=1)
+            if len(chunk.shape) > 1 and chunk.shape[1] > 1:
+                chunk = np.mean(chunk, axis=1)
+            elif len(chunk.shape) > 1:
+                chunk = chunk[:, 0]
+
             self._model_input_frame = np.concatenate(
                 [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
             )

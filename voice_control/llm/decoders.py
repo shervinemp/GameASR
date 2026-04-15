@@ -53,12 +53,16 @@ class LegacyXMLDecoder(StreamDecoder):
                         buffer = buffer.split("<toolcall>", 1)[1]
                         continue # Re-evaluate buffer
                     else:
-                        safe_idx = buffer.rfind("<")
-                        if safe_idx != -1 and len(buffer) - safe_idx < 15:
-                            if safe_idx > 0: yield buffer[:safe_idx]; buffer = buffer[safe_idx:]
-                            break # Wait for more chunks
+                        match = re.search(r'<t(?:o(?:o(?:l(?:c(?:a(?:l(?:l)?)?)?)?)?)?)?)?$', buffer)
+                        if match:
+                            safe_idx = match.start()
+                            if safe_idx > 0:
+                                yield buffer[:safe_idx]
+                                buffer = buffer[safe_idx:]
+                            break # Wait for more chunks to complete the tag
                         else:
-                            yield buffer; buffer = ""
+                            yield buffer
+                            buffer = ""
                             break
 
         if buffer and not in_tool: yield buffer

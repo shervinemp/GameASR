@@ -75,7 +75,7 @@ void ToolServer::server_loop()
         zmq::pollitem_t items[] = {
             { static_cast<void*>(_socket), 0, ZMQ_POLLIN, 0 }
         };
-        zmq::poll(items, 1, std::chrono::milliseconds(100));
+        zmq::poll(items, 1, std::chrono::milliseconds(100).count());
 
         if (items[0].revents & ZMQ_POLLIN)
         {
