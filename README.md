@@ -5,36 +5,28 @@ A modular voice control pipeline that lets you control games and applications us
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph GameEngine["Game Engine (Lua)"]
-        RPC["RPC API (rpc.lua)"]
-        GameState["Game State"]
-        VC["Voice Client (client.lua)"]
+flowchart LR
+    subgraph Game["Game Engine (Lua)"]
+        Client["Voice Client"]
     end
 
-    subgraph Pipeline["Pipeline (voice_control/)"]
-        ASR["ASR (STT)"] --> LLM["LLM (intent)"]
-        LLM --> TTS["TTS (voice)"]
-
-        subgraph RAG["RAG (S-Path)"]
-            GS["GraphSearch"]
-            GS --- NBR["Neighborhood"]
-            GS --- SPath["ShortestPath"]
-            SGR["SmartGraphRetr"]
-            RR["Reranker"]
-            CP["Composer"]
-        end
-
-        LLM -.->|Socratic loop| SGR
-        SGR -.->|critique| LLM
+    subgraph Pipeline["Voice Pipeline"]
+        ASR["ASR (STT)"] -->|transcript| LLM["LLM (intent)"]
+        LLM -->|response| TTS["TTS (voice)"]
     end
 
-    KG["Neo4j KG (vector + fulltext)"]
+    subgraph RAG["RAG (S-Path)"]
+        SGR["SmartGraph<br/>Retriever"] --> GS["GraphSearch"]
+        GS --> RR["Reranker"]
+        RR --> CP["Composer"]
+    end
 
-    RPC --- VC
-    VC <-- "ZMQ (tcp/ipc)" --> Pipeline
-    SGR --> KG
-    KG --> SGR
+    KG[("Neo4j KG<br/>(vector + fulltext)")]
+
+    Client <==>|ZMQ| Pipeline
+    LLM -.->|keywords| SGR
+    SGR -.->|context| LLM
+    SGR <==> KG
 ```
 
 ## Features
