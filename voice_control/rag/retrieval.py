@@ -231,11 +231,14 @@ class SmartGraphRetriever(Retriever):
         from ..common.utils import safe_json_loads
 
         prompt = (
-            "Extract key entities and keywords from the following query. "
-            "Focus on specific named entities (people, places, things, concepts). "
-            "Exclude generic relationship words like 'relationship', 'connection', 'difference', 'meaning', 'about'. "
-            "Exclude the word 'RAG'. Return a JSON array of strings."
-            f'\nQuery: "{query}"'
+            "Extract named entities from the query below.\n"
+            "Rules:\n"
+            "- Pick specific names: people, places, things\n"
+            "- Skip generic words: relationship, connection, difference, meaning, about\n"
+            "- Skip the word RAG\n"
+            "- Return a JSON list of strings\n"
+            f'Query: "{query}"\n'
+            "Output:"
         )
         response = "".join(self.session(prompt)).strip()
         return safe_json_loads(response, fallback=[query])
@@ -356,10 +359,12 @@ class WebRetriever(Retriever):
             return query
 
         prompt = (
-            "Transform the following conversational query into a concise, keyword-based search engine query. "
-            "For example, 'Can you tell me who the members of the band Coldplay are?' should become {'search_query': 'Coldplay band members'}."
-            f'\nConversational Query: "{query}"'
-            f"\nSearch Engine Query: "
+            "Turn the query into a short keyword search.\n"
+            "Example:\n"
+            'Input: "Can you tell me who the members of the band Coldplay are?"\n'
+            'Output: {"search_query": "Coldplay band members"}\n\n'
+            f'Input: "{query}"\n'
+            "Output:"
         )
 
         response = "".join(self.session(prompt))

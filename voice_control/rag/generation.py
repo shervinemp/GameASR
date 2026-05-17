@@ -49,12 +49,15 @@ class Composer:
             return ""
 
         prompt = (
-            "Your job is to summarize the provided context into clear and concise bulletpoints to help answer a user's query.\n"
-            "Focus only on the information that is directly relevant to the query. Avoid making new assumptions or deductions.\n"
-            "**IMPORTANT:** If you find conflicting information, you must highlight the contradictions in your summary.\n\n"
-            f"**User Query:**\n{query}\n"
-            f"**Context to Summarize:**\n{context}\n\n"
-            "**Concise Summary (including contradictions):**"
+            "Summarize the context below to answer the query.\n"
+            "Rules:\n"
+            "- Short bullet points\n"
+            "- Use only facts from the context\n"
+            "- No new information\n"
+            "- If facts conflict, list both sides\n\n"
+            f"Query: {query}\n"
+            f"Context: {context}\n"
+            "Summary:"
         )
         summary = "".join(self.session(prompt)).strip()
         return summary
@@ -64,13 +67,16 @@ class Composer:
     ) -> str:
         critique_section = ""
         if critique:
-            critique_section = f"Please softly improve the previous answer based on the following critique:\n**Critique:** {critique}\n"
+            critique_section = f"Improve the previous answer. Fix: {critique}\n"
         prompt = (
-            "Based on the context below, provide the best possible isolated human-readable answer to the user's query.\n"
-            f"**Context:**\n{context}\n\n"
-            f"**Query:**\n{query}\n"
+            "Read the context and answer the query.\n"
+            "Rules:\n"
+            "- Use only facts from the context\n"
+            "- Short, direct answer\n"
             f"{critique_section}"
-            "\n**Answer:**"
+            f"Context: {context}\n"
+            f"Query: {query}\n"
+            "Answer:"
         )
         answer = "".join(self.session(prompt)).strip()
         return answer
@@ -80,14 +86,14 @@ class Composer:
     ) -> Tuple[str, bool]:
         """Critiques a given answer and provides a structured JSON response."""
         prompt = (
-            "You are a fact-checker. Your task is to critique the 'Proposed Answer' based on the 'Evidence'.\n"
-            "Please return a JSON object with two keys:\n"
-            "`explanation`: A string containing your reasoning. If incorrect, explain what is wrong or missing; Otherwise, this can be a simple confirmation (e.g., 'The answer is fully supported.').\n"
-            "`is_correct`: A boolean indicating if the answer is fully supported by the evidence.\n"
-            f"**Evidence:**\n{context}\n\n"
-            f"**Query:**\n{query}\n\n"
-            f"**Proposed Answer:**\n{answer}\n\n"
-            "**JSON Response:**"
+            "Check if the Answer matches the Evidence.\n"
+            "Return JSON with exactly two keys:\n"
+            '- "explanation": describe what is right or wrong\n'
+            '- "is_correct": true if answer uses only facts from evidence, else false\n\n'
+            f"Evidence: {context}\n"
+            f"Query: {query}\n"
+            f"Answer: {answer}\n"
+            '{"explanation": "...", "is_correct": true/false}'
         )
         try:
             response_str = "".join(self.session(prompt)).strip()
@@ -109,14 +115,15 @@ class Composer:
             "Extracting new triplets from the answer and context..."
         )
         prompt = (
-            "You are a knowledge graph expert. Your task is to extract new, high-confidence facts from the 'Context' that are supported by the final 'Verified Answer'. "
-            "Do not extract facts that are already directly present in 'Context'.\n"
-            "Format the new facts as a JSON list of triplets, where each triplet has 'subject', 'predicate', and 'object' keys. "
-            "The predicate should be a concise action phrase (e.g., 'IS A', 'HAS MEMBER', 'WAS BORN IN').\n"
-            "If no new facts can be confidently extracted, return an empty JSON list.\n\n"
-            f"**Context:**\n{context}\n\n"
-            f"**Verified Answer:**\n{answer}\n\n"
-            "**New Triplets (JSON List):**"
+            "Extract new facts from the answer that are not in the context.\n"
+            "Rules:\n"
+            "- Skip facts already in the context\n"
+            "- Each fact is a triplet: {\"subject\": \"X\", \"predicate\": \"REL\", \"object\": \"Y\"}\n"
+            "- Predicate examples: IS_A, HAS_MEMBER, WAS_BORN_IN, LOCATED_IN, DEVELOPED\n"
+            "- If no new facts, return []\n\n"
+            f"Context: {context}\n"
+            f"Answer: {answer}\n"
+            "New triplets:"
         )
         try:
             response = "".join(self.session(prompt))
