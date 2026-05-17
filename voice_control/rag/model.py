@@ -110,6 +110,7 @@ class SPathRAG(BaseRAG):
         current_query = query
         accumulated_context = []
         seen_hashes = set()
+        high_confidence = False
 
         for iteration in range(max_iterations):
             self.logger.info(f"Retrieval Iteration {iteration + 1}")
@@ -124,13 +125,24 @@ class SPathRAG(BaseRAG):
 
             reranked, _ = self.reranker(query, results=results)
 
+            new_count = 0
             for r in reranked[:top_k]:
                 h = hashlib.md5(r.encode('utf-8')).hexdigest()
                 if h not in seen_hashes:
                     seen_hashes.add(h)
                     accumulated_context.append(r)
+                    new_count += 1
 
             context_str = "\n".join(accumulated_context)
+
+            # Skip Socratic loop on first iteration if we have exact-label matches
+            # (entity linking found direct KG hits, no need to self-correct)
+            if iteration == 0 and new_count >= top_k:
+                high_confidence = True
+                self.logger.info(
+                    "High-confidence initial retrieval. Skipping Socratic correction."
+                )
+                break
 
             # Ask the LLM to verify if the context is sufficient (The Socratic Check)
             draft_answer = self.composer.generate_answer(query, context_str)
@@ -142,20 +154,21 @@ class SPathRAG(BaseRAG):
 
             if is_correct:
                 self.logger.info("LLM is confident. Halting path expansion.")
+                high_confidence = True
                 break
             else:
                 self.logger.info(
                     f"Uncertainty detected. Expanding search query based on critique: {critique}"
                 )
-                # Append the critique to guide the next S-Path anchor selection
                 current_query = f"{query}. We are missing: {critique}"
 
         # Final generation
         final_context = "\n".join(accumulated_context)
         final_answer = self.composer(query, context=final_context)
 
-        # Active learning: extract and persist new triplets
-        if self._graph:
+        # Active learning: only extract triplets when we have meaningful context
+        has_info = final_context.strip() and "Insufficient information" not in final_answer and len(accumulated_context) >= 2
+        if self._graph and has_info:
             try:
                 triplets = self.composer.extract_new_triplets(
                     final_answer, final_context

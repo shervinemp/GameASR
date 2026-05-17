@@ -130,6 +130,26 @@ class KnowledgeGraph:
 
         return self._execute_with_retry(_run)
 
+    def exact_label_search(self, labels: List[str]) -> Dict[str, Dict]:
+        """Returns a dict mapping normalized label -> full node for exact label matches."""
+        if not labels:
+            return {}
+
+        clean_labels = [l.strip().lower() for l in labels if l.strip()]
+        query = """
+            UNWIND $labels AS label
+            MATCH (n:Entity)
+            WHERE toLower(n.label) = label
+            RETURN n.id AS id, n.label AS label, n.description AS description
+        """
+
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(query, labels=clean_labels)
+                return {r["label"]: {"id": r["id"], "label": r["label"], "description": r["description"]} for r in records}
+
+        return self._execute_with_retry(_run)
+
     def subgraph(self, node_ids: List[str]) -> Dict[str, List[Dict]]:
         query = f"""
             MATCH (n:Entity) WHERE n.id IN $nodes

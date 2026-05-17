@@ -73,6 +73,11 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         if not self.graph:
             return []
 
+        # 1. Exact-label lookup: fast path for known entities
+        exact_matches = self.graph.exact_label_search(keywords)
+        seen_ids = {n["id"] for n in exact_matches.values() if n.get("id")}
+
+        # 2. Vector + keyword search for semantically similar entities
         embeddings = self.graph.embedding_model.encode(keywords).tolist()
         vector_results = self.graph.vector_search(
             embeddings, top_k=top_k_vector
@@ -81,9 +86,13 @@ class NeighborhoodStrategy(GraphSearchStrategy):
             keywords, top_k=top_k_keyword
         )
 
-        combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
+        combined = {n["id"]: n for n in exact_matches.values()}
+        for item in chain.from_iterable(vector_results):
+            if item["id"] not in seen_ids:
+                combined[item["id"]] = item
         for item in chain.from_iterable(keyword_results):
-            combined[item["id"]] = item
+            if item["id"] not in seen_ids:
+                combined[item["id"]] = item
 
         results = list(combined.values())
         if n_hops:
@@ -105,13 +114,14 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         formatted = []
         for item in results:
             if "parent" in item and "node" in item:
-                formatted.append(
-                    f"{item.get('parent', {}).get('label', '')} -[{item.get('relationship', {}).get('type', 'RELATED_TO')}]-> {item.get('node', {}).get('label', '')}"
-                )
+                parent = item.get("parent", {}).get("label", "")
+                node_label = item.get("node", {}).get("label", "")
+                rel_type = item.get("relationship", {}).get("type", "RELATED_TO").replace("_", " ").title()
+                formatted.append(f"{parent} is {rel_type} {node_label}.")
             else:
-                formatted.append(
-                    f"{item.get('label', '')}: {item.get('description', '')}"
-                )
+                label = item.get("label", "")
+                desc = item.get("description", "")
+                formatted.append(f"{label}: {desc}" if desc else label)
         return list(dict.fromkeys(formatted))
 
 
@@ -128,22 +138,37 @@ class ShortestPathStrategy(GraphSearchStrategy):
         if not self.graph or len(keywords) < 2:
             return []  # S-Path mathematically requires 2+ anchors
 
+        # 1. Exact-label lookup: fast path
+        exact_matches = self.graph.exact_label_search(keywords)
+        exact_ids = {n["id"] for n in exact_matches.values() if n.get("id")}
+
+        # 2. Vector search for additional anchors
         embeddings = self.graph.embedding_model.encode(keywords).tolist()
         batch_results = self.graph.vector_search(
             embeddings, top_k=top_k_vector
         )
 
-        anchor_nodes = list(
-            set(
-                node["id"]
-                for res_list in batch_results
-                for node in res_list
-                if node.get("id")
-            )
-        )
+        # 3. Deduplicate anchors by label (same entity from different keywords)
+        anchor_map = {}  # label -> id (first occurrence wins)
+        # Exact matches take priority
+        for node in exact_matches.values():
+            if node.get("label") and node.get("id"):
+                anchor_map[node["label"].lower()] = node["id"]
+        # Vector results fill gaps
+        for res_list in batch_results:
+            for node in res_list:
+                label = node.get("label", "").lower()
+                nid = node.get("id")
+                if label and nid and label not in anchor_map:
+                    anchor_map[label] = nid
+
+        anchor_ids = list(anchor_map.values())
+        if len(anchor_ids) < 2:
+            # Less than 2 unique anchors after dedup
+            return []
 
         all_paths = []
-        for src, tgt in combinations(anchor_nodes, 2):
+        for src, tgt in combinations(anchor_ids, 2):
             all_paths.extend(
                 self.graph.k_shortest_paths(
                     source_id=src, target_id=tgt, k=max_paths
@@ -156,14 +181,16 @@ class ShortestPathStrategy(GraphSearchStrategy):
         for path_data in results:
             if "nodes" not in path_data or "relations" not in path_data:
                 continue
-            trace = []
-            for i, node in enumerate(path_data["nodes"]):
-                trace.append(node.get("label", "Unknown"))
-                if i < len(path_data["relations"]):
-                    trace.append(
-                        f"-[{path_data['relations'][i].get('type', 'RELATED_TO')}]->"
-                    )
-            formatted.append(" ".join(trace))
+            nodes = path_data["nodes"]
+            relations = path_data["relations"]
+            parts = []
+            for i, rel in enumerate(relations):
+                src = nodes[i].get("label", "Unknown")
+                tgt = nodes[i + 1].get("label", "Unknown")
+                rel_type = rel.get("type", "RELATED_TO").replace("_", " ").title()
+                parts.append(f"{src} is {rel_type} {tgt}")
+            if parts:
+                formatted.append(". ".join(parts) + ".")
         return list(dict.fromkeys(formatted))
 
 
@@ -215,52 +242,95 @@ class SmartGraphRetriever(Retriever):
 
 class WebRetriever(Retriever):
     def __init__(self, session: Session):
-        from ddgs import DDGS
-
         self.logger = get_logger(__file__)
-
         self.session = session
-        self.ddgs = DDGS()
+        self._ddgs = None
+
+    def _get_ddgs(self):
+        if self._ddgs is None:
+            try:
+                from ddgs import DDGS
+                self._ddgs = DDGS()
+            except Exception:
+                self._ddgs = False
+        return self._ddgs if self._ddgs is not False else None
 
     def __call__(self, query: str, **kwargs) -> List[str]:
         search_results = self.search(query=query, **kwargs)
         return self.format_results(search_results)
 
     def search(self, query: str, *, top_k: int = 3) -> List[dict]:
-        """Performs a web search for the given query using the DuckDuckGo API."""
+        """Performs a web search with DuckDuckGo fallback chain."""
         search_query = query
         try:
             search_query = self.transform_query(query=query)
         except Exception as e:
             self.logger.warning(
-                f"Failed to extract keywords due to an error. Using original query as a keyword. Error: {e}"
+                f"Failed to extract keywords. Using original query. Error: {e}"
             )
 
         self.logger.info(f"Searching for '{search_query}'...")
-        results = []
 
-        import time
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                results = self.ddgs.text(search_query, max_results=top_k)
-                if not results:
-                    self.logger.warning(
-                        f"Web search for '{search_query}' yielded no results."
-                    )
-                break  # Success
-            except Exception as e:
-                self.logger.warning(
-                    f"Web search failed on attempt {attempt + 1}: {e}"
-                )
-                if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
-                else:
-                    self.logger.error(
-                        f"Web search completely failed for query '{search_query}' after {max_retries} attempts."
-                    )
+        # Try DDGS library first
+        ddgs = self._get_ddgs()
+        results = self._search_ddgs(ddgs, search_query, top_k) if ddgs else []
+
+        # Fallback: direct HTTP request to DuckDuckGo Lite API
+        if not results:
+            results = self._search_lite_fallback(search_query, top_k)
+
+        if not results:
+            self.logger.warning(f"Web search for '{search_query}' yielded no results.")
 
         return results
+
+    def _search_ddgs(self, ddgs, query: str, top_k: int) -> List[dict]:
+        import time
+        for attempt in range(3):
+            try:
+                results = ddgs.text(query, max_results=top_k)
+                if results:
+                    return results
+            except Exception as e:
+                self.logger.warning(f"DDGS attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+        return []
+
+    def _search_lite_fallback(self, query: str, top_k: int) -> List[dict]:
+        """Fallback using DuckDuckGo's HTML-only lite endpoint."""
+        try:
+            import urllib.request
+            import urllib.parse
+
+            url = "https://lite.duckduckgo.com/lite/"
+            data = urllib.parse.urlencode({"q": query}).encode()
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; VoiceBot/1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+
+            # Parse minimal HTML results from DDG lite
+            import re
+            results = []
+            # DDG lite returns <a href="...">text</a> in result rows
+            for match in re.finditer(
+                r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>',
+                html,
+            ):
+                href = match.group(1)
+                title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+                if title and len(results) < top_k:
+                    results.append({"title": title, "href": href, "body": ""})
+                if len(results) >= top_k:
+                    break
+            return results
+        except Exception as e:
+            self.logger.warning(f"Web search fallback also failed: {e}")
+            return []
 
     def transform_query(self, query: str) -> str:
         if len(query.split()) < 6:
