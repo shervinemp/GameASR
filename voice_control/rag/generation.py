@@ -28,7 +28,8 @@ class Composer:
                 query=query, context=summary, critique=critique
             )
 
-            critique, is_correct = self.critique_answer(query, summary, answer)
+            # Critique against ORIGINAL context, not the lossy summary
+            critique, is_correct = self.critique_answer(query, context, answer)
 
             self.logger.debug(
                 f"Iter {i+1}:\nAnswer: {answer}\nCritique: {critique}"

@@ -297,7 +297,9 @@ class WebRetriever(Retriever):
         ddgs = self._get_ddgs()
         results = self._search_ddgs(ddgs, search_query, top_k) if ddgs else []
 
-        # Fallback: direct HTTP request to DuckDuckGo Lite API
+        # Fallback: try DDG Instant Answer API, then lite HTML
+        if not results:
+            results = self._search_instant_answer(search_query, top_k)
         if not results:
             results = self._search_lite_fallback(search_query, top_k)
 
@@ -318,6 +320,40 @@ class WebRetriever(Retriever):
                 if attempt < 2:
                     time.sleep(2 ** attempt)
         return []
+
+    def _search_instant_answer(self, query: str, top_k: int) -> List[dict]:
+        """Fallback using DuckDuckGo Instant Answer JSON API."""
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+
+            url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+
+            results = []
+            # Abstract (infobox summary)
+            abstract = data.get("AbstractText", "")
+            source = data.get("AbstractSource", "")
+            if abstract:
+                results.append({"title": source or "Summary", "body": abstract, "href": data.get("AbstractURL", "")})
+
+            # Related topics
+            for topic in data.get("RelatedTopics", []):
+                if "Text" in topic and len(results) < top_k:
+                    results.append({"title": topic.get("Text", "").split(" - ")[0], "body": topic.get("Text", ""), "href": topic.get("FirstURL", "")})
+                if len(results) >= top_k:
+                    break
+
+            return results
+        except Exception as e:
+            self.logger.warning(f"Instant Answer API failed: {e}")
+            return []
 
     def _search_lite_fallback(self, query: str, top_k: int) -> List[dict]:
         """Fallback using DuckDuckGo's HTML-only lite endpoint."""
@@ -388,7 +424,12 @@ class WebRetriever(Retriever):
         return search_query
 
     def format_results(self, results: List[dict]) -> List[str]:
-        return [
-            f"{r.get('title', '')}: {r.get('body', '')} -- <href>{r.get('href', '#')}</href>"
-            for r in results
-        ]
+        formatted = []
+        for r in results:
+            title = r.get("title", "")
+            body = r.get("body", "")
+            if title and body:
+                formatted.append(f"{title}: {body}")
+            elif title:
+                formatted.append(title)
+        return formatted
