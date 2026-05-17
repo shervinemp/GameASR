@@ -53,6 +53,7 @@ class ParakeetV2(ModelBase):
             dtype=np.float32,
         )
         super().disable_w_passthrough(value)
+        self._vad.flush()
 
 
 class Silero(ConsumerProducer):
@@ -96,15 +97,24 @@ class Silero(ConsumerProducer):
             self._model.CONTEXT_SIZE + self._model.HOP_SIZE, dtype=np.float32
         )
 
+    def flush(self):
+        with self._lock:
+            if self._is_speech_segment:
+                self._is_speech_segment = False
+                self._silence_counter = 0
+                self._queue.put(None)
+
     def _produce(self) -> Generator[np.ndarray, None, None]:
         buffer = deque()
         while True:
             try:
-                if (c := self._queue.get(timeout=1)) is not None:
+                c = self._queue.get(timeout=1)
+                if c is not None:
                     buffer.append(c)
-                elif len(buffer) >= 10:
-                    yield np.concatenate(buffer)
-                    buffer.clear()
+                else:
+                    if buffer:
+                        yield np.concatenate(buffer)
+                        buffer.clear()
             except Empty:
                 pass
 

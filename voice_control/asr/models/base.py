@@ -43,11 +43,7 @@ class ModelBase(ConsumerProducer, ABC):
             except queue.Empty:
                 continue
 
-            if self._is_muted.is_set():
-                # Bypass VAD inference entirely when muted to save CPU
-                continue
-            else:
-                self.__call__(chunk)
+            self.__call__(chunk)
 
     def enable(self):
         super().enable()

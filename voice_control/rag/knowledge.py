@@ -6,8 +6,8 @@ from typing import Any, Dict, List
 from ..common.config import config
 from ..common.utils import get_logger
 
-NODE_PROJ = "properties(node) { .*, embedding: null }"
-REL_PROJ = "properties(rel) { .*, source: startNode(rel).id, target: endNode(rel).id, type: coalesce(rel.type, type(rel)) }"
+NODE_PROJ = "{id: node.id, label: node.label, description: node.description}"
+REL_PROJ = "{id: rel.id, source: startNode(rel).id, target: endNode(rel).id, type: type(rel)}"
 
 class KnowledgeGraph:
     def __init__(self, uri: str, user: str, password: str):
@@ -19,8 +19,8 @@ class KnowledgeGraph:
             uri,
             auth=(user, password),
             max_connection_pool_size=100,
-            connection_acquisition_timeout=2.0,
-            keep_alive=True
+            connection_acquisition_timeout=5.0,
+            keep_alive=True,
         )
         embedding_model_name = config.get(
             "llm.models.embedding", "google/embeddinggemma-300m"
