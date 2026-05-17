@@ -9,6 +9,15 @@ This module provides text-to-speech processing functionality using ONNX models.
 import os
 import re
 import numpy as np
+
+# Ensure phonemizer can find espeak-ng on Windows
+_espeak_lib = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
+if os.name == "nt" and os.path.exists(_espeak_lib):
+    os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", _espeak_lib)
+    os.environ.setdefault("PATH", "")
+    if r"C:\Program Files\eSpeak NG" not in os.environ["PATH"]:
+        os.environ["PATH"] = r"C:\Program Files\eSpeak NG" + os.pathsep + os.environ["PATH"]
+
 from kokoro_onnx import Kokoro as KokoroONNX
 from kokoro_onnx.tokenizer import Tokenizer
 
