@@ -31,13 +31,11 @@ class AudioPlayer:
     def _run(self):
         while self._running:
             try:
-                audio_data, sample_rate, interrupt = self._queue.get(timeout=1.0)
+                audio_data, sample_rate, _ = self._queue.get(timeout=1.0)
             except Empty:
                 continue
 
             with self._play_lock:
-                if interrupt:
-                    sd.stop()
                 self.play(audio_data, sample_rate)
 
     def __call__(
@@ -46,8 +44,9 @@ class AudioPlayer:
         sample_rate: int,
         interrupt: bool = False,
     ):
-        with self._queue.mutex:
-            if interrupt:
+        if interrupt:
+            with self._queue.mutex:
+                sd.stop()
                 self._queue.queue.clear()
         self._queue.put((audio_data, sample_rate, interrupt))
 
