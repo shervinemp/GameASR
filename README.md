@@ -4,42 +4,37 @@ A modular voice control pipeline that lets you control games and applications us
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     Game Engine (Lua)                     │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────────────┐  │
-│  │ RPC API  │  │  Game    │  │  Voice Client          │  │
-│  │ (rpc.lua)│  │  State   │  │  (voice_client.lua)   │  │
-│  └────┬─────┘  └──────────┘  └───────────┬───────────┘  │
-└───────┼───────────────────────────────────┼──────────────┘
-        │ ZMQ (tcp/ipc)                     │
-┌───────┼───────────────────────────────────┼──────────────┐
-│       ▼                                   ▼              │
-│  ┌─────────────────────────────────────────────┐        │
-│  │         Pipeline (voice_control/)             │        │
-│  │                                              │        │
-│  │  ┌──────┐  ┌──────────┐  ┌──────────┐       │        │
-│  │  │ ASR  │─▶│   LLM    │──▶│   TTS   │       │        │
-│  │  │(STT) │  │(intent)  │  │(voice)  │       │        │
-│  │  └──────┘  └────┬─────┘  └──────────┘       │        │
-│  │                 │                            │        │
-│  │          ┌──────▼──────┐                     │        │
-│  │          │  RAG (S‑Path‑RAG)                 │        │
-│  │          │  ┌──────────────────┐              │        │
-│  │          │  │ GraphSearch      │              │        │
-│  │          │  │  ├ Neighborhood  │              │        │
-│  │          │  │  └ SPath         │              │        │
-│  │          │  ├ SmartGraphRetr. │              │        │
-│  │          │  ├ Reranker        │              │        │
-│  │          │  └ Composer (iter) │              │        │
-│  │          └────────┬───────────┘              │        │
-│  │                   │                          │        │
-│  │          ┌────────▼───────────┐              │        │
-│  │          │    Neo4j KG        │              │        │
-│  │          │ (vector + fulltext)│              │        │
-│  │          └────────────────────┘              │        │
-│  └─────────────────────────────────────────────┘        │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph GameEngine["Game Engine (Lua)"]
+        RPC["RPC API (rpc.lua)"]
+        GameState["Game State"]
+        VC["Voice Client (client.lua)"]
+    end
+
+    subgraph Pipeline["Pipeline (voice_control/)"]
+        ASR["ASR (STT)"] --> LLM["LLM (intent)"]
+        LLM --> TTS["TTS (voice)"]
+
+        subgraph RAG["RAG (S-Path)"]
+            GS["GraphSearch"]
+            GS --- NBR["Neighborhood"]
+            GS --- SPath["ShortestPath"]
+            SGR["SmartGraphRetr"]
+            RR["Reranker"]
+            CP["Composer"]
+        end
+
+        LLM -.->|Socratic loop| SGR
+        SGR -.->|critique| LLM
+    end
+
+    KG["Neo4j KG (vector + fulltext)"]
+
+    RPC --- VC
+    VC <-- "ZMQ (tcp/ipc)" --> Pipeline
+    SGR --> KG
+    KG --> SGR
 ```
 
 ## Features
