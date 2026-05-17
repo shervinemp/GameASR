@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import json
 from typing import List, Dict, Tuple
 from itertools import chain, repeat, combinations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..llm.session import Session
 from .knowledge import KnowledgeGraph
@@ -76,39 +77,55 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         # 1. Exact-label lookup: fast path for known entities
         exact_matches = self.graph.exact_label_search(keywords)
         seen_ids = {n["id"] for n in exact_matches.values() if n.get("id")}
-
-        # 2. Vector + keyword search for semantically similar entities
-        embeddings = self.graph.embedding_model.encode(keywords).tolist()
-        vector_results = self.graph.vector_search(
-            embeddings, top_k=top_k_vector
-        )
-        keyword_results = self.graph.keyword_search(
-            keywords, top_k=top_k_keyword
-        )
+        all_matched = len(exact_matches) >= len([k for k in keywords if k.strip()])
 
         combined = {n["id"]: n for n in exact_matches.values()}
-        for item in chain.from_iterable(vector_results):
-            if item["id"] not in seen_ids:
-                combined[item["id"]] = item
-        for item in chain.from_iterable(keyword_results):
-            if item["id"] not in seen_ids:
-                combined[item["id"]] = item
+
+        # 2. Semantic search only for keywords not resolved by exact match
+        if not all_matched:
+            # Run vector and keyword search in parallel
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                vector_future = pool.submit(
+                    self._do_vector_search, keywords, top_k_vector
+                )
+                keyword_future = pool.submit(
+                    self.graph.keyword_search, keywords, top_k_keyword
+                )
+                for future in as_completed([vector_future, keyword_future]):
+                    try:
+                        batch = future.result()
+                        for item in chain.from_iterable(batch):
+                            if item["id"] not in seen_ids:
+                                combined[item["id"]] = item
+                    except Exception:
+                        pass
 
         results = list(combined.values())
         if n_hops:
-            seed_nodes = self.graph.subgraph([n["id"] for n in results]).get(
-                "nodes", []
-            )
-            expansion = self.graph.expansion(
-                frontier_ids=[n["id"] for n in results],
-                excluded_ids=[n["id"] for n in results],
-                n_hops=n_hops,
-            )
-            results = seed_nodes + [
-                item for sublist in expansion for item in sublist
-            ]
+            results = self._expand(results, n_hops)
+
+        # Adaptive: if n_hops=1 returned too little, retry with n_hops=2
+        if n_hops == 1 and len(results) < 3:
+            results = self._expand(list(combined.values()), n_hops=2)
 
         return results
+
+    def _do_vector_search(self, keywords, top_k):
+        embeddings = self.graph.embedding_model.encode(keywords).tolist()
+        return self.graph.vector_search(embeddings, top_k=top_k)
+
+    def _expand(self, seed_results, n_hops):
+        seed_nodes = self.graph.subgraph(
+            [n["id"] for n in seed_results]
+        ).get("nodes", [])
+        expansion = self.graph.expansion(
+            frontier_ids=[n["id"] for n in seed_results],
+            excluded_ids=[n["id"] for n in seed_results],
+            n_hops=n_hops,
+        )
+        return seed_nodes + [
+            item for sublist in expansion for item in sublist
+        ]
 
     def format_results(self, results: List[Dict]) -> List[str]:
         formatted = []
@@ -215,7 +232,9 @@ class SmartGraphRetriever(Retriever):
 
         prompt = (
             "Extract key entities and keywords from the following query. "
-            "Focus on the most important terms representing the core intent. Return a JSON array of strings."
+            "Focus on specific named entities (people, places, things, concepts). "
+            "Exclude generic relationship words like 'relationship', 'connection', 'difference', 'meaning', 'about'. "
+            "Exclude the word 'RAG'. Return a JSON array of strings."
             f'\nQuery: "{query}"'
         )
         response = "".join(self.session(prompt)).strip()

@@ -47,7 +47,8 @@ class BaseRAG(ABC):
         if not results:
             return []
 
-        reranked, _ = self.reranker(query, results=results)
+        # Truncate before reranker: top 20 is enough to find the best candidates
+        reranked, _ = self.reranker(query, results=results[:20])
 
         top_results = []
         for r in reranked[:top_k]:
@@ -123,7 +124,8 @@ class SPathRAG(BaseRAG):
             if not results:
                 break
 
-            reranked, _ = self.reranker(query, results=results)
+            # Truncate before reranker: top 20 is enough
+            reranked, _ = self.reranker(query, results=results[:20])
 
             new_count = 0
             for r in reranked[:top_k]:
