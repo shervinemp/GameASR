@@ -111,7 +111,7 @@ class SPathRAG(BaseRAG):
         current_query = query
         accumulated_context = []
         seen_hashes = set()
-        high_confidence = False
+        has_exact_label_matches = False
 
         for iteration in range(max_iterations):
             self.logger.info(f"Retrieval Iteration {iteration + 1}")
@@ -137,12 +137,13 @@ class SPathRAG(BaseRAG):
 
             context_str = "\n".join(accumulated_context)
 
-            # Skip Socratic loop on first iteration if we have exact-label matches
-            # (entity linking found direct KG hits, no need to self-correct)
-            if iteration == 0 and new_count >= top_k:
-                high_confidence = True
+            # Skip Socratic loop on first pass if graph-based results found
+            # Graph results have structured "Entity is Relation Entity." format;
+            # web results have "title: body -- <href>url</href>" format
+            if iteration == 0 and any(" is " in r for r in results[:top_k]):
+                has_exact_label_matches = True
                 self.logger.info(
-                    "High-confidence initial retrieval. Skipping Socratic correction."
+                    "Graph-based results found. Skipping Socratic correction."
                 )
                 break
 
@@ -156,7 +157,6 @@ class SPathRAG(BaseRAG):
 
             if is_correct:
                 self.logger.info("LLM is confident. Halting path expansion.")
-                high_confidence = True
                 break
             else:
                 self.logger.info(

@@ -335,20 +335,35 @@ class WebRetriever(Retriever):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
 
-            # Parse minimal HTML results from DDG lite
+            # Parse DDG lite HTML results
             import re
             results = []
-            # DDG lite returns <a href="...">text</a> in result rows
+            seen_urls = set()
             for match in re.finditer(
-                r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>',
+                r'<a[^>]*href="(https?://[^"]+)"[^>]*class="result-link"[^>]*>(.*?)</a>',
                 html,
             ):
                 href = match.group(1)
                 title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
-                if title and len(results) < top_k:
+                # Skip DDG homepage/brand links
+                if title and href not in seen_urls and "duckduckgo.com" not in href:
+                    seen_urls.add(href)
                     results.append({"title": title, "href": href, "body": ""})
                 if len(results) >= top_k:
                     break
+            # Fallback: try broader pattern if class-based failed
+            if not results:
+                for match in re.finditer(
+                    r'<a[^>]*href="(https?://(?!duckduckgo\.com)[^"]+)"[^>]*>(.*?)</a>',
+                    html,
+                ):
+                    href = match.group(1)
+                    title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+                    if title and href not in seen_urls:
+                        seen_urls.add(href)
+                        results.append({"title": title, "href": href, "body": ""})
+                    if len(results) >= top_k:
+                        break
             return results
         except Exception as e:
             self.logger.warning(f"Web search fallback also failed: {e}")
