@@ -45,6 +45,9 @@ class Composer:
         return answer
 
     def summarize_context(self, query: str, context: str) -> str:
+        if not context.strip():
+            return ""
+
         prompt = (
             "Your job is to summarize the provided context into clear and concise bulletpoints to help answer a user's query.\n"
             "Focus only on the information that is directly relevant to the query. Avoid making new assumptions or deductions.\n"

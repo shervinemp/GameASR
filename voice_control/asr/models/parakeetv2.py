@@ -112,7 +112,7 @@ class Silero(ConsumerProducer):
                 if c is not None:
                     buffer.append(c)
                 else:
-                    if buffer:
+                    if len(buffer) >= 10:
                         yield np.concatenate(buffer)
                         buffer.clear()
             except Empty:
