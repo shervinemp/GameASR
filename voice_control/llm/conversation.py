@@ -101,8 +101,13 @@ class Conversation:
         self._messages.clear()
 
     @property
-    def messages(self) -> MessageList:
-        return self._messages[self._cutoff_idx :]
+    def messages(self) -> List[Dict[str, str]]:
+        msgs = []
+        if self._system:
+            msgs.append({"role": "system", "content": self._system})
+        for m in self._messages[self._cutoff_idx :]:
+            msgs.append(m.asdict() if isinstance(m, Message) else m)
+        return msgs
 
     @property
     def system(self) -> Message:
