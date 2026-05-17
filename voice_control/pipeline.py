@@ -112,6 +112,15 @@ class Pipeline:
             rag_tool = Tool.from_callable(name, cb)
             self.session.conversation.tools = {**self.session.conversation.tools, name: rag_tool}
 
+        if not self.session.conversation._system:
+            self.session.conversation.set_system_message(
+                "You are a voice-controlled game assistant. "
+                "You have a 'retrieve' tool that can look up information in a knowledge graph. "
+                "If the user asks about entities, relationships, facts, or anything that might be in a knowledge base, "
+                "call the 'retrieve' tool first before answering. "
+                "Respond conversationally and naturally."
+            )
+
     @property
     def rag(self) -> BaseRAG:
         return self._rag
