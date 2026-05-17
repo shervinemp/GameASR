@@ -181,17 +181,11 @@ class ShortestPathStrategy(GraphSearchStrategy):
 
         anchor_ids = list(anchor_map.values())
         if len(anchor_ids) < 2:
-            # Less than 2 unique anchors after dedup
             return []
 
-        all_paths = []
-        for src, tgt in combinations(anchor_ids, 2):
-            all_paths.extend(
-                self.graph.k_shortest_paths(
-                    source_id=src, target_id=tgt, k=max_paths
-                )
-            )
-        return all_paths
+        # Batch all pairs into a single Cypher query
+        pairs = list(combinations(anchor_ids, 2))
+        return self.graph.k_shortest_paths_batch(pairs, k=max_paths)
 
     def format_results(self, results: List[Dict]) -> List[str]:
         formatted = []

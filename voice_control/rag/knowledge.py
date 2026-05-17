@@ -1,7 +1,7 @@
 import hashlib
 import re
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from ..common.config import config
 from ..common.utils import get_logger
@@ -34,7 +34,7 @@ class KnowledgeGraph:
         self, source_id: str, target_id: str, k: int = 3
     ) -> List[Dict]:
         """
-        Executes pure Cypher k-shortest paths between two entities to find multi-hop semantic links.
+        Executes pure Cypher k-shortest paths between two entities.
         """
         query = f"""
             MATCH path = (source:Entity {{id: $source_id}})-[*1..3]->(target:Entity {{id: $target_id}})
@@ -50,6 +50,38 @@ class KnowledgeGraph:
                 records = session.run(
                     query, source_id=source_id, target_id=target_id, k=k
                 )
+                return [r.data() for r in records]
+
+        return self._execute_with_retry(_run)
+
+    def k_shortest_paths_batch(
+        self, pairs: List[Tuple[str, str]], k: int = 3
+    ) -> List[Dict]:
+        """
+        Batches multiple k-shortest path queries into a single Cypher call.
+        Each pair is (source_id, target_id). Returns flat list of path dicts.
+        """
+        if not pairs:
+            return []
+
+        query = f"""
+            UNWIND $pairs AS p
+            OPTIONAL MATCH path = (source:Entity {{id: p.src}})-[*1..3]->(target:Entity {{id: p.tgt}})
+            WITH path, p, length(path) AS weight
+            ORDER BY p.src, p.tgt, weight ASC
+            WITH p, collect(path) AS paths
+            UNWIND paths[0..$k] AS path
+            WITH path WHERE path IS NOT NULL
+            RETURN [node in nodes(path) | {NODE_PROJ}] AS nodes,
+                   [rel in relationships(path) | {REL_PROJ}] AS relations,
+                   length(path) AS weight
+        """
+
+        pair_data = [{"src": s, "tgt": t} for s, t in pairs]
+
+        def _run():
+            with self._driver.session() as session:
+                records = session.run(query, pairs=pair_data, k=k)
                 return [r.data() for r in records]
 
         return self._execute_with_retry(_run)

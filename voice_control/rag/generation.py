@@ -13,7 +13,13 @@ class Composer:
         self.session = session
 
     def __call__(self, query: str, context: str, n_iter: int = 3) -> str:
-        summary = self.summarize_context(query=query, context=context)
+        # Skip LLM summarization when context is already structured graph output
+        # (sentences like "Entity is Relation Entity.")
+        if context.count(" is ") >= 2:
+            summary = context
+        else:
+            summary = self.summarize_context(query=query, context=context)
+
         if not summary:
             return "Insufficient information to formulate an answer."
 
