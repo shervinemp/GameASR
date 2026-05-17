@@ -19,21 +19,26 @@ class AudioPlayer:
         self.output_device = output_device
         device_name = sd.query_devices(output_device)["name"]
         self.logger.info(
-            f"AudioPlayer initialized. Using output device: '{device_name}' (ID: {output_device})"
+            f"AudioPlayer initialized. Using device: '{device_name}' (ID: {output_device})"
         )
 
-        self._queue = Queue(maxsize=1000)
+        self._queue = Queue(maxsize=100)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
+        self._play_lock = threading.Lock()
         atexit.register(self.stop)
 
     def _run(self):
         while self._running:
             try:
-                audio_data, sample_rate = self._queue.get(timeout=1.0)
-                self.play(audio_data, sample_rate)
+                audio_data, sample_rate, interrupt = self._queue.get(timeout=1.0)
             except Empty:
-                pass
+                continue
+
+            with self._play_lock:
+                if interrupt:
+                    sd.stop()
+                self.play(audio_data, sample_rate)
 
     def __call__(
         self,
@@ -41,19 +46,10 @@ class AudioPlayer:
         sample_rate: int,
         interrupt: bool = False,
     ):
-        return self._consume(audio_data, sample_rate, interrupt)
-
-    def _consume(
-        self,
-        audio_data: np.ndarray[np.float32 | np.int16],
-        sample_rate: int,
-        interrupt: bool = False,
-    ):
         with self._queue.mutex:
             if interrupt:
-                sd.stop()
                 self._queue.queue.clear()
-        self._queue.put((audio_data, sample_rate))
+        self._queue.put((audio_data, sample_rate, interrupt))
 
     def play(
         self,
@@ -98,7 +94,8 @@ class AudioPlayer:
                 self._queue.queue.clear()
             self._running = False
             self._thread.join(timeout=5)
-            sd.stop()
+            with self._play_lock:
+                sd.stop()
 
 
 def main():
