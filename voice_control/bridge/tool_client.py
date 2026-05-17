@@ -20,7 +20,8 @@ class ToolClient:
 
     def from_spec(self, spec_dict: dict) -> List[Tool]:
         tools = []
-        for method in spec_dict["methods"]:
+        methods = spec_dict.get("methods") or spec_dict.get("functions", [])
+        for method in methods:
             t_ = Tool.from_dict(method)
             t_.callback = partial(self.call_tool_async, t_.name)
             tools.append(t_)

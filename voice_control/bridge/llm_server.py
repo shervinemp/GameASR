@@ -156,6 +156,9 @@ class LLMServer:
                 self.context.term()
                 self.logger.info("ZeroMQ resources cleaned up.")
 
+        import sys
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         asyncio.run(_async_worker_loop())
 
     def start(self):
