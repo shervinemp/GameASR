@@ -23,6 +23,7 @@ class AudioPlayer:
         )
 
         self._queue = Queue(maxsize=100)
+        self._queue_lock = threading.Lock()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
         self._play_lock = threading.Lock()
@@ -45,9 +46,13 @@ class AudioPlayer:
         interrupt: bool = False,
     ):
         if interrupt:
-            with self._queue.mutex:
+            with self._queue_lock:
                 sd.stop()
-                self._queue.queue.clear()
+                while not self._queue.empty():
+                    try:
+                        self._queue.get_nowait()
+                    except Empty:
+                        break
         self._queue.put((audio_data, sample_rate, interrupt))
 
     def play(
@@ -58,7 +63,7 @@ class AudioPlayer:
     ):
         if audio_data.dtype != np.float32:
             audio_data = (
-                audio_data.astype(np.float32) / 32768.0
+                audio_data.astype(np.float32) / 32767.0
                 if audio_data.dtype == np.int16
                 else audio_data.astype(np.float32)
             )
@@ -89,8 +94,12 @@ class AudioPlayer:
 
     def stop(self):
         if self._running:
-            with self._queue.mutex:
-                self._queue.queue.clear()
+            with self._queue_lock:
+                while not self._queue.empty():
+                    try:
+                        self._queue.get_nowait()
+                    except Empty:
+                        break
             self._running = False
             self._thread.join(timeout=5)
             with self._play_lock:

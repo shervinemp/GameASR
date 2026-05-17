@@ -77,7 +77,7 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         # 1. Exact-label lookup: fast path for known entities
         exact_matches = self.graph.exact_label_search(keywords)
         seen_ids = {n["id"] for n in exact_matches.values() if n.get("id")}
-        all_matched = len(exact_matches) >= len([k for k in keywords if k.strip()])
+        all_matched = len(exact_matches) >= sum(1 for k in keywords if k.strip())
 
         combined = {n["id"]: n for n in exact_matches.values()}
 
@@ -97,8 +97,10 @@ class NeighborhoodStrategy(GraphSearchStrategy):
                         for item in chain.from_iterable(batch):
                             if item["id"] not in seen_ids:
                                 combined[item["id"]] = item
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.graph.logger.warning(
+                            f"Parallel search failed: {e}"
+                        )
 
         results = list(combined.values())
         if n_hops:

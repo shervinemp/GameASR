@@ -105,10 +105,9 @@ class Composer:
         try:
             response_str = "".join(self.session(prompt)).strip()
             d = safe_json_loads(response_str, fallback={"explanation": "", "is_correct": False})
-        except Exception as e:
+        except (ValueError, TypeError, RuntimeError) as e:
             self.logger.error(
-                f"Could not parse critique JSON or critique call failed: {e}",
-                exc_info=True,
+                f"LLM call during critique failed: {e}", exc_info=True
             )
             d = {"explanation": "", "is_correct": False}
 

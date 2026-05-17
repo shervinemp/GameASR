@@ -1,9 +1,10 @@
-import hashlib
 from typing import List
 
 from ..llm.session import Session
 from ..llm.model import LLM
 from abc import ABC, abstractmethod
+
+RERANKER_INPUT_LIMIT = 20
 
 from .retrieval import (
     Retriever,
@@ -26,7 +27,7 @@ class BaseRAG(ABC):
     ):
         self.logger = get_logger(__file__)
         self.session = session
-        self.session.conversation.cutoff_idx = -1
+        self.session.conversation.cutoff_idx = 0
 
         self.retrievers: List[Retriever] = []
         if web_search:
@@ -124,23 +125,19 @@ class SPathRAG(BaseRAG):
             if not results:
                 break
 
-            # Truncate before reranker: top 20 is enough
-            reranked, _ = self.reranker(query, results=results[:20])
+        reranked, _ = self.reranker(query, results=results[:RERANKER_INPUT_LIMIT])
 
             new_count = 0
             for r in reranked[:top_k]:
-                h = hashlib.md5(r.encode('utf-8')).hexdigest()
-                if h not in seen_hashes:
-                    seen_hashes.add(h)
+                if r not in seen_hashes:
+                    seen_hashes.add(r)
                     accumulated_context.append(r)
                     new_count += 1
 
             context_str = "\n".join(accumulated_context)
 
-            # Skip Socratic loop on first pass if graph-based results found
-            # Graph results have structured "Entity is Relation Entity." format;
-            # web results have "title: body -- <href>url</href>" format
-            if iteration == 0 and any(" is " in r for r in results[:top_k]):
+            # Skip Socratic loop on first pass if graph results found
+            if iteration == 0 and new_count >= top_k:
                 has_exact_label_matches = True
                 self.logger.info(
                     "Graph-based results found. Skipping Socratic correction."
@@ -169,7 +166,7 @@ class SPathRAG(BaseRAG):
         final_answer = self.composer(query, context=final_context)
 
         # Active learning: only extract triplets when we have meaningful context
-        has_info = final_context.strip() and "Insufficient information" not in final_answer and len(accumulated_context) >= 2
+        has_info = final_context.strip() and "Insufficient information" not in final_answer
         if self._graph and has_info:
             try:
                 triplets = self.composer.extract_new_triplets(
