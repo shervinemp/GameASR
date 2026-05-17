@@ -1,8 +1,7 @@
-import json
 from typing import Dict, List, Optional, Tuple
 
 from ..llm.session import Session
-from ..common.utils import get_logger
+from ..common.utils import get_logger, safe_json_loads
 
 
 class Composer:
@@ -39,7 +38,7 @@ class Composer:
                 break
 
         answer = self.generate_answer(
-            query=query, context=summary, critique=None
+            query=query, context=summary, critique=critique
         )
         self.logger.debug(f"Final answer: {answer}")
 
@@ -90,7 +89,7 @@ class Composer:
         )
         try:
             response_str = "".join(self.session(prompt)).strip()
-            d = json.loads(response_str)
+            d = safe_json_loads(response_str, fallback={"explanation": "", "is_correct": False})
         except Exception as e:
             self.logger.error(
                 f"Could not parse critique JSON or critique call failed: {e}",

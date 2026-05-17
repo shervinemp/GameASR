@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 import json
-import re
-from typing import Any, List, Dict, Tuple
-from itertools import chain, cycle, combinations
+from typing import List, Dict, Tuple
+from itertools import chain, repeat, combinations
 
 from ..llm.session import Session
 from .knowledge import KnowledgeGraph
@@ -21,7 +20,7 @@ class Reranker:
     def __call__(
         self, query: str, results: List[str]
     ) -> Tuple[List[str], List[float]]:
-        pairs = list(zip(cycle(query), results))
+        pairs = list(zip(repeat(query), results))
         scores = self.reranker.predict(pairs, show_progress_bar=False)
 
         sorted_pairs = sorted(
@@ -35,6 +34,7 @@ class Reranker:
 
 class Retriever(ABC):
     """The unified interface expected by the RAG orchestrator."""
+
     @abstractmethod
     def __call__(self, query: str, **kwargs) -> List[str]:
         pass
@@ -42,6 +42,7 @@ class Retriever(ABC):
 
 class GraphSearchStrategy(ABC):
     """Defines the specific mathematical approach to traversing the Knowledge Graph."""
+
     def __init__(self, graph: KnowledgeGraph):
         self.graph = graph
 
@@ -57,13 +58,24 @@ class GraphSearchStrategy(ABC):
 class NeighborhoodStrategy(GraphSearchStrategy):
     """Standard 1-hop to N-hop semantic neighborhood expansion."""
 
-    def search(self, keywords: List[str], top_k_vector: int = 7, top_k_keyword: int = 5, n_hops: int = 1, **kwargs) -> List[Dict]:
+    def search(
+        self,
+        keywords: List[str],
+        top_k_vector: int = 7,
+        top_k_keyword: int = 5,
+        n_hops: int = 1,
+        **kwargs,
+    ) -> List[Dict]:
         if not self.graph:
             return []
 
         embeddings = self.graph.embedding_model.encode(keywords).tolist()
-        vector_results = self.graph.vector_search(embeddings, top_k=top_k_vector)
-        keyword_results = self.graph.keyword_search(keywords, top_k=top_k_keyword)
+        vector_results = self.graph.vector_search(
+            embeddings, top_k=top_k_vector
+        )
+        keyword_results = self.graph.keyword_search(
+            keywords, top_k=top_k_keyword
+        )
 
         combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
         for item in chain.from_iterable(keyword_results):
@@ -72,11 +84,17 @@ class NeighborhoodStrategy(GraphSearchStrategy):
 
         results = list(combined.values())
         if n_hops:
-            seed_nodes = self.graph.subgraph([n["id"] for n in results]).get("nodes", [])
-            expansion = self.graph.expansion(
-                frontier_ids=[n["id"] for n in results], excluded_ids=[n["id"] for n in results], n_hops=n_hops
+            seed_nodes = self.graph.subgraph([n["id"] for n in results]).get(
+                "nodes", []
             )
-            results = seed_nodes + [item for sublist in expansion for item in sublist]
+            expansion = self.graph.expansion(
+                frontier_ids=[n["id"] for n in results],
+                excluded_ids=[n["id"] for n in results],
+                n_hops=n_hops,
+            )
+            results = seed_nodes + [
+                item for sublist in expansion for item in sublist
+            ]
 
         return results
 
@@ -84,29 +102,50 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         formatted = []
         for item in results:
             if "parent" in item and "node" in item:
-                formatted.append(f"{item.get('parent', {}).get('label', '')} -[{item.get('relationship', {}).get('type', 'RELATED_TO')}]-> {item.get('node', {}).get('label', '')}")
+                formatted.append(
+                    f"{item.get('parent', {}).get('label', '')} -[{item.get('relationship', {}).get('type', 'RELATED_TO')}]-> {item.get('node', {}).get('label', '')}"
+                )
             else:
-                formatted.append(f"{item.get('label', '')}: {item.get('description', '')}")
+                formatted.append(
+                    f"{item.get('label', '')}: {item.get('description', '')}"
+                )
         return list(dict.fromkeys(formatted))
 
 
 class ShortestPathStrategy(GraphSearchStrategy):
     """Semantic-aware multi-hop shortest path logic between multiple anchors."""
 
-    def search(self, keywords: List[str], top_k_vector: int = 3, max_paths: int = 3, **kwargs) -> List[Dict]:
+    def search(
+        self,
+        keywords: List[str],
+        top_k_vector: int = 3,
+        max_paths: int = 3,
+        **kwargs,
+    ) -> List[Dict]:
         if not self.graph or len(keywords) < 2:
-            return [] # S-Path mathematically requires 2+ anchors
+            return []  # S-Path mathematically requires 2+ anchors
 
         embeddings = self.graph.embedding_model.encode(keywords).tolist()
-        batch_results = self.graph.vector_search(embeddings, top_k=top_k_vector)
+        batch_results = self.graph.vector_search(
+            embeddings, top_k=top_k_vector
+        )
 
-        anchor_nodes = list(set(
-            node["id"] for res_list in batch_results for node in res_list if node.get("id")
-        ))
+        anchor_nodes = list(
+            set(
+                node["id"]
+                for res_list in batch_results
+                for node in res_list
+                if node.get("id")
+            )
+        )
 
         all_paths = []
         for src, tgt in combinations(anchor_nodes, 2):
-            all_paths.extend(self.graph.k_shortest_paths(source_id=src, target_id=tgt, k=max_paths))
+            all_paths.extend(
+                self.graph.k_shortest_paths(
+                    source_id=src, target_id=tgt, k=max_paths
+                )
+            )
         return all_paths
 
     def format_results(self, results: List[Dict]) -> List[str]:
@@ -118,7 +157,9 @@ class ShortestPathStrategy(GraphSearchStrategy):
             for i, node in enumerate(path_data["nodes"]):
                 trace.append(node.get("label", "Unknown"))
                 if i < len(path_data["relations"]):
-                    trace.append(f"-[{path_data['relations'][i].get('type', 'RELATED_TO')}]->")
+                    trace.append(
+                        f"-[{path_data['relations'][i].get('type', 'RELATED_TO')}]->"
+                    )
             formatted.append(" ".join(trace))
         return list(dict.fromkeys(formatted))
 
@@ -127,7 +168,13 @@ class SmartGraphRetriever(Retriever):
     """
     Coordinates LLM intent extraction and delegates to the injected Graph Strategies.
     """
-    def __init__(self, session: Session, primary_strategy: GraphSearchStrategy, fallback_strategy: GraphSearchStrategy | None = None):
+
+    def __init__(
+        self,
+        session: Session,
+        primary_strategy: GraphSearchStrategy,
+        fallback_strategy: GraphSearchStrategy | None = None,
+    ):
         self.logger = get_logger(__file__)
         self.session = session
         self.primary = primary_strategy
@@ -135,6 +182,7 @@ class SmartGraphRetriever(Retriever):
 
     def _extract_keywords(self, query: str) -> List[str]:
         from ..common.utils import safe_json_loads
+
         prompt = (
             "Extract key entities and keywords from the following query. "
             "Focus on the most important terms representing the core intent. Return a JSON array of strings."
@@ -150,12 +198,12 @@ class SmartGraphRetriever(Retriever):
             self.logger.warning(f"Keyword extraction failed. Error: {e}")
             keywords = [query]
 
-        # 1. Execute Primary Strategy
         raw_results = self.primary.search(keywords, **kwargs)
 
-        # 2. Seamless Fallback (e.g., if SPath lacks 2+ keywords)
         if not raw_results and self.fallback:
-            self.logger.info(f"Primary strategy yielded no results. Engaging fallback.")
+            self.logger.info(
+                "Primary strategy yielded no results. Engaging fallback."
+            )
             raw_results = self.fallback.search(keywords, **kwargs)
             return self.fallback.format_results(raw_results)
 
@@ -223,7 +271,7 @@ class WebRetriever(Retriever):
         )
 
         response = "".join(self.session(prompt))
-        search_query = json.loads(response)["search_query"].strip()
+        search_query = json.loads(response).get("search_query", query).strip()
 
         return search_query
 

@@ -95,9 +95,10 @@ class CodexDataLoader(DataLoader):
     def load(
         self,
         path: str = ".",
+        limit: Optional[int] = None,
+        *,
         size: str = "s",
         lang: str = "en",
-        limit: Optional[int] = None,
     ) -> DataLoader.KnowledgeData:
         """
         Loads a filtered dataset from the CoDEx repository.
@@ -194,7 +195,8 @@ class Neo4jImporter:
 
     def clear_database(self):
         print("Clearing database...")
-        self._run_query("DROP INDEX entity_id_index IF EXISTS")
+        for index in ["entity_id_index", "nodes_label_description_fulltext", "embedding"]:
+            self._run_query(f"DROP INDEX {index} IF EXISTS")
         self._run_query("MATCH (n) DETACH DELETE n")
         print("Database cleared.")
 
@@ -284,18 +286,19 @@ class Neo4jImporter:
             UNWIND $triples AS triple
             MATCH (head:Entity {id: triple.head})
             MATCH (tail:Entity {id: triple.tail})
-            CALL apoc.create.relationship(head, triple.type, {id: triple.id}, tail)
-            YIELD rel
+            MERGE (head)-[rel:RELATED_TO {type: triple.type}]->(tail)
+            ON CREATE SET rel.id = triple.id
             RETURN count(rel)
         """
-        print("Importing relationships with dynamic types (using APOC)...")
+        print("Importing relationships...")
         self._run_query(query, {"triples": triples_list})
         print(f"Imported {len(triples_list)} relationships.")
 
     def get_node_count(self) -> int:
         with self._driver.session() as session:
             result = session.run("MATCH (n) RETURN count(n) AS count")
-            return result.single()["count"]
+            record = result.single()
+            return record["count"] if record else 0
 
 
 def main():

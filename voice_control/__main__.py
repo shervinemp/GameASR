@@ -106,6 +106,24 @@ def main():
         )
         sys.exit(1)
 
+    neo4j_config = config.get("database.neo4j")
+    if all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
+        try:
+            from .rag.knowledge import KnowledgeGraph
+            from .rag.model import SPathRAG
+
+            graph = KnowledgeGraph(
+                neo4j_config.uri, neo4j_config.user, neo4j_config.password
+            )
+            graph.verify_connectivity()
+            rag = SPathRAG(llm=pipe.session.llm, graph=graph, web_search=True)
+            pipe.rag = rag
+            logger.info("RAG initialized with S-Path-RAG.")
+        except Exception as e:
+            logger.warning(
+                f"Skipping knowledge graph initialization: {e}"
+            )
+
     pipe.run()
 
 

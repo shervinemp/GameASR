@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from ..common.config import config
 from ..common.utils import get_logger
@@ -128,7 +128,7 @@ class KnowledgeGraph:
 
         return self._execute_with_retry(_run)
 
-    def subgraph(self, node_ids: List[str]) -> Tuple[List[Dict], List[Dict]]:
+    def subgraph(self, node_ids: List[str]) -> Dict[str, List[Dict]]:
         query = f"""
             MATCH (n:Entity) WHERE n.id IN $nodes
             OPTIONAL MATCH (n)-[rel]-(m:Entity) WHERE m.id IN $nodes

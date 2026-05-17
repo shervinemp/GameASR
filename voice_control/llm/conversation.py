@@ -122,6 +122,8 @@ class Conversation:
 
     @property
     def cutoff_idx(self):
+        if not self._messages:
+            return 0
         return range(len(self._messages))[self._cutoff_idx]
 
     @cutoff_idx.setter

@@ -1,3 +1,4 @@
+import hashlib
 from typing import List
 
 from ..llm.session import Session
@@ -46,10 +47,10 @@ class BaseRAG(ABC):
         if not results:
             return []
 
-        reranked, scores = self.reranker(query, results=results)
+        reranked, _ = self.reranker(query, results=results)
 
         top_results = []
-        for _, r, s in zip(range(top_k), reranked, scores):
+        for r in reranked[:top_k]:
             top_results.append(str(r))
         return top_results
 
@@ -105,8 +106,6 @@ class SPathRAG(BaseRAG):
         self, query: str, top_k: int = 5, max_iterations: int = 3
     ) -> str:
         self.logger.info("Starting S-Path-RAG Neural-Socratic Dialogue")
-
-        import hashlib
         current_query = query
         accumulated_context = []
         seen_hashes = set()
@@ -122,9 +121,9 @@ class SPathRAG(BaseRAG):
             if not results:
                 break
 
-            reranked, scores = self.reranker(query, results=results)
+            reranked, _ = self.reranker(query, results=results)
 
-            for _, r, s in zip(range(top_k), reranked, scores):
+            for r in reranked[:top_k]:
                 h = hashlib.md5(r.encode('utf-8')).hexdigest()
                 if h not in seen_hashes:
                     seen_hashes.add(h)

@@ -109,7 +109,7 @@ class Pipeline:
         if cb := getattr(self, "_rag", None):
             name = "retrieve"
             rag_tool = Tool.from_callable(name, cb)
-            self.session.conversation._tools.update({name: rag_tool})
+            self.session.conversation.tools = {**self.session.conversation.tools, name: rag_tool}
 
     @property
     def rag(self) -> BaseRAG:

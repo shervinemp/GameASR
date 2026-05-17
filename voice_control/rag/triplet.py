@@ -1,6 +1,6 @@
 import json
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from ..llm.model import LLM
 from ..llm.session import Session
@@ -9,7 +9,7 @@ from ..common.utils import setup_logging
 
 
 class KnowledgeExtractor:
-    prompt: str = [
+    prompt: List[str] = [
         "Your task: Extract all factual knowledge from the text as "
         "Subject-Predicate-Object (S-P-O) triplets.",
         "Output MUST be a JSON array of objects, each representing an atomic triplet.",
@@ -54,7 +54,7 @@ class KnowledgeExtractor:
         "- Observe all complex interactions and relationships for accuracy and completeness.",
     ]
 
-    def __init__(self, llm: LLM = None):
+    def __init__(self, llm: Optional[LLM] = None):
         """
         Initializes the extractor with an LLM model instance.
         """
