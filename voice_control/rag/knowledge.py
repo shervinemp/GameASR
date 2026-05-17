@@ -1,3 +1,5 @@
+import hashlib
+import re
 import time
 from typing import Any, Dict, List
 
@@ -226,8 +228,7 @@ class KnowledgeGraph:
         if not triplets:
             return
 
-        import hashlib
-        import re
+        from collections import defaultdict
 
         # Calculate deterministic ids in python
         for t in triplets:
@@ -240,28 +241,36 @@ class KnowledgeGraph:
             t['sub_id'] = hashlib.md5(sub_clean.encode('utf-8')).hexdigest()
             t['obj_id'] = hashlib.md5(obj_clean.encode('utf-8')).hexdigest()
 
-        query = """
-        UNWIND $triplets AS triplet
-        MERGE (s:Entity {label: triplet.subject})
-        ON CREATE SET s.id = triplet.sub_id, s.description = 'Created by RAG agent'
+        # Group by sanitized relationship type for native Cypher dynamic types
+        by_type = defaultdict(list)
+        for t in triplets:
+            pred = str(t.get("predicate", "")).upper().replace(" ", "_")
+            clean_type = re.sub(r"[^A-Z0-9_]", "", pred) or "RELATED_TO"
+            by_type[clean_type].append(t)
 
-        MERGE (o:Entity {label: triplet.object})
-        ON CREATE SET o.id = triplet.obj_id, o.description = 'Created by RAG agent'
+        total = 0
+        for rel_type, group in by_type.items():
+            query = f"""
+                UNWIND $triplets AS triplet
+                MERGE (s:Entity {{label: triplet.subject}})
+                ON CREATE SET s.id = triplet.sub_id, s.description = 'Created by RAG agent'
+                MERGE (o:Entity {{label: triplet.object}})
+                ON CREATE SET o.id = triplet.obj_id, o.description = 'Created by RAG agent'
+                MERGE (s)-[rel:{rel_type}]->(o)
+                ON CREATE SET rel.id = triplet.sub_id + '_' + triplet.obj_id
+                RETURN count(rel) AS created_relationships
+            """
 
-        // Pure Cypher workaround for dynamic relationship creation is difficult,
-        // but if apoc is completely disabled, we use a generic relationship with type property
-        // For complete APOC removal without CALL apoc.create.relationship:
-        MERGE (s)-[rel:RELATED_TO {type: upper(replace(triplet.predicate, ' ', '_'))}]->(o)
-        RETURN count(rel) AS created_relationships
-        """
+            def _run(q=query, g=group):
+                with self._driver.session() as session:
+                    result = session.run(q, triplets=g)
+                    rec = result.single()
+                    if rec:
+                        self.logger.info(
+                            f"Added {rec['created_relationships']} '{rel_type}' relationships."
+                        )
 
-        def _run():
-            with self._driver.session() as session:
-                result = session.run(query, triplets=triplets)
-                rec = result.single()
-                if rec:
-                    self.logger.info(
-                        f"Added {rec['created_relationships']} new relationships to the graph."
-                    )
+            self._execute_with_retry(_run)
+            total += len(group)
 
-        self._execute_with_retry(_run)
+        self.logger.info(f"Added {total} relationships total.")

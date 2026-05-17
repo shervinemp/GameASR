@@ -259,7 +259,9 @@ class Neo4jImporter:
     def _import_relationships(
         self, triples_df: pd.DataFrame, relations_meta: Dict
     ):
-        """Imports relationships using dynamic types via APOC."""
+        """Imports relationships using native Cypher dynamic types."""
+
+        from collections import defaultdict
 
         def sanitize_label(label: str) -> str:
             label = label.upper().replace(" ", "_").replace("-", "_")
@@ -268,31 +270,36 @@ class Neo4jImporter:
                 return "RELATED_TO"
             return cleaned
 
-        triples_list = []
+        # Group by sanitized relationship type
+        by_type = defaultdict(list)
         for _, row in triples_df.iterrows():
             rel_id = row["relation_id"]
             rel_meta = relations_meta.get(rel_id, {})
             rel_type = sanitize_label(rel_meta.get("label", "RELATED_TO"))
-            triples_list.append(
+            by_type[rel_type].append(
                 {
                     "head": row["head_id"],
                     "tail": row["tail_id"],
-                    "type": rel_type,
-                    **rel_meta,
+                    "id": rel_id,
                 }
             )
 
-        query = """
-            UNWIND $triples AS triple
-            MATCH (head:Entity {id: triple.head})
-            MATCH (tail:Entity {id: triple.tail})
-            MERGE (head)-[rel:RELATED_TO {type: triple.type}]->(tail)
-            ON CREATE SET rel.id = triple.id
-            RETURN count(rel)
-        """
-        print("Importing relationships...")
-        self._run_query(query, {"triples": triples_list})
-        print(f"Imported {len(triples_list)} relationships.")
+        print("Importing relationships with native dynamic types...")
+        total = 0
+        for rel_type, group in by_type.items():
+            query = f"""
+                UNWIND $triples AS t
+                MATCH (h:Entity {{id: t.head}})
+                MATCH (tl:Entity {{id: t.tail}})
+                CREATE (h)-[r:{rel_type}]->(tl)
+                SET r.id = t.id
+                RETURN count(r)
+            """
+            self._run_query(query, {"triples": group})
+            total += len(group)
+            print(f"  Imported {len(group)} '{rel_type}' relationships.")
+
+        print(f"Imported {total} relationships total.")
 
     def get_node_count(self) -> int:
         with self._driver.session() as session:
