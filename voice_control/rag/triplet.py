@@ -134,7 +134,7 @@ class KnowledgeExtractor:
         prompt = self._generate_triplet_prompt(
             text, existing_schema, retrieval
         )
-        self.session.conversation.messages.clear()
+        self.session.conversation.clear()
         response = "".join(
             self.session(prompt, tool_choice="knowledge_graph_triplets")
         )

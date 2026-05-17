@@ -20,6 +20,9 @@ class Reranker:
     def __call__(
         self, query: str, results: List[str]
     ) -> Tuple[List[str], List[float]]:
+        if not results:
+            return [], []
+
         pairs = list(zip(repeat(query), results))
         scores = self.reranker.predict(pairs, show_progress_bar=False)
 
@@ -29,7 +32,7 @@ class Reranker:
 
         sorted_results, scores = zip(*sorted_pairs)
 
-        return sorted_results, scores
+        return list(sorted_results), list(scores)
 
 
 class Retriever(ABC):
@@ -79,8 +82,7 @@ class NeighborhoodStrategy(GraphSearchStrategy):
 
         combined = {n["id"]: n for n in chain.from_iterable(vector_results)}
         for item in chain.from_iterable(keyword_results):
-            if (id_ := item["id"]) not in combined:
-                combined[id_] = item
+            combined[item["id"]] = item
 
         results = list(combined.values())
         if n_hops:

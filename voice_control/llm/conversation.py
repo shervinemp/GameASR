@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, List, Dict
@@ -55,7 +54,7 @@ class MessageList(list):
         else:
             v = (
                 value
-                if isinstance(Message, value)
+                if isinstance(value, Message)
                 else Message.from_dict(value)
             )
             super().__setitem__(key, v)
@@ -81,7 +80,6 @@ class Conversation:
 
         self._system: str = ""
         self._tools: Dict[str, Tool] = {}
-        self._state: Dict[str, Dict] = defaultdict(dict)
         self._cutoff_idx: int = 0
 
     def set_system_message(self, content: str):

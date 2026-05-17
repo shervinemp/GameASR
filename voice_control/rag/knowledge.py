@@ -57,7 +57,7 @@ class KnowledgeGraph:
     def close(self):
         self._driver.close()
 
-    def _execute_with_retry(self, func, *args, **kwargs):
+    def _execute_with_retry(self, func):
         """Helper to execute a function with retry logic for Neo4j connection errors."""
         from neo4j.exceptions import (
             ServiceUnavailable,
@@ -70,7 +70,7 @@ class KnowledgeGraph:
 
         for attempt in range(max_retries):
             try:
-                return func(*args, **kwargs)
+                return func()
             except (ServiceUnavailable, SessionExpired, DriverError) as e:
                 self.logger.warning(
                     f"Neo4j connection error: {e}. Retrying {attempt+1}/{max_retries}..."

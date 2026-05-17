@@ -272,15 +272,14 @@ class Neo4jImporter:
 
         # Group by sanitized relationship type
         by_type = defaultdict(list)
-        for _, row in triples_df.iterrows():
-            rel_id = row["relation_id"]
-            rel_meta = relations_meta.get(rel_id, {})
+        for row in triples_df.itertuples(index=False):
+            rel_meta = relations_meta.get(row.relation_id, {})
             rel_type = sanitize_label(rel_meta.get("label", "RELATED_TO"))
             by_type[rel_type].append(
                 {
-                    "head": row["head_id"],
-                    "tail": row["tail_id"],
-                    "id": rel_id,
+                    "head": row.head_id,
+                    "tail": row.tail_id,
+                    "id": row.relation_id,
                 }
             )
 

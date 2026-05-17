@@ -107,7 +107,7 @@ def main():
         sys.exit(1)
 
     neo4j_config = config.get("database.neo4j")
-    if all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
+    if neo4j_config and all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
         try:
             from .rag.knowledge import KnowledgeGraph
             from .rag.model import SPathRAG

@@ -64,7 +64,6 @@ class Composer:
             critique_section = f"Please softly improve the previous answer based on the following critique:\n**Critique:** {critique}\n"
         prompt = (
             "Based on the context below, provide the best possible isolated human-readable answer to the user's query.\n"
-            # "**Do not, in any way, mention or allude to the scores.**\n"
             f"**Context:**\n{context}\n\n"
             f"**Query:**\n{query}\n"
             f"{critique_section}"
@@ -117,7 +116,6 @@ class Composer:
             "**New Triplets (JSON List):**"
         )
         try:
-            from ..common.utils import safe_json_loads
             response = "".join(self.session(prompt))
             triplets = safe_json_loads(response)
             return triplets

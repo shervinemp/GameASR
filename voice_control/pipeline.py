@@ -39,6 +39,7 @@ class Pipeline:
         self.logger = get_logger(__name__)
 
         self._running = False
+        self.llm_server = None
 
         asr_cls = getattr(ASRProviders, config.get("asr.provider"))
         self.asr = asr_cls()
@@ -86,8 +87,8 @@ class Pipeline:
         self.asr.start()
         self.tts.start()
         self.hotkey_dispatcher.start()
-        if server := getattr(self, "llm_server", None):
-            server.start()
+        if self.llm_server:
+            self.llm_server.start()
         self._running = True
         try:
             for transcript in self.asr:
@@ -98,9 +99,9 @@ class Pipeline:
                     self.logger.error(f"Error in callback: {e}", exc_info=True)
         finally:
             self._running = False
-            if server := getattr(self, "llm_server", None):
-                server.stop()
-            if dispatcher := getattr(self, "_hk_dispatch", None):
+            if self.llm_server:
+                self.llm_server.stop()
+            if dispatcher := getattr(self, "_hotkey_dispatcher", None):
                 dispatcher.stop()
             self.asr.stop()
             self.tts.stop()
@@ -164,12 +165,15 @@ class Pipeline:
             def cb():
                 self.logger.info("Conversation reset.")
                 old_system_msg = self.session.conversation._system
+                old_tools = self.session.conversation.tools
 
                 self.session = Session(
                     llm=self.session.llm, conversation=Conversation()
                 )
                 if old_system_msg:
                     self.session.conversation.set_system_message(old_system_msg)
+                if old_tools:
+                    self.session.conversation.tools = old_tools
 
                 self._configure_session()
 
@@ -197,7 +201,7 @@ def main():
     load_dotenv()
 
     neo4j_config = config.get("database.neo4j")
-    if not all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
+    if not neo4j_config or not all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
         raise ValueError(
             "Neo4j credentials not fully configured. Check your config file and environment variables."
         )
