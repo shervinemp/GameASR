@@ -253,11 +253,19 @@ class KnowledgeGraph:
             query = f"""
                 UNWIND $triplets AS triplet
                 MERGE (s:Entity {{label: triplet.subject}})
-                ON CREATE SET s.id = triplet.sub_id, s.description = 'Created by RAG agent'
+                ON CREATE SET s.id = triplet.sub_id,
+                    s.description = 'Created by RAG agent',
+                    s.source = 'extraction',
+                    s.created_at = timestamp()
                 MERGE (o:Entity {{label: triplet.object}})
-                ON CREATE SET o.id = triplet.obj_id, o.description = 'Created by RAG agent'
+                ON CREATE SET o.id = triplet.obj_id,
+                    o.description = 'Created by RAG agent',
+                    o.source = 'extraction',
+                    o.created_at = timestamp()
                 MERGE (s)-[rel:{rel_type}]->(o)
-                ON CREATE SET rel.id = triplet.sub_id + '_' + triplet.obj_id
+                ON CREATE SET rel.id = triplet.sub_id + '_' + triplet.obj_id,
+                    rel.source = 'extraction',
+                    rel.created_at = timestamp()
                 RETURN count(rel) AS created_relationships
             """
 

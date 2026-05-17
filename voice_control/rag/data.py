@@ -251,7 +251,9 @@ class Neo4jImporter:
             MERGE (e:Entity {id: entity.id})
             SET e.label = entity.label, 
                 e.description = entity.description,
-                e.embedding = entity.embedding
+                e.embedding = entity.embedding,
+                e.source = 'import',
+                e.created_at = timestamp()
         """
         self._run_query(query, {"entities": entities_with_embeddings})
         print("Entity import complete.")
@@ -291,7 +293,9 @@ class Neo4jImporter:
                 MATCH (h:Entity {{id: t.head}})
                 MATCH (tl:Entity {{id: t.tail}})
                 CREATE (h)-[r:{rel_type}]->(tl)
-                SET r.id = t.id
+                SET r.id = t.id,
+                    r.source = 'import',
+                    r.created_at = timestamp()
                 RETURN count(r)
             """
             self._run_query(query, {"triples": group})

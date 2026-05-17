@@ -11,11 +11,12 @@ from ..common.utils import get_logger
 class Reranker:
     def __init__(
         self,
-        cross_encoder: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
         from sentence_transformers import CrossEncoder
 
-        self.reranker = CrossEncoder(cross_encoder)
+        self.model_name = model_name
+        self.reranker = CrossEncoder(model_name)
 
     def __call__(
         self, query: str, results: List[str]

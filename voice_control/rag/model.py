@@ -87,6 +87,7 @@ class SPathRAG(BaseRAG):
 
     def __init__(self, llm: LLM | None = None, graph: KnowledgeGraph | None = None, web_search: bool = False):
         super().__init__(session=Session(llm=llm), web_search=web_search)
+        self._graph = graph
         self._attach_graph_retriever(graph)
 
     def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
@@ -151,4 +152,22 @@ class SPathRAG(BaseRAG):
 
         # Final generation
         final_context = "\n".join(accumulated_context)
-        return self.composer(query, context=final_context)
+        final_answer = self.composer(query, context=final_context)
+
+        # Active learning: extract and persist new triplets
+        if self._graph:
+            try:
+                triplets = self.composer.extract_new_triplets(
+                    final_answer, final_context
+                )
+                if triplets:
+                    self._graph.add_triplets(triplets)
+                    self.logger.info(
+                        f"Added {len(triplets)} new triplets to knowledge graph."
+                    )
+            except Exception as e:
+                self.logger.warning(
+                    f"Active learning triplet extraction failed: {e}"
+                )
+
+        return final_answer
