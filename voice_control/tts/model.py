@@ -8,6 +8,7 @@ This module provides text-to-speech processing functionality using ONNX models.
 
 import os
 import re
+import numpy as np
 from kokoro_onnx import Kokoro as KokoroONNX
 from kokoro_onnx.tokenizer import Tokenizer
 
@@ -72,8 +73,16 @@ class Kokoro:
         """
         text = re.sub(r'[*_~`´<>]', '', text)
         import emoji
-        text = emoji.replace_emoji(text, replace="")
+        text = emoji.replace_emoji(text, replace="").strip()
+        if not text:
+            self.logger.warning("Empty text after sanitization. Skipping TTS.")
+            return np.array([], dtype=np.float32), 0
+
         phonemes = self.tokenizer.phonemize(text, lang=language)
+        if not phonemes.strip():
+            self.logger.warning("Empty phonemes. Skipping TTS.")
+            return np.array([], dtype=np.float32), 0
+
         samples, sample_rate = self.kokoro.create(
             phonemes,
             voice=voice,
