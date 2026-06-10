@@ -57,7 +57,12 @@ class Session:
                     )
                 yield from self._generate_response(tool_choice="none")
 
-    def _generate_response(self, **kwargs) -> Generator[str, None, None]:
+    def _generate_response(self, _retry_count: int = 0, **kwargs) -> Generator[str, None, None]:
+        if _retry_count > 2:
+            self.logger.error("Too many tool parse retries. Aborting.")
+            yield "I encountered a persistent error processing tool calls."
+            return
+
         response_chunks = []
         for chunk in self.llm(
             self.conversation, session_state=self._session_state, **kwargs
@@ -67,11 +72,20 @@ class Session:
                     tool_name = chunk.name
                     tool_args = chunk.arguments
                 except Exception as e:
-                    self.logger.warning(
-                        f"Error parsing tool response: {repr(e)}"
+                    self.logger.warning(f"Error parsing tool response: {repr(e)}")
+                    self.conversation.add_tool_message(
+                        f"Tool Error: Could not parse tool call. Please try again with valid JSON."
                     )
-                    continue
-                tool = self.conversation.tools[tool_name]
+                    yield from self._generate_response(_retry_count=_retry_count + 1, tool_choice="none")
+                    return
+                tool = self.conversation.tools.get(tool_name)
+                if tool is None:
+                    self.logger.warning(f"Tool '{tool_name}' not found in conversation tools.")
+                    self.conversation.add_tool_message(
+                        f"Tool Error: '{tool_name}' is not a recognized tool. Available: {list(self.conversation.tools.keys())}."
+                    )
+                    yield from self._generate_response(_retry_count=_retry_count + 1, tool_choice="none")
+                    return
                 self.tool_caller(tool, **tool_args)
             else:
                 response_chunks.append(chunk)
@@ -110,7 +124,10 @@ class ToolCaller:
         while not self._futures.empty():
             tool_name, future = self._futures.get()
             try:
-                responses[tool_name] = future.result()
+                responses[tool_name] = future.result(timeout=10.0)
+            except TimeoutError:
+                responses[tool_name] = f"Tool Error: {tool_name} timed out after 10s"
+                self.logger.error(f"Tool {tool_name} timed out")
             except Exception as e:
                 responses[tool_name] = f"Tool Error: {e}"
                 self.logger.error(

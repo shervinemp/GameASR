@@ -108,6 +108,26 @@ function play_state:draw()
     for i, b in ipairs(self.bullets) do
         love.graphics.circle("fill", b.x, b.y, 3)
     end
+
+    -- Mic listening indicator (top-right corner)
+    if _G.mic_active then
+        love.graphics.setColor(0, 1, 0, 0.8)
+        love.graphics.circle("fill", love.graphics.getWidth() - 30, 30, 12)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.print("LISTENING", love.graphics.getWidth() - 75, 18)
+    end
+
+    -- Command feedback overlay (bottom-center, fades over 2s)
+    if _G.last_feedback and _G.feedback_time then
+        local elapsed = love.timer.getTime() - _G.feedback_time
+        if elapsed < 2.0 then
+            local alpha = 1.0 - (elapsed / 2.0)
+            love.graphics.setColor(1, 1, 1, alpha)
+            local w = love.graphics.getWidth()
+            local text_w = love.graphics.getFont():getWidth(_G.last_feedback)
+            love.graphics.print(_G.last_feedback, (w - text_w) / 2, love.graphics.getHeight() - 50)
+        end
+    end
 end
 
 function play_state:spawn_bullet(x, y, angle)

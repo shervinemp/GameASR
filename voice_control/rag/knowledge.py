@@ -248,6 +248,7 @@ class KnowledgeGraph:
         else:
             query_parts.append("(s:Entity)")
         rel_type = p["name"].upper().replace(" ", "_")
+        rel_type = re.sub(r"[^A-Z0-9_]", "", rel_type) or "RELATED_TO"
         query_parts.append(f"-[r:{rel_type}]->")
         if o and o.get("name") != "?":
             query_parts.append("(o:Entity {label: $o_name})")

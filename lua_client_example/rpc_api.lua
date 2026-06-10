@@ -14,9 +14,13 @@ function rpc_api.move_unit(name, x, y)
         local unit = GameState.current.squad[name]
         unit.target_x = x
         unit.target_y = y
-        return {status = "success", message = name .. " moving to " .. x .. "," .. y}
+        _G.last_feedback = name .. " moving to " .. math.floor(x) .. "," .. math.floor(y)
+        _G.feedback_time = love.timer.getTime()
+        return {status = "success", message = _G.last_feedback}
     end
-    return {status = "error", message = "Unit not found: " .. tostring(name)}
+    _G.last_feedback = "Unit not found: " .. tostring(name)
+    _G.feedback_time = love.timer.getTime()
+    return {status = "error", message = _G.last_feedback}
 end
 
 --[[
@@ -31,7 +35,9 @@ function rpc_api.command_unit(name, action, target_x, target_y)
         local unit = GameState.current.squad[name]
         if action == "shoot" then
             unit:shoot_at(target_x, target_y)
-            return {status = "success", message = name .. " is shooting at " .. target_x .. "," .. target_y}
+            _G.last_feedback = name .. " shoots at " .. math.floor(target_x) .. "," .. math.floor(target_y)
+            _G.feedback_time = love.timer.getTime()
+            return {status = "success", message = _G.last_feedback}
         end
         return {status = "error", message = "Unknown action: " .. tostring(action)}
     end
@@ -42,6 +48,15 @@ end
     Retrieves the status and position of all units in the squad.
     @return (table): A table containing information for each unit.
 ]]
+--[[
+    Sets the microphone listening status for UI indicator.
+    @param active (boolean): Whether the mic is currently hot.
+]]
+function rpc_api.set_mic_status(active)
+    _G.mic_active = active
+    return {status = "success"}
+end
+
 function rpc_api.get_squad_status()
     local status = {}
     if GameState.current.squad then

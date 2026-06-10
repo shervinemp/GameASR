@@ -124,6 +124,7 @@ def main():
                 f"Skipping knowledge graph initialization: {e}"
             )
 
+    logger.info("Voice pipeline ready.")
     pipe.run()
 
 

@@ -36,6 +36,10 @@ class BaseRAG(ABC):
         self.reranker = Reranker()
         self.composer = Composer(session=self.session)
 
+    def get_state(self) -> str:
+        """Override to inject dynamic game state into the system prompt on reset."""
+        return ""
+
     @abstractmethod
     def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
         pass
@@ -125,7 +129,7 @@ class SPathRAG(BaseRAG):
             if not results:
                 break
 
-        reranked, _ = self.reranker(query, results=results[:RERANKER_INPUT_LIMIT])
+            reranked, _ = self.reranker(query, results=results[:RERANKER_INPUT_LIMIT])
 
             new_count = 0
             for r in reranked[:top_k]:
@@ -136,7 +140,6 @@ class SPathRAG(BaseRAG):
 
             context_str = "\n".join(accumulated_context)
 
-            # Skip Socratic loop on first pass if graph results found
             if iteration == 0 and new_count >= top_k:
                 has_exact_label_matches = True
                 self.logger.info(

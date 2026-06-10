@@ -31,14 +31,14 @@ class LegacyXMLDecoder(StreamDecoder):
                 if in_tool:
                     if "</toolcall>" in buffer:
                         try:
-                            # Isolate the tool body
                             tool_body = buffer.split("</toolcall>")[0]
                             tool_dict = json.loads(tool_body.strip())
                             yield ToolCall(
                                 name=tool_dict.get("name") or tool_dict.get("function"),
                                 arguments=tool_dict.get("arguments", {})
                             )
-                        except Exception: pass
+                        except Exception:
+                            yield ToolCall(name="_parse_error", arguments={"raw": tool_body})
                         return # Halt stream to execute tool
                     else:
                         if len(buffer) > 500:
@@ -94,7 +94,8 @@ class GemmaE2BDecoder(StreamDecoder):
                                 args = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)(\s*:)', r'\1"\2"\3', args)
                                 try:
                                     yield ToolCall(name=name, arguments=json.loads(args))
-                                except json.JSONDecodeError: pass
+                                except json.JSONDecodeError:
+                                    yield ToolCall(name="_parse_error", arguments={"raw": args})
                         return  # CRITICAL: Halt stream to allow RAG pipeline to trigger
                     break # Wait for more chunks
 

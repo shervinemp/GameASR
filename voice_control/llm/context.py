@@ -92,10 +92,10 @@ class ContextManager:
             current_tokens -= tokens
             new_cutoff = i + 1
 
-        # Update cutoff_idx
-        # conversation._cutoff_idx is an integer
         if new_cutoff > conversation._cutoff_idx:
-            conversation.cutoff_idx = new_cutoff
+            # Actually remove pruned messages to prevent unbounded list growth
+            del conversation._messages[:new_cutoff]
+            conversation.cutoff_idx = 0
             self.logger.info(
                 f"Pruned {new_cutoff} messages. New context usage: {current_tokens}"
             )

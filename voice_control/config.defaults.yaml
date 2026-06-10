@@ -14,7 +14,7 @@ database:
 llm:
   # Default provider to use. Can be 'openai', 'gemini', 'ollama', etc.
   # This setting can be used to dynamically load the correct LLM class.
-  provider: "Gemma4E2B"
+  provider: "Gemma4_12B"
 
   # --- Model specifications ---
   models:
@@ -46,6 +46,10 @@ tts:
 asr:
   provider: "ParakeetV2"
   weights_dir: "model_files/asr"
+  # VAD (Voice Activity Detection) thresholds
+  vad_threshold: 0.4       # Speech probability threshold (0.0-1.0)
+  trailing_silence_ms: 800 # ms of silence before speech segment ends
+  leading_silence_ms: 1000 # ms of pre-roll audio kept before speech onset
 
 #----------------------------
 

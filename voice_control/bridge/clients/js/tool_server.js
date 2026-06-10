@@ -56,9 +56,6 @@ class ToolServer {
             console.log("[ToolServer] Authentication is enabled.");
         }
 
-        // Prevent Node.js from exiting if there are no other active events
-        this.keepAlive = setInterval(() => {}, 1000 * 60 * 60);
-
         while (this.isRunning) {
             try {
                 const [msg] = await this.socket.receive();
@@ -75,7 +72,6 @@ class ToolServer {
     stop() {
         this.isRunning = false;
         this.socket.close();
-        clearInterval(this.keepAlive);
         console.log("[ToolServer] Stopped.");
     }
 

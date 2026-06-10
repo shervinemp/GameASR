@@ -222,10 +222,35 @@ class SmartGraphRetriever(Retriever):
         self.session = session
         self.primary = primary_strategy
         self.fallback = fallback_strategy
+        self._nlp = None
+
+    def _get_nlp(self):
+        if self._nlp is None:
+            try:
+                import spacy
+                self._nlp = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
+            except Exception:
+                self._nlp = False
+        return self._nlp if self._nlp is not False else None
+
+    def _extract_keywords_ner(self, query: str) -> List[str] | None:
+        nlp = self._get_nlp()
+        if nlp is None:
+            return None
+        doc = nlp(query)
+        entities = list(set(ent.text for ent in doc.ents))
+        return entities if entities else None
 
     def _extract_keywords(self, query: str) -> List[str]:
         from ..common.utils import safe_json_loads
 
+        # Try fast NER first
+        ner_keywords = self._extract_keywords_ner(query)
+        if ner_keywords:
+            self.logger.debug(f"NER extracted keywords: {ner_keywords}")
+            return ner_keywords
+
+        # Fall back to LLM extraction
         prompt = (
             "Extract named entities from the query below.\n"
             "Rules:\n"
@@ -263,6 +288,21 @@ class WebRetriever(Retriever):
         self.logger = get_logger(__file__)
         self.session = session
         self._ddgs = None
+        self._last_search_time = 0.0
+        self._search_cache = {}
+        self._user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        ]
+        self._ua_index = 0
+
+    def _rate_limit(self):
+        import time
+        elapsed = time.time() - self._last_search_time
+        if elapsed < 1.0:
+            time.sleep(1.0 - elapsed)
+        self._last_search_time = time.time()
 
     def _get_ddgs(self):
         if self._ddgs is None:
@@ -287,6 +327,12 @@ class WebRetriever(Retriever):
                 f"Failed to extract keywords. Using original query. Error: {e}"
             )
 
+        # Check cache
+        cache_key = (search_query, top_k)
+        if cache_key in self._search_cache:
+            self.logger.info(f"Cache hit for '{search_query}'")
+            return self._search_cache[cache_key]
+
         self.logger.info(f"Searching for '{search_query}'...")
 
         # Try DDGS library first
@@ -302,11 +348,18 @@ class WebRetriever(Retriever):
         if not results:
             self.logger.warning(f"Web search for '{search_query}' yielded no results.")
 
+        # Cache result (shallow copy to avoid mutation)
+        self._search_cache[cache_key] = list(results)
+        if len(self._search_cache) > 128:
+            self._search_cache.pop(next(iter(self._search_cache)))
+
         return results
 
     def _search_ddgs(self, ddgs, query: str, top_k: int) -> List[dict]:
         import time
         for attempt in range(3):
+            self._rate_limit()
+            self._ua_index = (self._ua_index + 1) % len(self._user_agents)
             try:
                 results = ddgs.text(query, max_results=top_k)
                 if results:

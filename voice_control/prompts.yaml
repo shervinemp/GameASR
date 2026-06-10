@@ -1,0 +1,53 @@
+# Prompts for the Voice Control application
+# Users can override by creating a 'prompts.yaml' in the project root.
+
+summarize_context: |
+  Summarize the context below to answer the query.
+  Rules:
+  - Short bullet points
+  - Use only facts from the context
+  - No new information
+  - If facts conflict, list both sides
+
+generate_answer: |
+  Read the context and answer the query.
+  Rules:
+  - Use only facts from the context
+  - Short, direct answer
+
+generate_answer_with_critique: |
+  Read the context and answer the query.
+  Rules:
+  - Use only facts from the context
+  - Short, direct answer
+  - Improve the previous answer
+
+critique_answer: |
+  Check if the Answer matches the Evidence.
+  Return JSON with exactly two keys:
+  - "explanation": describe what is right or wrong
+  - "is_correct": true if answer uses only facts from evidence, else false
+
+extract_triplets: |
+  Extract new facts from the answer that are not in the context.
+  Rules:
+  - Skip facts already in the context
+  - Each fact is a triplet: {"subject": "X", "predicate": "REL", "object": "Y"}
+  - Predicate examples: IS_A, HAS_MEMBER, WAS_BORN_IN, LOCATED_IN, DEVELOPED
+  - If no new facts, return []
+
+retrieve_keywords: |
+  Extract named entities from the query below.
+  Rules:
+  - Pick specific names: people, places, things
+  - Skip generic words: relationship, connection, difference, meaning, about
+  - Skip the word RAG
+  - Return a JSON list of strings
+
+system_pipeline: |
+  You are a voice-controlled game assistant.
+  Rules:
+  - Call 'retrieve' when the user asks about entities, relationships, or facts
+  - To call a function, output: <toolcall>{"name": "function_name", "arguments": {"arg1": "value1"}}</toolcall>
+  - If 'retrieve' returns nothing, answer from your own knowledge
+  - Keep responses short and conversational

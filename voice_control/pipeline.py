@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 from typing import Optional
 from dotenv import load_dotenv
@@ -42,18 +43,30 @@ class Pipeline:
         self.llm_server = None
 
         asr_cls = getattr(ASRProviders, config.get("asr.provider"))
-        self.asr = asr_cls()
-
         tts_cls = getattr(TTSProviders, config.get("tts.provider"))
-        self.tts = tts_cls()
 
-        llm_provider = config.get("llm.provider")
-        llm_cls = getattr(LLMProviders, llm_provider)
+        if session is not None:
+            self.asr = asr_cls()
+            self.tts = tts_cls()
+            self.session = session
+        else:
+            llm_provider = config.get("llm.provider")
+            llm_cls = getattr(LLMProviders, llm_provider)
+            llm_settings = config.get("llm.providers").get(llm_provider.lower(), {})
 
-        llm_settings = config.get("llm.providers").get(
-            llm_provider.lower(), {}
-        )
-        self.session = session or Session(llm=llm_cls(**llm_settings))
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                asr_future = pool.submit(asr_cls)
+                tts_future = pool.submit(tts_cls)
+                llm_future = pool.submit(llm_cls, **llm_settings)
+
+                for future in as_completed([asr_future, tts_future, llm_future]):
+                    exc = future.exception()
+                    if exc:
+                        raise exc
+
+                self.asr = asr_future.result()
+                self.tts = tts_future.result()
+                self.session = Session(llm=llm_future.result())
 
         self.rag = rag
 
@@ -114,11 +127,12 @@ class Pipeline:
 
         if not self.session.conversation._system:
             self.session.conversation.set_system_message(
-                "You are a voice-controlled game assistant. "
-                "You have a 'retrieve' tool that can look up information in a knowledge graph. "
-                "If the user asks about entities, relationships, facts, or anything that might be in a knowledge base, "
-                "call the 'retrieve' tool first before answering. "
-                "Respond conversationally and naturally."
+                "You are a voice-controlled game assistant. Respond conversationally and naturally.\n\n"
+                "Rules:\n"
+                "- You have a 'retrieve' tool for looking up information\n"
+                "- Call 'retrieve' when the user asks about entities, relationships, or facts\n"
+                "- To call a tool, output: <toolcall>{\"name\": \"tool_name\", \"arguments\": {}}</toolcall>\n"
+                "- If 'retrieve' returns nothing, answer from your own knowledge"
             )
 
     @property
@@ -176,11 +190,17 @@ class Pipeline:
                 old_system_msg = self.session.conversation._system
                 old_tools = self.session.conversation.tools
 
+                # Preserve dynamic state from RAG across reset
+                rag_state = self._rag.get_state() if self._rag else ""
+
                 self.session = Session(
                     llm=self.session.llm, conversation=Conversation()
                 )
                 if old_system_msg:
-                    self.session.conversation.set_system_message(old_system_msg)
+                    merged = old_system_msg
+                    if rag_state:
+                        merged += "\n\n" + rag_state
+                    self.session.conversation.set_system_message(merged)
                 if old_tools:
                     self.session.conversation.tools = old_tools
 
@@ -234,11 +254,11 @@ def main():
         llm = pipe.session.llm
 
         # Switch from SimpleRAG to SPathRAG
-        # Note: Ensure config.yaml sets llm.provider to 'Gemma4E2B'
+        # Note: Ensure config.yaml sets llm.provider to 'Gemma4_12B' (or another provider)
         rag = SPathRAG(llm=llm, graph=graph, web_search=True)
         pipe.rag = rag
 
-        logger.info("Starting voice control pipeline with S-Path-RAG...")
+        logger.info("Voice pipeline ready. Press and hold <ctrl_r>+<shift_r> to speak.")
         pipe.run()
     except Exception as e:
         logger.error(f"Error in main(): {e}", exc_info=True)

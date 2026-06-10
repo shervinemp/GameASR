@@ -65,6 +65,8 @@ class GGUFLLM(LLM):
     local_dir: str = os.path.join("model_files", "llm")
     n_ctx: int = 512
     max_tokens: int = 128
+    type_k: str | None = None  # KV cache quantization for K (e.g. "q4_0", "q8_0", "f16")
+    type_v: str | None = None  # KV cache quantization for V
 
     def __init__(self):
         super().__init__()  # Call base init if it exists
@@ -80,13 +82,39 @@ class GGUFLLM(LLM):
             )
 
         self.logger.info("Loading model...")
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=self.n_ctx,
-            n_gpu_layers=-1,
-            flash_attn=True,
-            verbose=False,
-        )
+        n_gpu_layers = -1
+        flash_attn = True
+
+        # String-to-int mapping for KV cache quantization types
+        _GGML_CACHE_TYPES = {"f16": 1, "q4_0": 2, "q8_0": 8}
+
+        for attempt in range(3):
+            try:
+                kwargs = dict(
+                    model_path=model_path,
+                    n_ctx=self.n_ctx,
+                    n_gpu_layers=n_gpu_layers,
+                    flash_attn=flash_attn,
+                    verbose=False,
+                )
+                if self.type_k:
+                    kwargs["type_k"] = _GGML_CACHE_TYPES.get(self.type_k, self.type_k)
+                if self.type_v:
+                    kwargs["type_v"] = _GGML_CACHE_TYPES.get(self.type_v, self.type_v)
+                self.model = Llama(**kwargs)
+                break
+            except Exception as e:
+                self.logger.warning(
+                    f"Model load attempt {attempt + 1} failed (gpu={n_gpu_layers}, flash_attn={flash_attn}): {e}"
+                )
+                if attempt == 0 and n_gpu_layers == -1:
+                    n_gpu_layers = 0
+                    self.logger.info("Retrying with CPU only (n_gpu_layers=0)...")
+                elif attempt == 1 and flash_attn:
+                    flash_attn = False
+                    self.logger.info("Retrying with flash_attn=False...")
+                else:
+                    raise
         self.logger.info("Model loaded successfully.")
 
         self._last_state = None
@@ -220,6 +248,18 @@ class Gemma4E2B(GGUFLLM):
     n_ctx: int = 131072
     max_tokens: int = 8192
     decoder = GemmaE2BDecoder()
+    type_k: str = "q4_0"
+    type_v: str = "q4_0"
+
+
+class Gemma4_12B(GGUFLLM):
+    hf_repo: str = "unsloth/gemma-4-12b-it-GGUF"
+    filename: str = "gemma-4-12b-it-UD-IQ3_XXS.gguf"
+    n_ctx: int = 8192
+    max_tokens: int = 2048
+    type_k: str = "q4_0"
+    type_v: str = "q4_0"
+    decoder = LegacyXMLDecoder()
 
 
 class ChatGPT(LLM):
@@ -236,24 +276,51 @@ class ChatGPT(LLM):
 
         self.client = OpenAI(api_key=api_key)
 
-    # Using default approximation for count_tokens
-
     def _infer(
         self,
         conversation: Conversation,
         *,
         session_state: dict,
+        tool_choice: str | dict = "auto",
         **kwargs,
-    ) -> Generator[str, None, None]:
+    ) -> Generator[str | ToolCall, None, None]:
+        tools = [t.to_dict() for t in conversation.tools.values()] or None
+
         stream = self.client.chat.completions.create(
             model=self.model,
             messages=conversation.messages,
+            tools=tools,
+            tool_choice=tool_choice if tools else None,
             stream=True,
             **kwargs,
         )
+
+        tool_call_buffer = {}
         for chunk in stream:
-            if content := chunk.choices[0].delta.content:
-                yield content
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta is None:
+                continue
+
+            if delta.content:
+                yield delta.content
+
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_call_buffer:
+                        tool_call_buffer[idx] = {"name": "", "arguments": ""}
+                    if tc.function and tc.function.name:
+                        tool_call_buffer[idx]["name"] += tc.function.name
+                    if tc.function and tc.function.arguments:
+                        tool_call_buffer[idx]["arguments"] += tc.function.arguments
+
+        for tc_data in tool_call_buffer.values():
+            if tc_data["name"]:
+                try:
+                    args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
+                except json.JSONDecodeError:
+                    args = {}
+                yield ToolCall(name=tc_data["name"], arguments=args)
 
 
 class Gemini(LLM):
@@ -297,6 +364,7 @@ class LLMProviders:
     ChatGPT: type = ChatGPT
     Gemini: type = Gemini
     Gemma4E2B: type = Gemma4E2B
+    Gemma4_12B: type = Gemma4_12B
 
 
 # ----------------------------------------------------------------------

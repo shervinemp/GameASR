@@ -56,33 +56,17 @@ function Collision:update(dt)
         local overlapY = math.max((body1.y + body1.height / 2 - (body2.y - body2.height / 2)), (body2.y + body2.height / 2 - (body1.y - body1.height / 2)))
 
         if overlapX < overlapY then
-          -- X-axis collision
-          if body1.x < body2.x then
-            body1.x = body1.x - overlapX * 0.5
-            body2.x = body2.x + overlapX * 0.5
-          else
-            body1.x = body1.x + overlapX * 0.5
-            body2.x = body2.x - overlapX * 0.5
-          end
-
-          -- Reverse X velocity
-          local tempVx = body1.dx or 0
-          body1.dx = (body2.dx or 0)
-          body2.dx = tempVx
+          -- X-axis collision: push apart and stop X velocity
+          local sign = body1.x < body2.x and -1 or 1
+          body1.x = body1.x + overlapX * 0.5 * sign
+          body2.x = body2.x - overlapX * 0.5 * sign
+          body1.dx, body2.dx = 0, 0
         else
-          -- Y-axis collision
-          if body1.y < body2.y then
-            body1.y = body1.y - overlapY * 0.5
-            body2.y = body2.y + overlapY * 0.5
-          else
-            body1.y = body1.y + overlapY * 0.5
-            body2.y = body2.y - overlapY * 0.5
-          end
-
-          -- Reverse Y velocity
-          local tempVy = body1.dy or 0
-          body1.dy = (body2.dy or 0)
-          body2.dy = tempVy
+          -- Y-axis collision: push apart and stop Y velocity
+          local sign = body1.y < body2.y and -1 or 1
+          body1.y = body1.y + overlapY * 0.5 * sign
+          body2.y = body2.y - overlapY * 0.5 * sign
+          body1.dy, body2.dy = 0, 0
         end
       end
     end

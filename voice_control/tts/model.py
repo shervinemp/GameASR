@@ -8,15 +8,31 @@ This module provides text-to-speech processing functionality using ONNX models.
 
 import os
 import re
+import shutil
 import numpy as np
 
-# Ensure phonemizer can find espeak-ng on Windows
-_espeak_lib = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
-if os.name == "nt" and os.path.exists(_espeak_lib):
-    os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", _espeak_lib)
-    os.environ.setdefault("PATH", "")
-    if r"C:\Program Files\eSpeak NG" not in os.environ["PATH"]:
-        os.environ["PATH"] = r"C:\Program Files\eSpeak NG" + os.pathsep + os.environ["PATH"]
+# Dynamically locate espeak-ng for phonemization
+_espeak_lib = os.environ.get("PHONEMIZER_ESPEAK_LIBRARY")
+if not _espeak_lib:
+    candidates = []
+    if os.name == "nt":
+        candidates = [
+            r"C:\Program Files\eSpeak NG\libespeak-ng.dll",
+            r"C:\Program Files (x86)\eSpeak NG\libespeak-ng.dll",
+        ]
+    espeak_exe = shutil.which("espeak-ng")
+    if espeak_exe:
+        candidates.append(espeak_exe)
+    for path in candidates:
+        if os.path.exists(path):
+            _espeak_lib = path
+            os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", _espeak_lib)
+            if os.name == "nt":
+                parent = os.path.dirname(path)
+                os.environ.setdefault("PATH", "")
+                if parent not in os.environ["PATH"]:
+                    os.environ["PATH"] = parent + os.pathsep + os.environ["PATH"]
+            break
 
 from kokoro_onnx import Kokoro as KokoroONNX
 from kokoro_onnx.tokenizer import Tokenizer
@@ -33,9 +49,6 @@ class Kokoro:
     sample_rate: int = 24_000
 
     def __init__(self):
-        """
-        Initialize TTS processor with the specified model and configuration files.
-        """
         self.logger = get_logger(__name__)
 
         weights_dir = config.get("tts.weights_dir", "model_files/tts")
@@ -46,6 +59,7 @@ class Kokoro:
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
+        self._executor = None
 
     @classmethod
     def download(cls):
@@ -63,26 +77,10 @@ class Kokoro:
             if not os.path.exists(destination):
                 download_file(url, destination)
 
-    def __call__(
-        self,
-        text: str,
-        voice: str = "af_heart",
-        language: str = "en-us",
-        speed: float = 1.0,
-        interrupt: bool = False,
-    ):
-        """
-        Convert text into speech audio.
-
-        Args:
-            text: The text string to synthesize
-
-        Returns:
-            tuple: (numpy array of audio samples, sample rate)
-        """
+    def _synthesize(self, text: str, voice: str, language: str, speed: float, interrupt: bool):
         text = re.sub(r'[*_~`´<>]', '', text)
         import emoji
-        text = emoji.replace_emoji(text, replace="").strip()
+        text = emoji.demojize(text).strip()
         if not text:
             self.logger.warning("Empty text after sanitization. Skipping TTS.")
             return np.array([], dtype=np.float32), 0
@@ -92,21 +90,30 @@ class Kokoro:
             self.logger.warning("Empty phonemes. Skipping TTS.")
             return np.array([], dtype=np.float32), 0
 
-        samples, sample_rate = self.kokoro.create(
-            phonemes,
-            voice=voice,
-            speed=speed,
-            is_phonemes=True,
-        )
-
+        samples, sample_rate = self.kokoro.create(phonemes, voice=voice, speed=speed, is_phonemes=True)
         self.audio_player(samples, sample_rate, interrupt)
-
         return samples, sample_rate
 
+    def __call__(
+        self,
+        text: str,
+        voice: str = "af_heart",
+        language: str = "en-us",
+        speed: float = 1.0,
+        interrupt: bool = False,
+    ):
+        if self._executor is None:
+            return self._synthesize(text, voice, language, speed, interrupt)
+        self._executor.submit(self._synthesize, text, voice, language, speed, interrupt)
+
     def start(self):
+        from concurrent.futures import ThreadPoolExecutor
+        self._executor = ThreadPoolExecutor(max_workers=1)
         self.audio_player.start()
 
     def stop(self):
+        if self._executor:
+            self._executor.shutdown(wait=False)
         self.audio_player.stop()
 
     def __enter__(self):

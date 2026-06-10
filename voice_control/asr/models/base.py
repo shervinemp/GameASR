@@ -1,4 +1,4 @@
-import queue
+from collections import deque
 import threading
 import numpy as np
 from abc import ABC, abstractmethod
@@ -13,9 +13,10 @@ class ModelBase(ConsumerProducer, ABC):
 
     def __init__(
         self,
-        sound_device: int,
+        sound_device: int | str,
     ):
-        self.audio_queue = queue.Queue(maxsize=100)
+        self.audio_queue = deque(maxlen=100)
+        self._audio_event = threading.Event()
         self._is_muted = threading.Event()
         self._is_running = threading.Event()
         self._is_running.set()
@@ -26,21 +27,18 @@ class ModelBase(ConsumerProducer, ABC):
         def sound_cb(in_data, frames, time, status):
             if status:
                 print(f"Audio Status: {status}")
-            try:
-                # Strictly wait-free. Copy to avoid memory corruption from C.
-                self.audio_queue.put_nowait(in_data.copy())
-            except queue.Full:
-                print("Warning: Audio queue full, dropping frames and resetting VAD buffer due to desynchronization.")
-                with self.audio_queue.mutex:
-                    self.audio_queue.queue.clear()
+            self.audio_queue.append(in_data.copy())
+            self._audio_event.set()
 
         self._input_stream = self._inputstream(sound_device, sound_cb)
 
     def _vad_worker(self):
         while self._is_running.is_set():
             try:
-                chunk = self.audio_queue.get(timeout=0.1)
-            except queue.Empty:
+                chunk = self.audio_queue.popleft()
+            except IndexError:
+                self._audio_event.wait(timeout=0.05)
+                self._audio_event.clear()
                 continue
 
             self.__call__(chunk)
@@ -60,7 +58,7 @@ class ModelBase(ConsumerProducer, ABC):
     def _produce(self) -> Generator[str, None, None]: ...
 
     @abstractmethod
-    def _inputstream(self, device: int, callback: Callable) -> InputStream: ...
+    def _inputstream(self, device: int | str, callback: Callable) -> InputStream: ...
 
     def start(self):
         self._input_stream.start()

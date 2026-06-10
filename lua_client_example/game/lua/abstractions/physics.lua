@@ -18,15 +18,13 @@ function Physics:addBody(body)
   self.collisionSystem:addBody(body)
 end
 
-function Physics:applyMovement(body)
-  -- Apply basic movement physics for top-down shooter
-  local dx = body.dx or 0
-  local dy = body.dy or 0
+function Physics:applyMovement(body, dt)
+  local dx = (body.dx or 0) * dt
+  local dy = (body.dy or 0) * dt
 
   body.x = body.x + dx
   body.y = body.y + dy
 
-  -- Reset velocity if not set by user code
   if not body.update then
     body.dx, body.dy = 0, 0
   end
@@ -34,7 +32,7 @@ end
 
 function Physics:update(dt)
   for _, body in ipairs(self.bodies) do
-    self:applyMovement(body)
+    self:applyMovement(body, dt)
 
     if body.update then
       body:update(dt)  -- Pass only delta time to avoid recursion

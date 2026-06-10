@@ -13,18 +13,48 @@ _vad_lock = threading.Lock()
 
 class ParakeetV2(ModelBase):
 
-    def __init__(self, sound_device: int = 0):
+    def __init__(self, sound_device: int | str = 0):
         from onnx_asr import load_model
+
+        # Resolve string device name to integer index
+        if isinstance(sound_device, str):
+            import sounddevice as sd
+            devices = sd.query_devices()
+            for i, dev in enumerate(devices):
+                if sound_device.lower() in dev["name"].lower():
+                    sound_device = i
+                    break
+            else:
+                self.logger.warning(
+                    f"Sound device '{sound_device}' not found. Using default (0)."
+                )
+                sound_device = 0
 
         self._model = load_model(
             "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
         )
-        self._vad = Silero()
+
+        # Read VAD settings from config before initializing Silero
+        from ...common.config import config as _cfg
+        vad_threshold = _cfg.get("asr.vad_threshold", 0.4)
+        trailing_ms = _cfg.get("asr.trailing_silence_ms", 800)
+        leading_ms = _cfg.get("asr.leading_silence_ms", 1000)
+        self._vad = Silero(
+            vad_threshold=vad_threshold,
+            trailing_silence_duration=trailing_ms / 1000.0,
+            leading_silence_duration=leading_ms / 1000.0,
+        )
         self._lock = _vad_lock
 
         super().__init__(sound_device)
 
+        # Warm up ONNX model to avoid cold start latency on first utterance
+        dummy = np.zeros(self._vad._model.SAMPLE_RATE, dtype=np.float32)
+        self._model.recognize(dummy, sample_rate=self._vad._model.SAMPLE_RATE)
+
     def _consume(self, chunk: Iterable[float]):
+        if self._is_muted.is_set():
+            return
         self._vad(chunk)
 
     def _produce(self) -> Generator[str, None, None]:

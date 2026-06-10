@@ -103,25 +103,8 @@ end
 
 function love.update(dt)
   if current_state == "play" and player then
-    -- First handle custom movement to ensure it takes precedence
     input:handleEvent({type="update", dt=dt})
 
-    -- Apply player's velocity directly (if any) before physics update
-    if player.dx ~= 0 or player.dy ~= 0 then
-      local angle = math.atan2(player.dy, player.dx)
-      player.x = player.x + math.cos(angle) * player.speed * dt
-      player.y = player.y + math.sin(angle) * player.speed * dt
-
-      -- Reset velocities for next frame
-      if input:isKeyReleased("up") or input:isKeyReleased("down") then
-        player.dy = 0
-      end
-      if input:isKeyReleased("left") or input:isKeyReleased("right") then
-        player.dx = 0
-      end
-    end
-
-    -- Then update physics for all bodies (including player)
     physics:update(dt)
 
     game_states.play:update(dt)

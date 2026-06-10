@@ -113,7 +113,7 @@ def main():
         examples=examples,
         model_id=args.model_id,
         api_key=api_key,
-        max_workers=10,  # Use parallel processing for speed
+        max_workers=2,  # reduced from 10 to avoid 429s on free API tiers
     )
 
     # 5. Save the results

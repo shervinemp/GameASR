@@ -1,7 +1,6 @@
 import atexit
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 import threading
-from time import sleep
 import numpy as np
 import sounddevice as sd
 
@@ -22,7 +21,7 @@ class AudioPlayer:
             f"AudioPlayer initialized. Using device: '{device_name}' (ID: {output_device})"
         )
 
-        self._queue = Queue(maxsize=100)
+        self._queue = Queue(maxsize=5)
         self._queue_lock = threading.Lock()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
@@ -53,13 +52,15 @@ class AudioPlayer:
                         self._queue.get_nowait()
                     except Empty:
                         break
-        self._queue.put((audio_data, sample_rate, interrupt))
+        try:
+            self._queue.put_nowait((audio_data, sample_rate, interrupt))
+        except Full:
+            self.logger.warning("TTS queue full, dropping sentence to stay responsive.")
 
     def play(
         self,
         audio_data: np.ndarray[np.float32 | np.int16],
         sample_rate: int,
-        pad_end_ms: int = 0,
     ):
         if audio_data.dtype != np.float32:
             audio_data = (
@@ -69,16 +70,6 @@ class AudioPlayer:
             )
         if np.max(np.abs(audio_data)) > 1.0:
             audio_data /= (np.max(np.abs(audio_data)) + 1e-8)
-
-        audio_data = np.concatenate(
-            [
-                audio_data,
-                np.zeros(
-                    (pad_end_ms * sample_rate // 1000, *audio_data.shape[1:])
-                ),
-            ],
-            axis=0,
-        )
 
         sd.play(
             audio_data,
@@ -107,6 +98,7 @@ class AudioPlayer:
 
 
 def main():
+    from time import sleep
     logger = get_logger("AudioPlayerExample")
 
     player = AudioPlayer()

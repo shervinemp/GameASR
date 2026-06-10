@@ -27,22 +27,24 @@ class ToolClient:
             tools.append(t_)
         return tools
 
-    async def call_tool_async(self, tool_name: str, **kwargs):
+    async def call_tool_async(self, tool_name: str, max_retries: int = 3, **kwargs):
         """The generic handler for all RPC calls."""
-        request = {"method": tool_name, "params": kwargs}
-        if self.auth_token:
-            request["auth_token"] = self.auth_token
-        await self.socket.send_json(request)
+        last_error = None
+        for attempt in range(max_retries):
+            request = {"method": tool_name, "params": kwargs}
+            if self.auth_token:
+                request["auth_token"] = self.auth_token
+            try:
+                await self.socket.send_json(request)
+                if await self.socket.poll(3000 * (attempt + 1)) != 0:
+                    return await self.socket.recv_json()
+                else:
+                    raise TimeoutError(f"Timeout on attempt {attempt + 1}")
+            except Exception as e:
+                last_error = str(e)
+                self.socket.setsockopt(zmq.LINGER, 0)
+                self.socket.close()
+                self.socket = self.context.socket(zmq.REQ)
+                self.socket.connect(self.endpoint)
 
-        # Add timeout handling to prevent infinite hangs
-        if await self.socket.poll(3000) != 0:
-            return await self.socket.recv_json()
-        else:
-            # Cleanup socket on timeout to reset state machine
-            self.socket.setsockopt(zmq.LINGER, 0)
-            self.socket.close()
-
-            # Recreate socket carefully to ensure complete REQ state reset without destroying context
-            self.socket = self.context.socket(zmq.REQ)
-            self.socket.connect(self.endpoint)
-            return {"error": "Game engine RPC timeout"}
+        return {"error": f"Game engine RPC failed after {max_retries} attempts: {last_error}"}

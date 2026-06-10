@@ -82,7 +82,14 @@ void ToolServer::server_loop()
             zmq::message_t request_msg;
             if (_socket.recv(request_msg, zmq::recv_flags::none))
             {
-                json request = json::parse(request_msg.to_string());
+                json request;
+                try {
+                    request = json::parse(request_msg.to_string());
+                } catch (const json::parse_error&) {
+                    json err = {{"jsonrpc", "2.0"}, {"error", {{"code", -32700}, {"message", "Parse error"}}}, {"id", nullptr}};
+                    _socket.send(zmq::buffer(err.dump()), zmq::send_flags::none);
+                    continue;
+                }
                 json response = handle_request(request);
                 _socket.send(zmq::buffer(response.dump()), zmq::send_flags::none);
             }
