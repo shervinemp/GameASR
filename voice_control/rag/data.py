@@ -1,11 +1,14 @@
 from dataclasses import dataclass
-import os
-import re
-import requests
-import zipfile
-import io
-import pandas as pd
 import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import tempfile
+import zipfile
+
+import pandas as pd
 import sys
 from typing import Dict, Optional, List
 from dotenv import load_dotenv
@@ -16,11 +19,18 @@ from sentence_transformers import SentenceTransformer
 from neo4j import GraphDatabase
 from neo4j_graphrag.indexes import create_vector_index
 
-from ..common.utils import get_logger, setup_logging
+from ..common.utils import download_file, get_logger, setup_logging
 from ..common.config import config
 
 
 class DataLoader:
+
+    CODEX_REVISION = "3132e426c2a6b643b70bad679905a3a6270be440"
+    CODEX_ARCHIVE_SHA256 = (
+        "18a0721753e1e137a0d3ab1c79dde6964d628fdf8eae38dc5178c726ba469b02"
+    )
+    CODEX_ARCHIVE_MAX_BYTES = 200_000_000
+    CODEX_EXTRACTED_MAX_BYTES = 1_000_000_000
 
     @dataclass
     class KnowledgeData:
@@ -132,18 +142,67 @@ class CodexDataLoader(DataLoader):
             print(f"'{repo_path}' already exists. Skipping download.")
             return
 
-        print("Downloading CoDEx repository...")
+        print("Downloading pinned CoDEx dataset archive...")
         repo_url = (
-            "https://github.com/tsafavi/codex/archive/refs/heads/master.zip"
+            "https://github.com/tsafavi/codex/archive/"
+            f"{self.CODEX_REVISION}.zip"
         )
+        parent = os.path.abspath(os.path.dirname(repo_path))
+        os.makedirs(parent, exist_ok=True)
+        archive_path = os.path.join(parent, f".codex-{self.CODEX_REVISION}.zip")
         try:
-            response = requests.get(repo_url, stream=True)
-            response.raise_for_status()
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                z.extractall(os.path.dirname(repo_path))
+            download_file(
+                repo_url,
+                archive_path,
+                expected_sha256=self.CODEX_ARCHIVE_SHA256,
+                allowed_hosts={"github.com", "codeload.github.com"},
+                max_bytes=self.CODEX_ARCHIVE_MAX_BYTES,
+            )
+            with tempfile.TemporaryDirectory(
+                dir=parent, prefix=".codex-extract-"
+            ) as extraction_dir:
+                self._extract_archive_safely(archive_path, extraction_dir)
+                extracted_root = os.path.join(
+                    extraction_dir, f"codex-{self.CODEX_REVISION}"
+                )
+                if not os.path.isdir(extracted_root):
+                    raise ValueError("Dataset archive has an unexpected layout.")
+                os.replace(extracted_root, repo_path)
             print("Download and extraction complete.")
-        except (requests.exceptions.RequestException, zipfile.BadZipFile) as e:
+        except (OSError, ValueError, zipfile.BadZipFile) as e:
             raise RuntimeError(f"Failed during download or extraction: {e}")
+        finally:
+            if os.path.exists(archive_path):
+                os.unlink(archive_path)
+
+    def _extract_archive_safely(self, archive_path: str, destination: str):
+        """Extract a bounded ZIP without path traversal or symbolic links."""
+        destination_root = Path(destination).resolve()
+        extracted_bytes = 0
+        with zipfile.ZipFile(archive_path) as archive:
+            if len(archive.infolist()) > 20_000:
+                raise ValueError("Dataset archive contains too many entries.")
+            for member in archive.infolist():
+                mode = member.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise ValueError("Dataset archive contains a symbolic link.")
+                extracted_bytes += member.file_size
+                if extracted_bytes > self.CODEX_EXTRACTED_MAX_BYTES:
+                    raise ValueError("Dataset archive exceeds the extraction limit.")
+
+                target = (destination_root / member.filename).resolve()
+                if os.path.commonpath((destination_root, target)) != str(
+                    destination_root
+                ):
+                    raise ValueError("Dataset archive contains an unsafe path.")
+                if member.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # ASVS 5.3.2 / 15.4.2: copy only validated regular-file paths.
+                with archive.open(member) as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output, length=1024 * 1024)
 
 
 class Neo4jImporter:
@@ -178,6 +237,15 @@ class Neo4jImporter:
         query = "CREATE INDEX entity_id_index IF NOT EXISTS FOR (n:Entity) ON (n.id)"
         self._run_query(query)
 
+        query = "CREATE INDEX entity_normalized_label_index IF NOT EXISTS FOR (n:Entity) ON (n.normalized_label)"
+        self._run_query(query)
+
+        # Backfill graphs imported before normalized labels were introduced.
+        self._run_query(
+            "MATCH (n:Entity) WHERE n.normalized_label IS NULL "
+            "SET n.normalized_label = toLower(trim(n.label))"
+        )
+
         query = "CREATE FULLTEXT INDEX nodes_label_description_fulltext IF NOT EXISTS FOR (n:Entity) ON EACH [n.label, n.description]"
         self._run_query(query)
 
@@ -195,7 +263,12 @@ class Neo4jImporter:
 
     def clear_database(self):
         print("Clearing database...")
-        for index in ["entity_id_index", "nodes_label_description_fulltext", "embedding"]:
+        for index in [
+            "entity_id_index",
+            "entity_normalized_label_index",
+            "nodes_label_description_fulltext",
+            "embedding",
+        ]:
             self._run_query(f"DROP INDEX {index} IF EXISTS")
         self._run_query("MATCH (n) DETACH DELETE n")
         print("Database cleared.")
@@ -208,18 +281,28 @@ class Neo4jImporter:
         print(f"Generating embeddings for {len(entities_meta)} entities...")
 
         entity_ids = list(entities_meta.keys())
-        labels_to_embed = [
-            entities_meta[eid].get("label", "") for eid in entity_ids
-        ]
+        documents_to_embed = []
+        for entity_id in entity_ids:
+            entity = entities_meta[entity_id]
+            label = str(entity.get("label", "")).strip()
+            description = str(entity.get("description", "")).strip()
+            documents_to_embed.append(
+                f"{label}. {description}" if description else label
+            )
 
         embeddings = self._embedding_model.encode(
-            labels_to_embed, show_progress_bar=True
+            documents_to_embed,
+            show_progress_bar=True,
+            normalize_embeddings=True,
         )
 
         entities_with_embeddings = []
         for i, eid in enumerate(entity_ids):
             entity_data = entities_meta[eid]
             entity_data["id"] = eid
+            entity_data["normalized_label"] = str(
+                entity_data.get("label", "")
+            ).strip().lower()
             entity_data["embedding"] = embeddings[i].tolist()
             entities_with_embeddings.append(entity_data)
 
@@ -250,6 +333,7 @@ class Neo4jImporter:
             UNWIND $entities AS entity
             MERGE (e:Entity {id: entity.id})
             SET e.label = entity.label, 
+                e.normalized_label = entity.normalized_label,
                 e.description = entity.description,
                 e.embedding = entity.embedding,
                 e.source = 'import',

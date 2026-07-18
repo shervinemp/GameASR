@@ -1,7 +1,10 @@
 import zmq
-import json
+from collections import deque
+import hmac
 import time
 import os
+
+from voice_control.bridge.llm_server import LLMServer
 
 
 # --- Dummy Tool Implementations ---
@@ -35,11 +38,27 @@ RPC_METHODS = {
 
 
 class ToolServer:
-    def __init__(self, endpoint="tcp://0.0.0.0:8080", auth_token=None):
+    def __init__(
+        self,
+        endpoint="tcp://127.0.0.1:8080",
+        auth_token=None,
+        *,
+        max_request_bytes=65_536,
+        requests_per_minute=120,
+    ):
         self.endpoint = endpoint
         self.auth_token = auth_token
+        self.max_request_bytes = max_request_bytes
+        self.requests_per_minute = requests_per_minute
+        self._request_times = deque()
+        if not LLMServer._is_loopback_endpoint(endpoint):
+            if not isinstance(auth_token, str) or len(auth_token) < 32:
+                raise ValueError(
+                    "Non-loopback tool endpoints require a token of at least 32 characters."
+                )
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
+        self.socket.setsockopt(zmq.MAXMSGSIZE, max_request_bytes)
 
     def start(self):
         """Starts the server loop."""
@@ -57,21 +76,41 @@ class ToolServer:
                 print(f"Error handling request: {e}")
                 error_response = {
                     "jsonrpc": "2.0",
-                    "error": {"code": -32000, "message": str(e)},
+                    "error": {"code": -32000, "message": "Internal server error"},
                     "id": None,
                 }
                 self.socket.send_json(error_response)
 
     def _handle_request(self, request):
-        if self.auth_token and request.get("auth_token") != self.auth_token:
+        # ASVS 1.5.2 / 2.2.1: validate untrusted JSON before game dispatch.
+        if not isinstance(request, dict):
+            return self._error(-32600, "Invalid request")
+        if len(str(request).encode("utf-8")) > self.max_request_bytes:
+            return self._error(-32600, "Request too large", request.get("id"))
+
+        supplied_token = request.get("auth_token")
+        authenticated = not self.auth_token or (
+            isinstance(supplied_token, str)
+            and hmac.compare_digest(supplied_token, self.auth_token)
+        )
+        if not authenticated:
             return {
                 "jsonrpc": "2.0",
                 "error": {"code": -32001, "message": "Authentication failed"},
                 "id": request.get("id"),
             }
 
+        now = time.monotonic()
+        while self._request_times and self._request_times[0] <= now - 60:
+            self._request_times.popleft()
+        if len(self._request_times) >= self.requests_per_minute:
+            return self._error(-32002, "Rate limit exceeded", request.get("id"))
+        self._request_times.append(now)
+
         method_name = request.get("method")
         params = request.get("params", {})
+        if not isinstance(method_name, str) or not isinstance(params, dict):
+            return self._error(-32600, "Invalid request", request.get("id"))
 
         method = RPC_METHODS.get(method_name)
         if not method:
@@ -88,12 +127,20 @@ class ToolServer:
                 "result": result,
                 "id": request.get("id"),
             }
-        except Exception as e:
+        except Exception:
             return {
                 "jsonrpc": "2.0",
-                "error": {"code": -32602, "message": str(e)},
+                "error": {"code": -32602, "message": "Invalid method parameters"},
                 "id": request.get("id"),
             }
+
+    @staticmethod
+    def _error(code, message, request_id=None):
+        return {
+            "jsonrpc": "2.0",
+            "error": {"code": code, "message": message},
+            "id": request_id,
+        }
 
 
 if __name__ == "__main__":

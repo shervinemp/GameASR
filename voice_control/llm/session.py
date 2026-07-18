@@ -29,6 +29,51 @@ class Session:
 
         self.tool_caller.start()
 
+    def reset(self, conversation: Optional[Conversation] = None):
+        """Reset conversation and provider state without replacing the session."""
+        with self._lock:
+            self.conversation = conversation or Conversation()
+            self._session_state.clear()
+
+    def close(self):
+        """Release the background tool execution loop."""
+        self.tool_caller.stop()
+
+    def complete_once(
+        self,
+        query: str,
+        *,
+        system: str | None = None,
+        **kwargs,
+    ) -> str:
+        """Run an isolated completion without mutating conversation history."""
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("One-shot queries must be non-empty strings.")
+
+        conversation = Conversation()
+        if system:
+            conversation.set_system_message(system)
+        conversation.add_user_message(query)
+        state = {}
+        response_chunks = []
+
+        # ASVS 15.4.1 / 15.4.3: the shared provider and its model state are
+        # accessed under the Session-owned lock, just like normal completions.
+        with self._lock:
+            for chunk in self.llm(
+                conversation,
+                session_state=state,
+                tool_choice="none",
+                **kwargs,
+            ):
+                if isinstance(chunk, ToolCall):
+                    self.logger.warning(
+                        "Ignored an unexpected tool call during one-shot inference."
+                    )
+                    continue
+                response_chunks.append(chunk)
+        return "".join(response_chunks).strip()
+
     def __call__(
         self, query: str | None = None, **kwargs
     ) -> Generator[str, None, None]:
@@ -74,7 +119,7 @@ class Session:
                 except Exception as e:
                     self.logger.warning(f"Error parsing tool response: {repr(e)}")
                     self.conversation.add_tool_message(
-                        f"Tool Error: Could not parse tool call. Please try again with valid JSON."
+                        "Tool Error: Could not parse tool call. Please try again with valid JSON."
                     )
                     yield from self._generate_response(_retry_count=_retry_count + 1, tool_choice="none")
                     return
@@ -126,6 +171,7 @@ class ToolCaller:
             try:
                 responses[tool_name] = future.result(timeout=10.0)
             except TimeoutError:
+                future.cancel()
                 responses[tool_name] = f"Tool Error: {tool_name} timed out after 10s"
                 self.logger.error(f"Tool {tool_name} timed out")
             except Exception as e:
@@ -181,4 +227,8 @@ class ToolCaller:
         return False
 
     def __del__(self):
-        self.stop()
+        try:
+            self.stop()
+        except Exception:
+            # Destructors may run during interpreter teardown.
+            pass

@@ -7,6 +7,8 @@ database:
   neo4j:
     uri: "bolt://localhost:7687"
     user: "neo4j"
+    database: "neo4j"
+    query_timeout_seconds: 5
     env:
       password: "NEO4J_PASSWORD"
 
@@ -29,12 +31,29 @@ llm:
   providers:
     ollama:
       model: "qwen3:latest"
+      host: "http://localhost:11434"
+      timeout: 60
+      max_tokens: 1024
     gemini:
+      model: "gemini-1.5-flash"
+      timeout: 60
+      max_tokens: 1024
       env:
         api_key: "GEMINI_API_KEY"
     openai:
+      model: "gpt-4o"
+      timeout: 60
+      max_tokens: 1024
       env:
         api_key: "OPENAI_API_KEY"
+    # Generic LiteLLM mode can target any provider currently allowlisted by
+    # LiteLLMProvider: openai, gemini, or ollama.
+    litellm:
+      provider: "ollama"
+      model: "qwen3:latest"
+      api_base: "http://localhost:11434"
+      timeout: 60
+      max_tokens: 1024
 
 # --- TTS Configuration ---
 tts:
@@ -56,13 +75,36 @@ asr:
 # --- RPC Server Configuration ---
 rpc_server:
   # The authentication token for the RPC server.
-  # If null, authentication is disabled.
-  # It is strongly recommended to set a secure token in your config.yaml
-  auth_token: null
+  # Loopback listeners may omit authentication. Non-loopback TCP listeners
+  # fail closed unless this environment variable contains at least 32 chars.
+  env:
+    auth_token: "RPC_AUTH_TOKEN"
+  max_request_bytes: 65536
+  requests_per_minute: 60
 
 # --- Tools Server Configuration ---
 tools_server:
   # The authentication token for the tools server (the Lua game).
-  # If null, authentication is disabled.
-  # It is strongly recommended to set a secure token in your config.yaml
-  auth_token: null
+  env:
+    auth_token: "TOOLS_AUTH_TOKEN"
+
+# --- RAG Persistence Configuration ---
+rag:
+  runtime:
+    # Hard limits keep retrieval below the tool server's 10-second deadline.
+    max_query_chars: 2000
+    top_k: 5
+    reranker_input_limit: 20
+    max_direct_context_tokens: 2048
+    retrieval_deadline_seconds: 8
+    web_timeout_seconds: 4
+    cache_ttl_seconds: 300
+    cache_size: 128
+    max_iterations: 3
+  active_learning:
+    # Model-generated facts are never persisted automatically by default.
+    enabled: false
+    allow_web_context: false
+    review_required: true
+    review_queue_path: "data/pending_triplets.jsonl"
+    max_triplets_per_answer: 20

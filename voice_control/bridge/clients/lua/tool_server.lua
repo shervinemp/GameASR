@@ -10,13 +10,17 @@ ToolServer.__index = ToolServer
 function ToolServer:new(api, endpoint, auth_token)
     local obj = setmetatable({
         api = api,
-        endpoint = endpoint or "tcp://0.0.0.0:8080",
+        endpoint = endpoint or "tcp://127.0.0.1:8080",
         auth_token = auth_token or nil,
         context = nil,
         socket = nil,
         running = false,
         thread = nil,
     }, self)
+    if (obj.endpoint:find("tcp://0.0.0.0:", 1, true) or obj.endpoint:find("tcp://*:", 1, true))
+        and (not obj.auth_token or #obj.auth_token < 32) then
+        error("Non-loopback tool endpoints require a token of at least 32 characters.")
+    end
     return obj
 end
 

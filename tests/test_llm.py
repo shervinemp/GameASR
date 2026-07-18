@@ -1,7 +1,20 @@
+import os
+import sys
+import types
 import unittest
-from unittest.mock import patch, MagicMock
-from voice_control.llm.model import NemotronMini, Qwen3, Ollama
+from unittest.mock import MagicMock, patch
+
 from voice_control.llm.conversation import Conversation
+from voice_control.llm.model import (
+    ChatGPT,
+    Gemini,
+    LLMProviders,
+    LiteLLMProvider,
+    NemotronMini,
+    Ollama,
+    Qwen3,
+)
+from voice_control.llm.tools import ToolCall
 
 
 class TestLLM(unittest.TestCase):
@@ -38,18 +51,14 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
 
-    @patch("ollama.Client")
-    def test_empty_conversation(self, mock_ollama_client):
+    def test_empty_conversation(self):
         """
         Test that the LLM returns an empty string for an empty conversation.
         """
-        # Mock the Ollama client
-        mock_client = MagicMock()
-        mock_client.chat.return_value = iter([])
-        mock_ollama_client.return_value = mock_client
+        completion = MagicMock(return_value=iter([]))
 
         # Initialize the LLM
-        llm = Ollama(model="test")
+        llm = Ollama(model="test", completion_fn=completion)
 
         # Create an empty conversation
         conversation = Conversation()
@@ -93,20 +102,24 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
 
-    @patch("ollama.Client")
-    def test_ollama_llm(self, mock_ollama_client):
+    def test_ollama_llm(self):
         """
         Test the OllamaLLM.
         """
-        # Mock the Ollama client
-        mock_client = MagicMock()
-        mock_client.chat.return_value = iter(
-            [{"message": {"content": "This is a test."}}]
+        completion = MagicMock(
+            return_value=iter(
+                [
+                    {
+                        "choices": [
+                            {"delta": {"content": "This is a test."}}
+                        ]
+                    }
+                ]
+            )
         )
-        mock_ollama_client.return_value = mock_client
 
         # Initialize the LLM
-        llm = Ollama(model="test")
+        llm = Ollama(model="test", completion_fn=completion)
 
         # Create a conversation
         conversation = Conversation()
@@ -117,3 +130,145 @@ class TestLLM(unittest.TestCase):
 
         # Check the response
         self.assertEqual(response, "This is a test.")
+        request = completion.call_args.kwargs
+        self.assertEqual(request["model"], "ollama/test")
+        self.assertEqual(request["api_base"], "http://localhost:11434")
+        self.assertEqual(request["timeout"], 60.0)
+        self.assertEqual(request["num_retries"], 0)
+
+    def test_openai_and_gemini_use_prefixed_litellm_models(self):
+        completion = MagicMock(return_value=iter([]))
+        openai = ChatGPT(
+            model="gpt-test",
+            api_key="test-openai-key",
+            completion_fn=completion,
+        )
+        gemini = Gemini(
+            model="gemini-test",
+            api_key="test-gemini-key",
+            completion_fn=completion,
+        )
+
+        self.assertEqual(openai.model, "openai/gpt-test")
+        self.assertEqual(gemini.model, "gemini/gemini-test")
+
+    def test_remote_plaintext_provider_endpoint_is_rejected(self):
+        with self.assertRaises(ValueError):
+            Ollama(
+                model="test",
+                host="http://192.0.2.10:11434",
+                completion_fn=MagicMock(),
+            )
+
+    def test_litellm_stream_reassembles_fragmented_tool_calls(self):
+        completion = MagicMock(
+            return_value=iter(
+                [
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "function": {
+                                                "name": "pi",
+                                                "arguments": '{"value":',
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "function": {
+                                                "name": "ng",
+                                                "arguments": "1}",
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                ]
+            )
+        )
+        llm = Ollama(model="test", completion_fn=completion)
+
+        result = list(llm._infer(Conversation(), session_state={}))
+
+        self.assertEqual(result, [ToolCall(name="ping", arguments={"value": 1})])
+
+    def test_litellm_malformed_tool_arguments_are_not_executed(self):
+        completion = MagicMock(
+            return_value=iter(
+                [
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "function": {
+                                                "name": "ping",
+                                                "arguments": "[1, 2]",
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ]
+            )
+        )
+        llm = Ollama(model="test", completion_fn=completion)
+
+        result = list(llm._infer(Conversation(), session_state={}))
+
+        self.assertEqual(
+            result,
+            [ToolCall(name="_parse_error", arguments={"tool_name": "ping"})],
+        )
+
+    def test_provider_factory_uses_allowlisted_provider_configuration(self):
+        completion = MagicMock(return_value=iter([]))
+
+        provider = LLMProviders.create(
+            "LiteLLM",
+            {
+                "litellm": {
+                    "provider": "ollama",
+                    "model": "test",
+                    "api_base": "http://127.0.0.1:11434",
+                    "completion_fn": completion,
+                }
+            },
+        )
+
+        self.assertIsInstance(provider, LiteLLMProvider)
+        self.assertEqual(provider.model, "ollama/test")
+        with self.assertRaises(ValueError):
+            LLMProviders.get("__class__")
+
+    def test_litellm_import_uses_local_cost_map_by_default(self):
+        fake_litellm = types.ModuleType("litellm")
+        fake_litellm.completion = MagicMock()
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.dict(sys.modules, {"litellm": fake_litellm}),
+        ):
+            LiteLLMProvider(model="test", provider="ollama")
+            self.assertEqual(
+                os.environ["LITELLM_LOCAL_MODEL_COST_MAP"], "True"
+            )

@@ -34,7 +34,10 @@ const RPC_METHODS = {
 };
 
 class ToolServer {
-    constructor(endpoint = "tcp://0.0.0.0:8080", authToken = null) {
+    constructor(endpoint = "tcp://127.0.0.1:8080", authToken = null) {
+        if (/tcp:\/\/(?:0\.0\.0\.0|\*):/.test(endpoint) && (!authToken || authToken.length < 32)) {
+            throw new Error("Non-loopback tool endpoints require a token of at least 32 characters.");
+        }
         this.endpoint = endpoint;
         this.authToken = authToken;
         this.socket = new zmq.Reply();

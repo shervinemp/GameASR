@@ -2,8 +2,9 @@ from functools import cache
 import os
 from typing import Dict, List, Optional, Tuple
 
-from ..llm.session import Session
+from ..common.config import config
 from ..common.utils import get_logger, safe_json_loads
+from ..llm.session import Session
 
 
 @cache
@@ -58,27 +59,63 @@ class Composer:
         self.logger = get_logger(__file__)
         self.session = session
 
+    def _ask(self, prompt: str) -> str:
+        if isinstance(self.session, Session):
+            return self.session.complete_once(prompt)
+        return "".join(self.session(prompt)).strip()
+
+    def _context_needs_summary(self, context: str) -> bool:
+        runtime = config.get("rag.runtime")
+        configured_limit = getattr(
+            runtime, "max_direct_context_tokens", 2_048
+        )
+        llm = getattr(self.session, "llm", None)
+        if llm is None:
+            token_count = max(1, (len(context) + 3) // 4)
+            return token_count > configured_limit
+
+        n_ctx = getattr(llm, "n_ctx", 16_384)
+        max_tokens = getattr(llm, "max_tokens", 1_024)
+        if not isinstance(n_ctx, int):
+            n_ctx = 16_384
+        if not isinstance(max_tokens, int):
+            max_tokens = 1_024
+        available = max(
+            512,
+            n_ctx - max_tokens - 512,
+        )
+        direct_limit = min(configured_limit, available)
+        token_count = llm.count_tokens(context)
+        if not isinstance(token_count, int):
+            token_count = max(1, (len(context) + 3) // 4)
+        return token_count > direct_limit
+
     def __call__(self, query: str, context: str, n_iter: int = 3) -> str:
-        if context.count(" is ") >= 2:
-            summary = context
-        else:
+        if self._context_needs_summary(context):
             summary = self.summarize_context(query=query, context=context)
+        else:
+            summary = context
 
         if not summary:
             return "Insufficient information to formulate an answer."
 
         self.logger.info("Starting iterative self-correction for answer generation.")
-        answer = summary
-        is_correct = False
+        if not isinstance(n_iter, int) or not 1 <= n_iter <= 5:
+            raise ValueError("n_iter must be between 1 and 5.")
+
         critique = None
+        answer = self.generate_answer(query=query, context=summary)
         for i in range(n_iter - 1):
-            answer = self.generate_answer(query=query, context=summary, critique=critique)
             critique, is_correct = self.critique_answer(query, context, answer)
             self.logger.debug(f"Iter {i+1}:\nAnswer: {answer}\nCritique: {critique}")
             if is_correct:
-                break
+                return answer
+            answer = self.generate_answer(
+                query=query,
+                context=summary,
+                critique=critique,
+            )
 
-        answer = self.generate_answer(query=query, context=summary, critique=critique)
         self.logger.debug(f"Final answer: {answer}")
         return answer
 
@@ -87,8 +124,7 @@ class Composer:
             return ""
         prompts = _load_prompts()
         prompt = f"{prompts['summarize_context']}\n\nQuery: {query}\nContext: {context}\nSummary:"
-        summary = "".join(self.session(prompt)).strip()
-        return summary
+        return self._ask(prompt)
 
     def generate_answer(self, query: str, context: str, critique: Optional[str] = None) -> str:
         prompts = _load_prompts()
@@ -97,15 +133,14 @@ class Composer:
         else:
             prompt = f"{prompts['generate_answer']}\n"
         prompt += f"Context: {context}\nQuery: {query}\nAnswer:"
-        answer = "".join(self.session(prompt)).strip()
-        return answer
+        return self._ask(prompt)
 
     def critique_answer(self, query: str, context: str, answer: str) -> Tuple[str, bool]:
         prompts = _load_prompts()
         prompt = f"{prompts['critique_answer']}\n\nEvidence: {context}\nQuery: {query}\nAnswer: {answer}\n"
         prompt += '{"explanation": "...", "is_correct": true/false}'
         try:
-            response_str = "".join(self.session(prompt)).strip()
+            response_str = self._ask(prompt)
             d = safe_json_loads(response_str, fallback={"explanation": "", "is_correct": False})
         except (ValueError, TypeError, RuntimeError) as e:
             self.logger.error(f"LLM call during critique failed: {e}", exc_info=True)
@@ -117,7 +152,7 @@ class Composer:
         prompts = _load_prompts()
         prompt = f"{prompts['extract_triplets']}\n\nContext: {context}\nAnswer: {answer}\nNew triplets:"
         try:
-            response = "".join(self.session(prompt))
+            response = self._ask(prompt)
             triplets = safe_json_loads(response)
             return triplets
         except Exception as e:

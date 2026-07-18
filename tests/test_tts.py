@@ -2,7 +2,6 @@ import unittest
 import os
 import soundfile as sf
 from voice_control.tts.model import TTSProviders
-from voice_control.common.config import config
 from unittest.mock import patch
 
 

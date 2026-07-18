@@ -30,8 +30,11 @@ public class ToolServer : IDisposable
     // --- RPC Method Dispatcher ---
     private readonly Dictionary<string, Func<JObject, JObject>> _rpcMethods;
 
-    public ToolServer(string endpoint = "tcp://0.0.0.0:8080", string authToken = null)
+    public ToolServer(string endpoint = "tcp://127.0.0.1:8080", string authToken = null)
     {
+        if ((endpoint.Contains("0.0.0.0") || endpoint.Contains("tcp://*:")) &&
+            (String.IsNullOrEmpty(authToken) || authToken.Length < 32))
+            throw new ArgumentException("Non-loopback tool endpoints require a token of at least 32 characters.");
         _endpoint = endpoint;
         _authToken = authToken;
         _rpcMethods = new Dictionary<string, Func<JObject, JObject>>

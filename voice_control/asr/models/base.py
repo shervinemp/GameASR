@@ -1,6 +1,5 @@
 from collections import deque
 import threading
-import numpy as np
 from abc import ABC, abstractmethod
 from typing import Callable, Generator, Iterable
 

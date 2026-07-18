@@ -1,25 +1,48 @@
 import hashlib
+import ipaddress
+from contextlib import contextmanager
 import re
+import threading
 import time
 from typing import Any, Dict, List, Tuple
+from urllib.parse import urlparse
 
 from ..common.config import config
 from ..common.utils import get_logger
+from .validation import normalize_triplets
 
 NODE_PROJ = "{id: node.id, label: node.label, description: node.description}"
 REL_PROJ = "{id: rel.id, source: startNode(rel).id, target: endNode(rel).id, type: type(rel)}"
 
 class KnowledgeGraph:
-    def __init__(self, uri: str, user: str, password: str):
+    def __init__(
+        self,
+        uri: str,
+        user: str,
+        password: str,
+        *,
+        database: str = "neo4j",
+        query_timeout: float = 5.0,
+    ):
         from sentence_transformers import SentenceTransformer
         from neo4j import GraphDatabase
 
         self.logger = get_logger(__file__)
+        self._validate_uri(uri)
+        if not isinstance(database, str) or not database.strip():
+            raise ValueError("Neo4j database must be a non-empty string.")
+        if not isinstance(query_timeout, (int, float)) or not 1 <= query_timeout <= 30:
+            raise ValueError("Neo4j query timeout must be between 1 and 30 seconds.")
+        self._database = database
+        self._query_timeout = float(query_timeout)
+        self._deadline_state = threading.local()
         self._driver = GraphDatabase.driver(
             uri,
             auth=(user, password),
-            max_connection_pool_size=100,
-            connection_acquisition_timeout=5.0,
+            max_connection_pool_size=20,
+            connection_acquisition_timeout=3.0,
+            connection_timeout=3.0,
+            max_transaction_retry_time=3.0,
             keep_alive=True,
         )
         embedding_model_name = config.get(
@@ -27,32 +50,71 @@ class KnowledgeGraph:
         )
         self.embedding_model = SentenceTransformer(embedding_model_name)
 
+    @staticmethod
+    def _validate_uri(uri: str) -> None:
+        parsed = urlparse(uri)
+        if not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Neo4j URI must not contain embedded credentials.")
+        secure = parsed.scheme in {"bolt+s", "neo4j+s"}
+        local = parsed.hostname.lower() == "localhost"
+        if not local:
+            try:
+                local = ipaddress.ip_address(parsed.hostname).is_loopback
+            except ValueError:
+                local = False
+        # ASVS 12.3.1 / 12.3.2: plaintext database transport is limited to
+        # loopback development; remote certificates are driver-validated.
+        if not secure and not (
+            local and parsed.scheme in {"bolt", "neo4j"}
+        ):
+            raise ValueError(
+                "Remote Neo4j connections must use bolt+s or neo4j+s."
+            )
+
+    @contextmanager
+    def deadline(self, value: float | None):
+        previous = getattr(self._deadline_state, "value", None)
+        self._deadline_state.value = value
+        try:
+            yield
+        finally:
+            self._deadline_state.value = previous
+
+    def _remaining_timeout(self) -> float:
+        timeout = self._query_timeout
+        deadline_state = getattr(self, "_deadline_state", None)
+        deadline = getattr(deadline_state, "value", None)
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0:
+            raise TimeoutError("Neo4j retrieval deadline expired.")
+        return max(0.1, timeout)
+
+    def _timed_query(self, query: str):
+        from neo4j import Query
+        return Query(query, timeout=self._remaining_timeout())
+
+    def _read_session(self):
+        from neo4j import READ_ACCESS
+        return self._driver.session(
+            database=self._database,
+            default_access_mode=READ_ACCESS,
+        )
+
+    def _write_session(self):
+        from neo4j import WRITE_ACCESS
+        return self._driver.session(
+            database=self._database,
+            default_access_mode=WRITE_ACCESS,
+        )
+
     def verify_connectivity(self) -> bool:
         return self._driver.verify_connectivity()
 
     def k_shortest_paths(
         self, source_id: str, target_id: str, k: int = 3
     ) -> List[Dict]:
-        """
-        Executes pure Cypher k-shortest paths between two entities.
-        """
-        query = f"""
-            MATCH path = (source:Entity {{id: $source_id}})-[*1..3]->(target:Entity {{id: $target_id}})
-            RETURN [node in nodes(path) | {NODE_PROJ}] AS nodes,
-                   [rel in relationships(path) | {REL_PROJ}] AS relations,
-                   length(path) AS weight
-            ORDER BY weight ASC
-            LIMIT $k
-        """
-
-        def _run():
-            with self._driver.session() as session:
-                records = session.run(
-                    query, source_id=source_id, target_id=target_id, k=k
-                )
-                return [r.data() for r in records]
-
-        return self._execute_with_retry(_run)
+        return self.k_shortest_paths_batch([(source_id, target_id)], k=k)
 
     def k_shortest_paths_batch(
         self, pairs: List[Tuple[str, str]], k: int = 3
@@ -63,15 +125,30 @@ class KnowledgeGraph:
         """
         if not pairs:
             return []
+        if not isinstance(k, int) or not 1 <= k <= 5:
+            raise ValueError("k must be between 1 and 5.")
+        if len(pairs) > 64:
+            raise ValueError("At most 64 shortest-path pairs are allowed.")
+        if any(
+            not isinstance(source, str)
+            or not isinstance(target, str)
+            or not source
+            or not target
+            for source, target in pairs
+        ):
+            raise ValueError("Shortest-path node identifiers must be strings.")
 
+        # ASVS 1.2.4: the only structural query value is an allowlisted integer;
+        # all node identifiers remain Cypher parameters.
         query = f"""
             UNWIND $pairs AS p
-            OPTIONAL MATCH path = (source:Entity {{id: p.src}})-[*1..3]->(target:Entity {{id: p.tgt}})
-            WITH path, p, length(path) AS weight
-            ORDER BY p.src, p.tgt, weight ASC
-            WITH p, collect(path) AS paths
-            UNWIND paths[0..$k] AS path
-            WITH path WHERE path IS NOT NULL
+            MATCH (source:Entity {{id: p.src}}),
+                  (target:Entity {{id: p.tgt}})
+            CALL (source, target) {{
+                MATCH path = SHORTEST {k}
+                    (source)-[*1..3]-(target)
+                RETURN path
+            }}
             RETURN [node in nodes(path) | {NODE_PROJ}] AS nodes,
                    [rel in relationships(path) | {REL_PROJ}] AS relations,
                    length(path) AS weight
@@ -80,8 +157,10 @@ class KnowledgeGraph:
         pair_data = [{"src": s, "tgt": t} for s, t in pairs]
 
         def _run():
-            with self._driver.session() as session:
-                records = session.run(query, pairs=pair_data, k=k)
+            with self._read_session() as session:
+                records = session.run(
+                    self._timed_query(query), pairs=pair_data
+                )
                 return [r.data() for r in records]
 
         return self._execute_with_retry(_run)
@@ -108,6 +187,15 @@ class KnowledgeGraph:
                     f"Neo4j connection error: {e}. Retrying {attempt+1}/{max_retries}..."
                 )
                 if attempt < max_retries - 1:
+                    deadline = getattr(
+                        getattr(self, "_deadline_state", None),
+                        "value",
+                        None,
+                    )
+                    if deadline is not None and time.monotonic() + delay >= deadline:
+                        raise TimeoutError(
+                            "Neo4j retry would exceed retrieval deadline."
+                        ) from e
                     time.sleep(delay)
                     delay *= 2  # Exponential backoff
                 else:
@@ -131,9 +219,11 @@ class KnowledgeGraph:
         """
 
         def _run():
-            with self._driver.session() as session:
+            with self._read_session() as session:
                 records = session.run(
-                    query, queries_data=queries_data, top_k=top_k
+                    self._timed_query(query),
+                    queries_data=queries_data,
+                    top_k=top_k,
                 )
                 return [record["results"] for record in records]
 
@@ -154,9 +244,11 @@ class KnowledgeGraph:
         """
 
         def _run():
-            with self._driver.session() as session:
+            with self._read_session() as session:
                 records = session.run(
-                    query, queries_data=queries_data, top_k=top_k
+                    self._timed_query(query),
+                    queries_data=queries_data,
+                    top_k=top_k,
                 )
                 return [record["results"] for record in records]
 
@@ -167,18 +259,53 @@ class KnowledgeGraph:
         if not labels:
             return {}
 
-        clean_labels = [l.strip().lower() for l in labels if l.strip()]
-        query = """
+        clean_labels = list(dict.fromkeys(
+            label.strip().lower()
+            for label in labels[:64]
+            if isinstance(label, str) and label.strip()
+        ))
+        indexed_query = """
+            UNWIND $labels AS label
+            MATCH (n:Entity {normalized_label: label})
+            RETURN label AS query_label, n.id AS id, n.label AS label,
+                   n.description AS description
+        """
+        legacy_query = """
             UNWIND $labels AS label
             MATCH (n:Entity)
-            WHERE toLower(n.label) = label
-            RETURN n.id AS id, n.label AS label, n.description AS description
+            WHERE n.normalized_label IS NULL
+              AND toLower(trim(n.label)) = label
+            RETURN label AS query_label, n.id AS id, n.label AS label,
+                   n.description AS description
         """
 
         def _run():
-            with self._driver.session() as session:
-                records = session.run(query, labels=clean_labels)
-                return {r["label"]: {"id": r["id"], "label": r["label"], "description": r["description"]} for r in records}
+            with self._read_session() as session:
+                records = session.run(
+                    self._timed_query(indexed_query), labels=clean_labels
+                )
+                results = {
+                    r["query_label"]: {
+                        "id": r["id"],
+                        "label": r["label"],
+                        "description": r["description"],
+                    }
+                    for r in records
+                }
+                missing = [
+                    label for label in clean_labels if label not in results
+                ]
+                if missing:
+                    legacy_records = session.run(
+                        self._timed_query(legacy_query), labels=missing
+                    )
+                    for record in legacy_records:
+                        results[record["query_label"]] = {
+                            "id": record["id"],
+                            "label": record["label"],
+                            "description": record["description"],
+                        }
+                return results
 
         return self._execute_with_retry(_run)
 
@@ -192,8 +319,10 @@ class KnowledgeGraph:
         """
 
         def _run():
-            with self._driver.session() as session:
-                record = session.run(query, nodes=node_ids).single()
+            with self._read_session() as session:
+                record = session.run(
+                    self._timed_query(query), nodes=node_ids
+                ).single()
                 if record:
                     return record.data()
                 return {"nodes": [], "relations": []}
@@ -222,9 +351,11 @@ class KnowledgeGraph:
         """
 
         def _run():
-            with self._driver.session() as session:
+            with self._read_session() as session:
                 records = session.run(
-                    query, frontier=frontier_ids, excluded=excluded_ids
+                    self._timed_query(query),
+                    frontier=frontier_ids,
+                    excluded=excluded_ids,
                 )
                 # Ensure we return empty lists for frontiers that had no results
                 result_map = {r["query_id"]: r["results"] for r in records}
@@ -266,8 +397,8 @@ class KnowledgeGraph:
         query = f"MATCH {''.join(query_parts)} {return_clause} LIMIT 10"
 
         def _run():
-            with self._driver.session() as session:
-                records = session.run(query, **params)
+            with self._read_session() as session:
+                records = session.run(self._timed_query(query), **params)
                 return [
                     record.data()[key]
                     for record in records
@@ -280,19 +411,39 @@ class KnowledgeGraph:
         """Adds new triplets to the knowledge graph, creating nodes and relationships as needed."""
         if not triplets:
             return
+        triplets = normalize_triplets(triplets, max_items=100)
 
         from collections import defaultdict
 
-        # Calculate deterministic ids in python
+        unique_labels = {}
         for t in triplets:
             sub = str(t.get('subject', '')).strip().lower()
             obj = str(t.get('object', '')).strip().lower()
-
             sub_clean = re.sub(r'[\W_]+', '', sub)
             obj_clean = re.sub(r'[\W_]+', '', obj)
-
             t['sub_id'] = hashlib.md5(sub_clean.encode('utf-8')).hexdigest()
             t['obj_id'] = hashlib.md5(obj_clean.encode('utf-8')).hexdigest()
+            t["sub_normalized"] = sub
+            t["obj_normalized"] = obj
+            unique_labels.setdefault(sub, t["subject"])
+            unique_labels.setdefault(obj, t["object"])
+
+        label_keys = list(unique_labels)
+        vectors = self.embedding_model.encode(
+            [unique_labels[key] for key in label_keys],
+            normalize_embeddings=True,
+        )
+        embedding_by_label = {
+            key: vectors[index].tolist()
+            for index, key in enumerate(label_keys)
+        }
+        for triplet in triplets:
+            triplet["sub_embedding"] = embedding_by_label[
+                triplet["sub_normalized"]
+            ]
+            triplet["obj_embedding"] = embedding_by_label[
+                triplet["obj_normalized"]
+            ]
 
         # Group by sanitized relationship type for native Cypher dynamic types
         by_type = defaultdict(list)
@@ -305,16 +456,20 @@ class KnowledgeGraph:
         for rel_type, group in by_type.items():
             query = f"""
                 UNWIND $triplets AS triplet
-                MERGE (s:Entity {{label: triplet.subject}})
-                ON CREATE SET s.id = triplet.sub_id,
+                MERGE (s:Entity {{id: triplet.sub_id}})
+                ON CREATE SET s.label = triplet.subject,
                     s.description = 'Created by RAG agent',
                     s.source = 'extraction',
-                    s.created_at = timestamp()
-                MERGE (o:Entity {{label: triplet.object}})
-                ON CREATE SET o.id = triplet.obj_id,
+                    s.created_at = timestamp(),
+                    s.normalized_label = triplet.sub_normalized,
+                    s.embedding = triplet.sub_embedding
+                MERGE (o:Entity {{id: triplet.obj_id}})
+                ON CREATE SET o.label = triplet.object,
                     o.description = 'Created by RAG agent',
                     o.source = 'extraction',
-                    o.created_at = timestamp()
+                    o.created_at = timestamp(),
+                    o.normalized_label = triplet.obj_normalized,
+                    o.embedding = triplet.obj_embedding
                 MERGE (s)-[rel:{rel_type}]->(o)
                 ON CREATE SET rel.id = triplet.sub_id + '_' + triplet.obj_id,
                     rel.source = 'extraction',
@@ -323,8 +478,8 @@ class KnowledgeGraph:
             """
 
             def _run(q=query, g=group):
-                with self._driver.session() as session:
-                    result = session.run(q, triplets=g)
+                with self._write_session() as session:
+                    result = session.run(self._timed_query(q), triplets=g)
                     rec = result.single()
                     if rec:
                         self.logger.info(

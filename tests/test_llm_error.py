@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from voice_control.llm.model import LLM
 from voice_control.llm.conversation import Conversation
 

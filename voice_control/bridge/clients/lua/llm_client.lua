@@ -12,17 +12,19 @@ LLMClient.__index = LLMClient
 --- Constructor for the LLMClient.
 -- @param protocol string The connection protocol ("tcp" or "ipc"). Defaults to "tcp".
 -- @param endpoint string The endpoint string.
+-- @param auth_token string Optional RPC authentication token.
 -- @return LLMClient A new API client instance.
-function LLMClient:new(protocol, endpoint)
+function LLMClient:new(protocol, endpoint, auth_token)
     protocol = protocol or "tcp"
 
     if protocol == "tcp" then
-        endpoint = endpoint or "0.0.0.0:8000" -- Default for the LLM Server
+        endpoint = endpoint or "127.0.0.1:8000" -- Local-only default
     end
 
     local obj = setmetatable({
         protocol = protocol,
         endpoint = endpoint,
+        auth_token = auth_token or nil,
         zmq_full_endpoint = "",
         id_counter = 0,
         context = nil,
@@ -92,6 +94,9 @@ function LLMClient:_request(method, params)
         params = params or {},
         id = self.id_counter
     }
+    if self.auth_token then
+        request_body.auth_token = self.auth_token
+    end
 
     local encoded_request = json.encode(request_body)
 
@@ -142,6 +147,9 @@ function LLMClient:query(content, role)
         params = {role = role, content = content},
         id = self.id_counter
     }
+    if self.auth_token then
+        request_body.auth_token = self.auth_token
+    end
 
     local encoded_request = json.encode(request_body)
 
@@ -154,6 +162,13 @@ function LLMClient:query(content, role)
     end
 
     return true, nil
+end
+
+function LLMClient:query_sync(content, role)
+    return self:_request("query", {
+        role = role or "user",
+        content = content
+    })
 end
 
 function LLMClient:poll()

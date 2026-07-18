@@ -27,6 +27,7 @@ share/python-wheels/
 venv/
 ENV/
 .venv
+.uv-cache/
 
 # IDE and editor specific files
 .vscode/
@@ -51,3 +52,6 @@ model_files/
 
 # Environment variables
 .env
+
+# RAG facts proposed by models may contain sensitive user-derived content.
+data/pending_triplets.jsonl

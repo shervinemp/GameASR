@@ -34,15 +34,15 @@ if not _espeak_lib:
                     os.environ["PATH"] = parent + os.pathsep + os.environ["PATH"]
             break
 
-from kokoro_onnx import Kokoro as KokoroONNX
-from kokoro_onnx.tokenizer import Tokenizer
+from kokoro_onnx import Kokoro as KokoroONNX  # noqa: E402
+from kokoro_onnx.tokenizer import Tokenizer  # noqa: E402
 
-from .audio import AudioPlayer
+from .audio import AudioPlayer  # noqa: E402
 
-from ..common.utils import download_file, get_logger
+from ..common.utils import download_file, get_logger  # noqa: E402
 
 
-from ..common.config import config
+from ..common.config import config  # noqa: E402
 
 
 class Kokoro:
@@ -66,16 +66,37 @@ class Kokoro:
         weights_dir = config.get("tts.weights_dir", "model_files/tts")
         os.makedirs(weights_dir, exist_ok=True)
 
-        required_files = [
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
-        ]
+        required_files = {
+            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx": (
+                "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+                400_000_000,
+            ),
+            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin": (
+                "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+                100_000_000,
+            ),
+        }
 
-        for url in required_files:
+        allowed_hosts = {
+            "github.com",
+            "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com",
+        }
+        for url, (expected_sha256, max_bytes) in required_files.items():
             filename = url.split("/")[-1]
             destination = os.path.join(weights_dir, filename)
-            if not os.path.exists(destination):
-                download_file(url, destination)
+            if os.path.exists(destination):
+                from ..common.utils import verify_file_sha256
+
+                verify_file_sha256(destination, expected_sha256)
+            else:
+                download_file(
+                    url,
+                    destination,
+                    expected_sha256=expected_sha256,
+                    allowed_hosts=allowed_hosts,
+                    max_bytes=max_bytes,
+                )
 
     def _synthesize(self, text: str, voice: str, language: str, speed: float, interrupt: bool):
         text = re.sub(r'[*_~`´<>]', '', text)

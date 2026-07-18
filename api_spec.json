@@ -1,25 +1,102 @@
 {
     "functions": [
         {
-            "name": "move_unit",
-            "params": [
-                "name",
-                "x",
-                "y"
-            ]
+            "type": "function",
+            "function": {
+                "name": "move_unit",
+                "description": "Moves a specified unit to a target location.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The name of the unit to move (e.g., \"player\", \"alpha\")."
+                        },
+                        "x": {
+                            "type": "number",
+                            "description": "The target x-coordinate."
+                        },
+                        "y": {
+                            "type": "number",
+                            "description": "The target y-coordinate."
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "x",
+                        "y"
+                    ],
+                    "additionalProperties": false
+                }
+            }
         },
         {
-            "name": "command_unit",
-            "params": [
-                "name",
-                "action",
-                "target_x",
-                "target_y"
-            ]
+            "type": "function",
+            "function": {
+                "name": "command_unit",
+                "description": "Commands a unit to perform an action, like shooting.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The name of the unit to command."
+                        },
+                        "action": {
+                            "type": "string",
+                            "description": "The action to perform (e.g., \"shoot\")."
+                        },
+                        "target_x": {
+                            "type": "number",
+                            "description": "The x-coordinate for the action's target."
+                        },
+                        "target_y": {
+                            "type": "number",
+                            "description": "The y-coordinate for the action's target."
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "action",
+                        "target_x",
+                        "target_y"
+                    ],
+                    "additionalProperties": false
+                }
+            }
         },
         {
-            "name": "get_squad_status",
-            "params": []
+            "type": "function",
+            "function": {
+                "name": "set_mic_status",
+                "description": "Sets the microphone listening status for UI indicator.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "active": {
+                            "type": "boolean",
+                            "description": "Whether the mic is currently hot."
+                        }
+                    },
+                    "required": [
+                        "active"
+                    ],
+                    "additionalProperties": false
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_squad_status",
+                "description": "Retrieves the status and position of all units in the squad.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": false
+                }
+            }
         }
     ]
 }

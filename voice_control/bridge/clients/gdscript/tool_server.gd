@@ -6,7 +6,7 @@ extends Node
 
 var zmq = ZMQ.new()
 var socket
-var endpoint = "tcp://0.0.0.0:8080"
+var endpoint = "tcp://127.0.0.1:8080"
 var auth_token = null # Set this via environment variable or config
 var should_exit = false
 var thread
@@ -40,6 +40,9 @@ func _get_game_time(params):
 
 # --- Server Loop ---
 func _ready():
+    if (endpoint.begins_with("tcp://0.0.0.0:") or endpoint.begins_with("tcp://*:")) and (not auth_token or auth_token.length() < 32):
+        push_error("Non-loopback tool endpoints require a token of at least 32 characters.")
+        return
     socket = zmq.socket(ZMQ.REP)
     socket.bind(endpoint)
     print("[ToolServer] Listening on ", endpoint)

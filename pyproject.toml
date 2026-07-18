@@ -3,15 +3,65 @@ name = "voice-control"
 version = "0.1.0"
 description = "A voice control system for applications."
 readme = "README.md"
-requires-python = ">=3.8"
+license = "MIT"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "ddgs~=9.0.0",
+    "emoji>=2.14,<3",
+    "huggingface-hub~=0.32.4",
+    "kokoro-onnx~=0.4.9",
+    "langextract~=1.0.8",
+    "llama-cpp-python~=0.3.16",
+    "litellm~=1.92.0",
+    "neo4j~=5.28.1",
+    "neo4j-graphrag~=1.9.0",
+    "numpy~=2.3.0",
+    "onnx-asr~=0.6.1",
+    "onnxruntime~=1.22.1",
+    "pandas>=2.2,<3",
+    "pydantic>=2.10,<3",
+    "pynput~=1.7.6",
+    "python-dotenv~=1.1.1",
+    "pyyaml~=6.0.2",
+    "pyzmq~=27.0.0",
+    "requests>=2.32,<3",
+    "sentence-transformers~=5.0.0",
+    "simpleaudio~=1.0.4",
+    "sounddevice~=0.5.2",
+    "soundfile~=0.13.1",
+    "tiktoken>=0.7,<1",
+    "torch~=2.7.1",
+]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
 
 [project.scripts]
-voice-control-bridge = "scripts.scaffold_bridge:main"
+voice-control = "voice_control.__main__:main"
+voice-control-bridge = "voice_control.bridge.scaffold:main"
+
+[project.optional-dependencies]
+dev = [
+    "flake8>=7,<8",
+    "mypy>=1.10,<2",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["voice_control*"]
+
+[tool.setuptools.package-data]
+voice_control = [
+    "config.defaults.yaml",
+    "bridge/clients/*/*",
+]
 
 [tool.black]
 line-length = 79

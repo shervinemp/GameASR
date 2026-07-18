@@ -32,21 +32,39 @@ class Tool:
         @classmethod
         def from_dict(cls, data: Dict[str, Any]) -> "Tool.Parameter":
             """Recursively creates a Parameter from a dictionary."""
+            if not isinstance(data, dict):
+                raise TypeError("Parameter definition must be an object.")
+            json_type = data.get("type")
+            if json_type not in {
+                "array", "boolean", "integer", "number", "object", "string"
+            }:
+                raise ValueError("Parameter definition has an unsupported type.")
+            properties = data.get("properties", {})
+            if not isinstance(properties, dict):
+                raise TypeError("Parameter properties must be an object.")
+            required = data.get("required")
+            if required is not None and (
+                not isinstance(required, list)
+                or not all(isinstance(item, str) for item in required)
+            ):
+                raise TypeError("Required parameters must be a string array.")
+            if required and not set(required).issubset(properties):
+                raise ValueError("Required parameters must exist in properties.")
             return cls(
-                type=data["type"],
+                type=json_type,
                 description=data.get("description"),
                 properties=(
                     {
                         k: cls.from_dict(v)
-                        for k, v in data.get("properties", {}).items()
+                        for k, v in properties.items()
                     }
-                    if data.get("type") == "object" and data.get("properties")
+                    if json_type == "object" and properties
                     else None
                 ),
                 enum=data.get("enum"),
                 required=(
-                    data.get("required")
-                    if data.get("type") == "object"
+                    required
+                    if json_type == "object"
                     else None
                 ),
             )
@@ -89,6 +107,17 @@ class Tool:
 
         casted_args = {}
         properties = self.parameters.properties
+        properties = properties or {}
+        unexpected = set(kwargs) - set(properties)
+        if unexpected:
+            raise TypeError(
+                f"Unexpected tool arguments: {', '.join(sorted(unexpected))}"
+            )
+        missing = set(self.parameters.required or ()) - set(kwargs)
+        if missing:
+            raise TypeError(
+                f"Missing required tool arguments: {', '.join(sorted(missing))}"
+            )
 
         for arg_name, arg_value in kwargs.items():
             casted_args[arg_name] = arg_value
@@ -99,7 +128,16 @@ class Tool:
                 elif json_type == "number":
                     casted_args[arg_name] = float(arg_value)
                 elif json_type == "boolean":
-                    casted_args[arg_name] = bool(arg_value)
+                    if isinstance(arg_value, bool):
+                        casted_args[arg_name] = arg_value
+                    elif isinstance(arg_value, str) and arg_value.lower() in {
+                        "true", "false"
+                    }:
+                        casted_args[arg_name] = arg_value.lower() == "true"
+                    else:
+                        raise TypeError(
+                            f"Tool argument '{arg_name}' must be a boolean."
+                        )
                 elif json_type == "string":
                     casted_args[arg_name] = str(arg_value)
 
@@ -212,12 +250,44 @@ class Tool:
         Creates a Tool instance from a dictionary definition conforming to the
         OpenAI tool schema.
         """
-        function_data = d.get("function", {})
+        if not isinstance(d, dict):
+            raise TypeError("Tool definition must be an object.")
+
+        # Accept the canonical OpenAI function schema and the legacy flat
+        # generator schema. ASVS 1.5.2 / 2.2.1: deserialize only the expected
+        # structure and validate identifiers before they become dispatch keys.
+        if "type" in d and d["type"] != "function":
+            raise ValueError("Tool type must be 'function'.")
+        function_data = d.get("function") or d
+        if not isinstance(function_data, dict):
+            raise TypeError("Tool function definition must be an object.")
+        name = function_data.get("name")
+        if not isinstance(name, str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]{0,63}", name
+        ):
+            raise ValueError("Tool name must be a valid 1-64 character identifier.")
+
         parameters_data = function_data.get("parameters")
+        legacy_params = function_data.get("params")
+        if parameters_data is None and isinstance(legacy_params, list):
+            properties = {}
+            for param_name in legacy_params:
+                if not isinstance(param_name, str) or not re.fullmatch(
+                    r"[A-Za-z_][A-Za-z0-9_]{0,63}", param_name
+                ):
+                    raise ValueError("Tool parameter names must be valid identifiers.")
+                properties[param_name] = {"type": "string"}
+            parameters_data = {
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+            }
+        elif parameters_data is None and legacy_params is not None:
+            raise TypeError("Legacy tool params must be an array.")
 
         return cls(
-            name=function_data.get("name"),
-            description=function_data.get("description"),
+            name=name,
+            description=function_data.get("description") or "No description provided.",
             parameters=(
                 cls.Parameter.from_dict(parameters_data)
                 if parameters_data

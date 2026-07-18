@@ -1,5 +1,6 @@
 #include "tool_server.hpp"
 #include <iostream>
+#include <stdexcept>
 #include <thread>
 
 // --- Dummy Tool Implementations ---
@@ -25,7 +26,7 @@ json ToolServer::set_game_pause(const json &params)
 
 json ToolServer::get_game_time(const json &params)
 {
-    std::cout << "[ToolServer] Getting game time" << std.endl;
+    std::cout << "[ToolServer] Getting game time" << std::endl;
     return {{"time", "5:00 PM"}};
 }
 
@@ -33,6 +34,8 @@ json ToolServer::get_game_time(const json &params)
 ToolServer::ToolServer(const std::string &endpoint, const std::string &authToken)
     : _context(1), _socket(_context, zmq::socket_type::rep), _endpoint(endpoint), _authToken(authToken), _isRunning(false)
 {
+    if ((_endpoint.find("0.0.0.0") != std::string::npos || _endpoint.find("tcp://*:") == 0) && _authToken.size() < 32)
+        throw std::invalid_argument("Non-loopback tool endpoints require a token of at least 32 characters.");
     _rpcMethods["move_player"] = move_player;
     _rpcMethods["get_player_position"] = get_player_position;
     _rpcMethods["set_game_pause"] = set_game_pause;
@@ -133,7 +136,7 @@ json ToolServer::handle_request(const json &request)
 int main()
 {
     const char *token = std::getenv("TOOLS_AUTH_TOKEN");
-    ToolServer server("tcp://*:8080", token ? std::string(token) : "");
+    ToolServer server("tcp://127.0.0.1:8080", token ? std::string(token) : "");
     server.start();
 
     std::cout << "ToolServer running. Press Enter to stop." << std::endl;

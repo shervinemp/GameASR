@@ -67,7 +67,7 @@ def main():
     tools[0].callback = lambda **kwargs: "Rainy"
     tools[1].callback = lambda **kwargs: 100
     provider = config.get("llm.provider")
-    llm = getattr(LLMProviders, provider)()
+    llm = LLMProviders.create(provider, config.get("llm.providers"))
     conversation = Conversation()
     conversation.tools = tools
     conversation.set_system_message(
@@ -84,9 +84,11 @@ def main():
     prompt = "What is the weather like in Beijing now and what's the stock price of NVDA?"
     logger.info(f"Prompt: {prompt}")
 
-    response = "".join(session(prompt))
-
-    logger.info(f"Response: {response}")
+    try:
+        response = "".join(session(prompt))
+        logger.info(f"Response: {response}")
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":

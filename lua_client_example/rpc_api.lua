@@ -45,10 +45,6 @@ function rpc_api.command_unit(name, action, target_x, target_y)
 end
 
 --[[
-    Retrieves the status and position of all units in the squad.
-    @return (table): A table containing information for each unit.
-]]
---[[
     Sets the microphone listening status for UI indicator.
     @param active (boolean): Whether the mic is currently hot.
 ]]
@@ -57,6 +53,10 @@ function rpc_api.set_mic_status(active)
     return {status = "success"}
 end
 
+--[[
+    Retrieves the status and position of all units in the squad.
+    @return (table): A table containing information for each unit.
+]]
 function rpc_api.get_squad_status()
     local status = {}
     if GameState.current.squad then

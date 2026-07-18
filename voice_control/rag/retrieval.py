@@ -1,12 +1,18 @@
 from abc import ABC, abstractmethod
+from collections import OrderedDict
+from contextlib import nullcontext
 import json
+import re
+import threading
+import time
 from typing import List, Dict, Tuple
-from itertools import chain, repeat, combinations
+from itertools import chain, repeat, combinations, product
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from ..common.config import config
+from ..common.utils import get_logger
 from ..llm.session import Session
 from .knowledge import KnowledgeGraph
-from ..common.utils import get_logger
 
 
 class Reranker:
@@ -18,6 +24,10 @@ class Reranker:
 
         self.model_name = model_name
         self.reranker = CrossEncoder(model_name)
+        self._cache = OrderedDict()
+        self._cache_size = 128
+        self._cache_lock = threading.Lock()
+        self._predict_lock = threading.Lock()
 
     def __call__(
         self, query: str, results: List[str]
@@ -25,16 +35,32 @@ class Reranker:
         if not results:
             return [], []
 
-        pairs = list(zip(repeat(query), results))
-        scores = self.reranker.predict(pairs, show_progress_bar=False)
+        unique_results = list(dict.fromkeys(results))
+        cache_key = (query, tuple(unique_results))
+        with self._cache_lock:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                self._cache.move_to_end(cache_key)
+                return list(cached[0]), list(cached[1])
+
+        pairs = list(zip(repeat(query), unique_results))
+        # ASVS 15.4.1: model inference and cache mutation are synchronized;
+        # CrossEncoder implementations are not guaranteed to be thread-safe.
+        with self._predict_lock:
+            scores = self.reranker.predict(pairs, show_progress_bar=False)
 
         sorted_pairs = sorted(
-            zip(results, scores), key=lambda x: x[1], reverse=True
+            zip(unique_results, scores), key=lambda x: x[1], reverse=True
         )
 
         sorted_results, scores = zip(*sorted_pairs)
-
-        return list(sorted_results), list(scores)
+        result = list(sorted_results), [float(score) for score in scores]
+        with self._cache_lock:
+            self._cache[cache_key] = (tuple(result[0]), tuple(result[1]))
+            self._cache.move_to_end(cache_key)
+            while len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+        return result
 
 
 class Retriever(ABC):
@@ -159,34 +185,52 @@ class ShortestPathStrategy(GraphSearchStrategy):
 
         # 1. Exact-label lookup: fast path
         exact_matches = self.graph.exact_label_search(keywords)
-        exact_ids = {n["id"] for n in exact_matches.values() if n.get("id")}
 
-        # 2. Vector search for additional anchors
-        embeddings = self.graph.embedding_model.encode(keywords).tolist()
-        batch_results = self.graph.vector_search(
-            embeddings, top_k=top_k_vector
-        )
+        unresolved = [
+            keyword
+            for keyword in keywords
+            if keyword.strip().lower() not in exact_matches
+        ]
+        vector_by_keyword = {}
+        if unresolved:
+            embeddings = self.graph.embedding_model.encode(unresolved).tolist()
+            batch_results = self.graph.vector_search(
+                embeddings, top_k=top_k_vector
+            )
+            vector_by_keyword = dict(zip(unresolved, batch_results))
 
-        # 3. Deduplicate anchors by label (same entity from different keywords)
-        anchor_map = {}  # label -> id (first occurrence wins)
-        # Exact matches take priority
-        for node in exact_matches.values():
-            if node.get("label") and node.get("id"):
-                anchor_map[node["label"].lower()] = node["id"]
-        # Vector results fill gaps
-        for res_list in batch_results:
-            for node in res_list:
-                label = node.get("label", "").lower()
-                nid = node.get("id")
-                if label and nid and label not in anchor_map:
-                    anchor_map[label] = nid
+        # Keep candidates grouped by the query entity that produced them.
+        # Pairing alternatives from the same entity creates irrelevant paths
+        # and quadratic work without adding relationship evidence.
+        anchor_groups = []
+        for keyword in keywords:
+            exact = exact_matches.get(keyword.strip().lower())
+            candidates = [exact] if exact else vector_by_keyword.get(keyword, [])
+            ids = []
+            for node in candidates:
+                node_id = node.get("id") if node else None
+                if node_id and node_id not in ids:
+                    ids.append(node_id)
+            if ids:
+                anchor_groups.append(ids)
 
-        anchor_ids = list(anchor_map.values())
-        if len(anchor_ids) < 2:
+        if len(anchor_groups) < 2:
             return []
 
-        # Batch all pairs into a single Cypher query
-        pairs = list(combinations(anchor_ids, 2))
+        pairs = []
+        seen_pairs = set()
+        for left, right in combinations(anchor_groups, 2):
+            for source, target in product(left, right):
+                if source == target:
+                    continue
+                key = tuple(sorted((source, target)))
+                if key not in seen_pairs:
+                    seen_pairs.add(key)
+                    pairs.append((source, target))
+                if len(pairs) >= 64:
+                    break
+            if len(pairs) >= 64:
+                break
         return self.graph.k_shortest_paths_batch(pairs, k=max_paths)
 
     def format_results(self, results: List[Dict]) -> List[str]:
@@ -198,8 +242,12 @@ class ShortestPathStrategy(GraphSearchStrategy):
             relations = path_data["relations"]
             parts = []
             for i, rel in enumerate(relations):
-                src = nodes[i].get("label", "Unknown")
-                tgt = nodes[i + 1].get("label", "Unknown")
+                left = nodes[i]
+                right = nodes[i + 1]
+                if rel.get("source") == right.get("id"):
+                    left, right = right, left
+                src = left.get("label", "Unknown")
+                tgt = right.get("label", "Unknown")
                 rel_type = rel.get("type", "RELATED_TO").replace("_", " ").title()
                 parts.append(f"{src} is {rel_type} {tgt}")
             if parts:
@@ -223,6 +271,13 @@ class SmartGraphRetriever(Retriever):
         self.primary = primary_strategy
         self.fallback = fallback_strategy
         self._nlp = None
+        self._keyword_cache = OrderedDict()
+        self._cache_lock = threading.Lock()
+
+    def _ask(self, prompt: str) -> str:
+        if isinstance(self.session, Session):
+            return self.session.complete_once(prompt)
+        return "".join(self.session(prompt)).strip()
 
     def _get_nlp(self):
         if self._nlp is None:
@@ -241,44 +296,131 @@ class SmartGraphRetriever(Retriever):
         entities = list(set(ent.text for ent in doc.ents))
         return entities if entities else None
 
-    def _extract_keywords(self, query: str) -> List[str]:
+    @staticmethod
+    def _candidate_phrases(query: str) -> List[str]:
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'_-]*", query)
+        if not words:
+            return []
+        stop_words = {
+            "a", "an", "and", "are", "about", "for", "from", "how",
+            "in", "is", "of", "on", "the", "to", "what", "when",
+            "where", "which", "who", "why", "with",
+        }
+        phrases = []
+        max_width = min(5, len(words))
+        for width in range(max_width, 0, -1):
+            for start in range(len(words) - width + 1):
+                phrase_words = words[start : start + width]
+                if width == 1 and phrase_words[0].lower() in stop_words:
+                    continue
+                phrases.append(" ".join(phrase_words))
+                if len(phrases) >= 64:
+                    return phrases
+        return phrases
+
+    @staticmethod
+    def _validated_keywords(value, fallback: str) -> List[str]:
+        if not isinstance(value, list):
+            return [fallback]
+        keywords = []
+        for item in value[:8]:
+            if not isinstance(item, str):
+                continue
+            item = item.strip()
+            if item and len(item) <= 256 and item not in keywords:
+                keywords.append(item)
+        return keywords or [fallback]
+
+    def _extract_keywords(
+        self,
+        query: str,
+        *,
+        allow_model_fallback: bool = True,
+    ) -> List[str]:
         from ..common.utils import safe_json_loads
 
-        # Try fast NER first
-        ner_keywords = self._extract_keywords_ner(query)
-        if ner_keywords:
-            self.logger.debug(f"NER extracted keywords: {ner_keywords}")
-            return ner_keywords
+        cache_key = " ".join(query.lower().split())
+        with self._cache_lock:
+            cached = self._keyword_cache.get(cache_key)
+            if cached is not None:
+                self._keyword_cache.move_to_end(cache_key)
+                return list(cached)
 
-        # Fall back to LLM extraction
-        prompt = (
-            "Extract named entities from the query below.\n"
-            "Rules:\n"
-            "- Pick specific names: people, places, things\n"
-            "- Skip generic words: relationship, connection, difference, meaning, about\n"
-            "- Skip the word RAG\n"
-            "- Return a JSON list of strings\n"
-            f'Query: "{query}"\n'
-            "Output:"
-        )
-        response = "".join(self.session(prompt)).strip()
-        return safe_json_loads(response, fallback=[query])
+        # Resolve entity spans against the indexed graph before spending an
+        # LLM call. This also works with lowercase ASR transcripts.
+        phrases = self._candidate_phrases(query)
+        exact_matches = self.primary.graph.exact_label_search(phrases)
+        keywords = []
+        for phrase in phrases:
+            node = exact_matches.get(phrase.strip().lower())
+            label = node.get("label") if node else None
+            if label and label not in keywords:
+                keywords.append(label)
+            if len(keywords) >= 8:
+                break
 
-    def __call__(self, query: str, **kwargs) -> List[str]:
-        try:
-            keywords = self._extract_keywords(query)
-        except Exception as e:
-            self.logger.warning(f"Keyword extraction failed. Error: {e}")
+        if not keywords:
+            ner_keywords = self._extract_keywords_ner(query)
+            if ner_keywords:
+                self.logger.debug(f"NER extracted keywords: {ner_keywords}")
+                keywords = self._validated_keywords(ner_keywords, query)
+
+        if not keywords and allow_model_fallback:
+            prompt = (
+                "Extract named entities from the query below.\n"
+                "Rules:\n"
+                "- Pick specific names: people, places, things\n"
+                "- Skip generic words: relationship, connection, difference, meaning, about\n"
+                "- Skip the word RAG\n"
+                "- Return a JSON list of strings\n"
+                f'Query: "{query}"\n'
+                "Output:"
+            )
+            response = self._ask(prompt)
+            parsed = safe_json_loads(response, fallback=[query])
+            # ASVS 2.2.1 / 15.3.5: model output is schema- and size-bounded
+            # before it controls vector queries and graph expansion.
+            keywords = self._validated_keywords(parsed, query)
+
+        if not keywords:
+            # Bounded retrieval calls must not inherit the provider's much
+            # longer generation timeout. The whole query is still useful to
+            # vector/full-text neighborhood search when exact linking and NER
+            # find no graph entity.
             keywords = [query]
 
-        raw_results = self.primary.search(keywords, **kwargs)
+        with self._cache_lock:
+            self._keyword_cache[cache_key] = tuple(keywords)
+            self._keyword_cache.move_to_end(cache_key)
+            while len(self._keyword_cache) > 128:
+                self._keyword_cache.popitem(last=False)
+        return keywords
 
-        if not raw_results and self.fallback:
-            self.logger.info(
-                "Primary strategy yielded no results. Engaging fallback."
-            )
-            raw_results = self.fallback.search(keywords, **kwargs)
-            return self.fallback.format_results(raw_results)
+    def __call__(self, query: str, **kwargs) -> List[str]:
+        deadline = kwargs.get("deadline")
+        deadline_scope = (
+            self.primary.graph.deadline(deadline)
+            if hasattr(self.primary.graph, "deadline")
+            else nullcontext()
+        )
+        with deadline_scope:
+            try:
+                keywords = self._extract_keywords(
+                    query,
+                    allow_model_fallback=deadline is None,
+                )
+            except Exception as e:
+                self.logger.warning(f"Keyword extraction failed. Error: {e}")
+                keywords = [query]
+
+            raw_results = self.primary.search(keywords, **kwargs)
+
+            if not raw_results and self.fallback:
+                self.logger.info(
+                    "Primary strategy yielded no results. Engaging fallback."
+                )
+                raw_results = self.fallback.search(keywords, **kwargs)
+                return self.fallback.format_results(raw_results)
 
         return self.primary.format_results(raw_results)
 
@@ -287,90 +429,149 @@ class WebRetriever(Retriever):
     def __init__(self, session: Session):
         self.logger = get_logger(__file__)
         self.session = session
-        self._ddgs = None
         self._last_search_time = 0.0
-        self._search_cache = {}
-        self._user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-        ]
-        self._ua_index = 0
+        self._search_cache = OrderedDict()
+        self._cache_lock = threading.Lock()
+        runtime = config.get("rag.runtime")
+        self._cache_ttl = getattr(runtime, "cache_ttl_seconds", 300.0)
+        self._cache_size = getattr(runtime, "cache_size", 128)
+        self._web_timeout = getattr(runtime, "web_timeout_seconds", 4.0)
 
-    def _rate_limit(self):
-        import time
-        elapsed = time.time() - self._last_search_time
-        if elapsed < 1.0:
-            time.sleep(1.0 - elapsed)
-        self._last_search_time = time.time()
+    @staticmethod
+    def _remaining(deadline: float | None, maximum: float) -> float:
+        if deadline is None:
+            return maximum
+        return max(0.0, min(maximum, deadline - time.monotonic()))
 
-    def _get_ddgs(self):
-        if self._ddgs is None:
-            try:
-                from ddgs import DDGS
-                self._ddgs = DDGS()
-            except Exception:
-                self._ddgs = False
-        return self._ddgs if self._ddgs is not False else None
+    def _rate_limit(self, deadline: float | None) -> bool:
+        with self._cache_lock:
+            now = time.monotonic()
+            scheduled = max(now, self._last_search_time + 1.0)
+            self._last_search_time = scheduled
+        delay = scheduled - now
+        if deadline is not None and delay >= deadline - now:
+            return False
+        if delay:
+            time.sleep(delay)
+        return True
+
+    @staticmethod
+    def _get_ddgs(timeout: int):
+        try:
+            from ddgs import DDGS
+            return DDGS(timeout=timeout, verify=True)
+        except Exception:
+            return None
+
+    def _ask(self, prompt: str) -> str:
+        if isinstance(self.session, Session):
+            return self.session.complete_once(prompt)
+        return "".join(self.session(prompt)).strip()
 
     def __call__(self, query: str, **kwargs) -> List[str]:
         search_results = self.search(query=query, **kwargs)
         return self.format_results(search_results)
 
-    def search(self, query: str, *, top_k: int = 3) -> List[dict]:
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 3,
+        deadline: float | None = None,
+    ) -> List[dict]:
         """Performs a web search with DuckDuckGo fallback chain."""
-        search_query = query
-        try:
-            search_query = self.transform_query(query=query)
-        except Exception as e:
-            self.logger.warning(
-                f"Failed to extract keywords. Using original query. Error: {e}"
-            )
+        if not isinstance(query, str) or not query.strip():
+            return []
+        if not isinstance(top_k, int) or not 1 <= top_k <= 10:
+            raise ValueError("Web top_k must be between 1 and 10.")
+        # Search engines accept natural-language queries directly. Avoid an
+        # unbounded LLM rewrite before the bounded network deadline.
+        search_query = " ".join(query.split())
 
         # Check cache
         cache_key = (search_query, top_k)
-        if cache_key in self._search_cache:
-            self.logger.info(f"Cache hit for '{search_query}'")
-            return self._search_cache[cache_key]
+        now = time.monotonic()
+        with self._cache_lock:
+            cached = self._search_cache.get(cache_key)
+            if cached and cached[0] >= now:
+                self._search_cache.move_to_end(cache_key)
+                self.logger.info(f"Cache hit for '{search_query}'")
+                return list(cached[1])
+            if cached:
+                del self._search_cache[cache_key]
 
         self.logger.info(f"Searching for '{search_query}'...")
 
         # Try DDGS library first
-        ddgs = self._get_ddgs()
-        results = self._search_ddgs(ddgs, search_query, top_k) if ddgs else []
+        results = self._search_ddgs(search_query, top_k, deadline)
 
         # Fallback: try DDG Instant Answer API, then lite HTML
         if not results:
-            results = self._search_instant_answer(search_query, top_k)
+            results = self._search_instant_answer(
+                search_query, top_k, deadline
+            )
         if not results:
-            results = self._search_lite_fallback(search_query, top_k)
+            results = self._search_lite_fallback(
+                search_query, top_k, deadline
+            )
 
         if not results:
             self.logger.warning(f"Web search for '{search_query}' yielded no results.")
 
         # Cache result (shallow copy to avoid mutation)
-        self._search_cache[cache_key] = list(results)
-        if len(self._search_cache) > 128:
-            self._search_cache.pop(next(iter(self._search_cache)))
+        with self._cache_lock:
+            if self._cache_size:
+                self._search_cache[cache_key] = (
+                    time.monotonic() + self._cache_ttl,
+                    tuple(results),
+                )
+                self._search_cache.move_to_end(cache_key)
+                while len(self._search_cache) > self._cache_size:
+                    self._search_cache.popitem(last=False)
 
         return results
 
-    def _search_ddgs(self, ddgs, query: str, top_k: int) -> List[dict]:
-        import time
+    def _search_ddgs(
+        self,
+        query: str,
+        top_k: int,
+        deadline: float | None,
+    ) -> List[dict]:
         for attempt in range(3):
-            self._rate_limit()
-            self._ua_index = (self._ua_index + 1) % len(self._user_agents)
+            remaining = self._remaining(deadline, self._web_timeout)
+            if remaining < 1.0 or not self._rate_limit(deadline):
+                break
+            remaining = self._remaining(deadline, self._web_timeout)
+            if remaining < 1.0:
+                break
             try:
-                results = ddgs.text(query, max_results=top_k)
+                ddgs = self._get_ddgs(max(1, int(remaining)))
+                if ddgs is None:
+                    break
+                # ASVS 13.2.4: pin the library to the intended outbound
+                # provider instead of its multi-provider "auto" backend.
+                results = ddgs.text(
+                    query,
+                    max_results=top_k,
+                    backend="duckduckgo",
+                )
                 if results:
-                    return results
+                    return list(results)[:top_k]
             except Exception as e:
                 self.logger.warning(f"DDGS attempt {attempt + 1} failed: {e}")
                 if attempt < 2:
-                    time.sleep(2 ** attempt)
+                    delay = min(2 ** attempt, self._remaining(deadline, 2.0))
+                    if delay <= 0:
+                        break
+                    time.sleep(delay)
         return []
 
-    def _search_instant_answer(self, query: str, top_k: int) -> List[dict]:
+    def _search_instant_answer(
+        self,
+        query: str,
+        top_k: int,
+        deadline: float | None,
+    ) -> List[dict]:
         """Fallback using DuckDuckGo Instant Answer JSON API."""
         try:
             import urllib.request
@@ -382,7 +583,10 @@ class WebRetriever(Retriever):
                 url,
                 headers={"User-Agent": "Mozilla/5.0"},
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            timeout = self._remaining(deadline, self._web_timeout)
+            if timeout <= 0:
+                return []
+            with self._open_allowed(req, timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
             results = []
@@ -404,7 +608,12 @@ class WebRetriever(Retriever):
             self.logger.warning(f"Instant Answer API failed: {e}")
             return []
 
-    def _search_lite_fallback(self, query: str, top_k: int) -> List[dict]:
+    def _search_lite_fallback(
+        self,
+        query: str,
+        top_k: int,
+        deadline: float | None,
+    ) -> List[dict]:
         """Fallback using DuckDuckGo's HTML-only lite endpoint."""
         try:
             import urllib.request
@@ -417,7 +626,10 @@ class WebRetriever(Retriever):
                 data=data,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; VoiceBot/1.0)"},
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            timeout = self._remaining(deadline, self._web_timeout)
+            if timeout <= 0:
+                return []
+            with self._open_allowed(req, timeout) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
 
             # Parse DDG lite HTML results
@@ -467,10 +679,44 @@ class WebRetriever(Retriever):
             "Output:"
         )
 
-        response = "".join(self.session(prompt))
-        search_query = json.loads(response).get("search_query", query).strip()
+        response = self._ask(prompt)
+        parsed = json.loads(response)
+        value = parsed.get("search_query") if isinstance(parsed, dict) else None
+        if not isinstance(value, str):
+            return query
+        value = " ".join(value.split())
+        return value[:256] or query
 
-        return search_query
+    @staticmethod
+    def _open_allowed(request, timeout: float):
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+        allowed_hosts = frozenset(
+            {"api.duckduckgo.com", "lite.duckduckgo.com"}
+        )
+
+        class HTTPSAllowlistRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(
+                self, req, fp, code, msg, headers, newurl
+            ):
+                parsed = urllib.parse.urlparse(newurl)
+                # ASVS 12.3.1 / 13.2.4 / 15.3.2: outbound redirects stay
+                # on the fixed HTTPS search-service allowlist.
+                if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
+                    raise urllib.error.HTTPError(
+                        newurl, code, "Redirect target is not allowed", headers, fp
+                    )
+                return super().redirect_request(
+                    req, fp, code, msg, headers, newurl
+                )
+
+        parsed = urllib.parse.urlparse(request.full_url)
+        if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
+            raise ValueError("Web search endpoint is not allowed.")
+        opener = urllib.request.build_opener(HTTPSAllowlistRedirect())
+        return opener.open(request, timeout=timeout)
 
     def format_results(self, results: List[dict]) -> List[str]:
         formatted = []

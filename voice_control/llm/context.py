@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING
 from ..common.utils import get_logger
-from .conversation import Message
-
 if TYPE_CHECKING:
     from .conversation import Conversation
     from .model import LLM

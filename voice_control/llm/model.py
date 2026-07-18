@@ -1,15 +1,17 @@
 from abc import ABC, abstractmethod
+import ipaddress
 import json
 import os
 from threading import Lock
-from typing import Any, Dict, Generator, Iterator
+from typing import Any, Dict, Generator
+from urllib.parse import urlparse
 
 from .conversation import Conversation
 from .context import ContextManager  # Added import
 from .tools import ToolCall
 from .decoders import StreamDecoder, NativeDecoder, LegacyXMLDecoder, GemmaE2BDecoder
 
-from ..common.utils import download_hf_file, get_logger
+from ..common.utils import download_hf_file, get_logger, verify_file_sha256
 
 
 class LLM(ABC):
@@ -51,17 +53,18 @@ class LLM(ABC):
     ) -> Generator[str, None, None]: ...
 
     def count_tokens(self, text: str) -> int:
-        """Counts the number of tokens in a string.
-        Default implementation is an approximation using tiktoken.
-        """
-        import tiktoken
-        encoder = tiktoken.get_encoding("cl100k_base")
-        return len(encoder.encode(text))
+        """Return a deterministic offline estimate for remote providers."""
+        # Some tiktoken distributions download encoding data on first use.
+        # Remote providers only need a conservative context-pruning estimate;
+        # direct GGUF providers override this with their exact local tokenizer.
+        return max(1, (len(text) + 3) // 4)
 
 
 class GGUFLLM(LLM):
     hf_repo: str = ""
     filename: str = ""
+    revision: str = ""
+    sha256: str = ""
     local_dir: str = os.path.join("model_files", "llm")
     n_ctx: int = 512
     max_tokens: int = 128
@@ -80,6 +83,9 @@ class GGUFLLM(LLM):
                 f"Model not found at {model_path}. "
                 "Please run the download script first."
             )
+
+        # ASVS 15.2.4: verify model integrity before native code parses it.
+        verify_file_sha256(model_path, self.sha256)
 
         self.logger.info("Loading model...")
         n_gpu_layers = -1
@@ -127,6 +133,8 @@ class GGUFLLM(LLM):
             repo_id=cls.hf_repo,
             filename=cls.filename,
             directory=cls.local_dir,
+            revision=cls.revision,
+            expected_sha256=cls.sha256,
         )
 
     def count_tokens(self, text: str) -> int:
@@ -185,50 +193,240 @@ class GGUFLLM(LLM):
                             return # Halt stream!
 
 
-class Ollama(LLM):
+class LiteLLMProvider(LLM):
+    """OpenAI-format adapter for provider-backed models supported by LiteLLM."""
+
+    supported_providers = frozenset({"openai", "gemini", "ollama"})
+    _provider_key_env = {
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+    }
+    _allowed_generation_params = frozenset(
+        {
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "temperature",
+            "top_p",
+        }
+    )
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        provider: str,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        timeout: float = 60.0,
+        n_ctx: int = 16_384,
+        max_tokens: int = 1_024,
+        completion_fn=None,
+    ):
+        super().__init__()
+        self.logger = get_logger(self.__class__.__name__)
+
+        if provider not in self.supported_providers:
+            raise ValueError(
+                f"Unsupported LiteLLM provider: {provider!r}."
+            )
+        if not isinstance(model, str) or not 1 <= len(model.strip()) <= 256:
+            raise ValueError("Model must be a non-empty string up to 256 characters.")
+        if "/" in model and not model.startswith(f"{provider}/"):
+            raise ValueError("The model prefix must match its configured provider.")
+        if not isinstance(timeout, (int, float)) or not 1 <= timeout <= 300:
+            raise ValueError("Provider timeout must be between 1 and 300 seconds.")
+        if not isinstance(n_ctx, int) or not 512 <= n_ctx <= 2_000_000:
+            raise ValueError("n_ctx must be between 512 and 2000000.")
+        if not isinstance(max_tokens, int) or not 1 <= max_tokens < n_ctx:
+            raise ValueError("max_tokens must be positive and smaller than n_ctx.")
+        if api_base is not None:
+            self._validate_api_base(api_base)
+
+        key_env = self._provider_key_env.get(provider)
+        api_key = api_key or (os.environ.get(key_env) if key_env else None)
+        if key_env and not api_key:
+            raise ValueError(f"{key_env} is required for the {provider} provider.")
+        if api_key is not None and not isinstance(api_key, str):
+            raise TypeError("Provider API keys must be strings.")
+        if isinstance(api_key, str) and not api_key.strip():
+            raise ValueError("Provider API keys must not be blank.")
+
+        if completion_fn is None:
+            # Keep local/Ollama startup offline by default. LiteLLM otherwise
+            # refreshes its model-cost map from GitHub during import. An
+            # explicit environment value still lets operators opt back in.
+            os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+            from litellm import completion
+
+            completion_fn = completion
+        if not callable(completion_fn):
+            raise TypeError("completion_fn must be callable.")
+
+        self.provider = provider
+        self.model = model if "/" in model else f"{provider}/{model}"
+        self.api_key = api_key
+        self.api_base = api_base
+        self.timeout = float(timeout)
+        self.n_ctx = n_ctx
+        self.max_tokens = max_tokens
+        self._completion = completion_fn
+
+    @staticmethod
+    def _validate_api_base(api_base: str) -> None:
+        if not isinstance(api_base, str) or len(api_base) > 2_048:
+            raise ValueError("api_base must be a URL up to 2048 characters.")
+        parsed = urlparse(api_base)
+        if not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("api_base must be an absolute URL without credentials.")
+        if parsed.scheme == "https":
+            return
+        if parsed.scheme != "http":
+            raise ValueError("api_base must use HTTPS, or HTTP for loopback only.")
+
+        hostname = parsed.hostname.lower()
+        is_loopback = hostname == "localhost"
+        if not is_loopback:
+            try:
+                is_loopback = ipaddress.ip_address(hostname).is_loopback
+            except ValueError:
+                is_loopback = False
+        # ASVS 12.3.1 / 12.3.2: custom remote provider endpoints must use
+        # certificate-validated HTTPS; plaintext is limited to local runtimes.
+        if not is_loopback:
+            raise ValueError("Plaintext provider endpoints are allowed on loopback only.")
+
+    @staticmethod
+    def _field(value, name: str, default=None):
+        if isinstance(value, dict):
+            return value.get(name, default)
+        return getattr(value, name, default)
+
+    def _infer(
+        self,
+        conversation: Conversation,
+        *,
+        session_state: dict,
+        tool_choice: str | Dict[str, Any] = "auto",
+        **kwargs,
+    ) -> Generator[str | ToolCall, None, None]:
+        unexpected = set(kwargs) - self._allowed_generation_params
+        if unexpected:
+            raise TypeError(
+                "Unsupported generation parameters: "
+                + ", ".join(sorted(unexpected))
+            )
+        if not isinstance(tool_choice, (str, dict)):
+            raise TypeError("tool_choice must be a string or object.")
+        if isinstance(tool_choice, str) and tool_choice not in {
+            "auto",
+            "none",
+            "required",
+        }:
+            raise ValueError("Unsupported tool_choice value.")
+
+        request = {
+            "model": self.model,
+            "messages": conversation.messages,
+            "stream": True,
+            "timeout": self.timeout,
+            "num_retries": 0,
+            "max_tokens": self.max_tokens,
+            **kwargs,
+        }
+        if self.api_key:
+            request["api_key"] = self.api_key
+        if self.api_base:
+            request["api_base"] = self.api_base
+
+        tools = [tool.to_dict() for tool in conversation.tools.values()]
+        if tools and tool_choice != "none":
+            request["tools"] = tools
+            request["tool_choice"] = tool_choice
+
+        stream = self._completion(**request)
+        tool_call_buffer = {}
+        for chunk in stream:
+            choices = self._field(chunk, "choices", ()) or ()
+            if not choices:
+                continue
+            delta = self._field(choices[0], "delta")
+            if delta is None:
+                continue
+
+            content = self._field(delta, "content")
+            if isinstance(content, str) and content:
+                yield content
+
+            for tool_call in self._field(delta, "tool_calls", ()) or ():
+                index = self._field(tool_call, "index", 0)
+                if not isinstance(index, int) or not 0 <= index <= 128:
+                    raise ValueError("Provider returned an invalid tool call index.")
+                function = self._field(tool_call, "function", {}) or {}
+                entry = tool_call_buffer.setdefault(
+                    index, {"name": "", "arguments": "", "object_args": None}
+                )
+                name = self._field(function, "name")
+                arguments = self._field(function, "arguments")
+                if isinstance(name, str):
+                    entry["name"] += name
+                    if len(entry["name"]) > 64:
+                        raise ValueError("Tool name exceeds 64 characters.")
+                if isinstance(arguments, dict):
+                    entry["object_args"] = arguments
+                elif isinstance(arguments, str):
+                    entry["arguments"] += arguments
+                    # ASVS 2.2.1: bound model-generated serialized tool input.
+                    if len(entry["arguments"]) > 65_536:
+                        raise ValueError("Tool arguments exceed 65536 characters.")
+
+        for entry in tool_call_buffer.values():
+            name = entry["name"]
+            if not name:
+                continue
+            try:
+                arguments = entry["object_args"]
+                if arguments is None:
+                    arguments = (
+                        json.loads(entry["arguments"])
+                        if entry["arguments"]
+                        else {}
+                    )
+                # ASVS 1.5.2 / 15.3.5: accept only a JSON object as tool input.
+                if not isinstance(arguments, dict):
+                    raise ValueError("Tool arguments must be an object.")
+                yield ToolCall(name=name, arguments=arguments)
+            except (json.JSONDecodeError, ValueError):
+                self.logger.warning(
+                    "Provider returned malformed arguments for tool %s.", name
+                )
+                yield ToolCall(
+                    name="_parse_error",
+                    arguments={"tool_name": name},
+                )
+
+
+class Ollama(LiteLLMProvider):
     def __init__(
         self,
         model: str,
         host: str = "http://localhost:11434",
+        **kwargs,
     ):
-        super().__init__()
-        from ollama import Client
-
-        self.logger = get_logger(__name__)
-
-        self.model = model
-        self.client = Client(host=host)
-
-    # Using default approximation for count_tokens
-
-    def _infer(
-        self, conversation: Conversation, *, session_state: dict
-    ) -> Generator[str | ToolCall, None, None]:
-
-        stream = self.client.chat(
-            model=self.model,
-            messages=conversation.messages,
-            stream=True,
-            tools=[t.to_dict() for t in conversation.tools.values()],
+        super().__init__(
+            model=model,
+            provider="ollama",
+            api_base=host,
+            **kwargs,
         )
-
-        for chunk in stream:
-            message = chunk.get("message", {})
-            if "content" in message and message["content"]:
-                yield message["content"]
-
-            if "tool_calls" in message:
-                for tool_call in message["tool_calls"]:
-                    func_info = tool_call.get("function", {})
-                    yield ToolCall(
-                        name=func_info.get("name"),
-                        arguments=func_info.get("arguments", {})
-                    )
 
 
 class NemotronMini(GGUFLLM):
     hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
     filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
+    revision: str = "63e28adee7c1228bdcdda1c6f10f8b5e4d17c42c"
+    sha256: str = "6230395444f14a10e4675e4d625183ae3c094567ddfe757991c0909f0f21c2d8"
     n_ctx: int = 4096
     max_tokens: int = 1024
     decoder = LegacyXMLDecoder()
@@ -237,6 +435,8 @@ class NemotronMini(GGUFLLM):
 class Qwen3(GGUFLLM):
     hf_repo: str = "Qwen/Qwen3-4B-GGUF"
     filename: str = "Qwen3-4B-Q5_K_M.gguf"
+    revision: str = "a9a60d009fa7ff9606305047c2bf77ac25dbec49"
+    sha256: str = "aca596860e8cb40af6539e3f2ea40df305f42515deac56d49c08d39a02e6533f"
     n_ctx: int = 40960
     max_tokens: int = 8192
     decoder = LegacyXMLDecoder()
@@ -245,6 +445,8 @@ class Qwen3(GGUFLLM):
 class Gemma4E2B(GGUFLLM):
     hf_repo: str = "unsloth/gemma-4-E2B-it-GGUF"
     filename: str = "gemma-4-E2B-it-UD-Q4_K_XL.gguf"
+    revision: str = "90f9618340396838ee7ff5b0ba2da27da62953d3"
+    sha256: str = "b8906b8c5e05e57b657646bbc657bd35814a269b2c20f0a2579047fafa1a67dd"
     n_ctx: int = 131072
     max_tokens: int = 8192
     decoder = GemmaE2BDecoder()
@@ -255,6 +457,8 @@ class Gemma4E2B(GGUFLLM):
 class Gemma4_12B(GGUFLLM):
     hf_repo: str = "unsloth/gemma-4-12b-it-GGUF"
     filename: str = "gemma-4-12b-it-UD-IQ3_XXS.gguf"
+    revision: str = "3249fa54d5efa384afc552cc6700ad091efd5c39"
+    sha256: str = "1eb42ae04731500a614acaf658c707c07af5a320822eabc50040852442fa6a4c"
     n_ctx: int = 8192
     max_tokens: int = 2048
     type_k: str = "q4_0"
@@ -262,96 +466,36 @@ class Gemma4_12B(GGUFLLM):
     decoder = LegacyXMLDecoder()
 
 
-class ChatGPT(LLM):
-    def __init__(self, model: str = "gpt-4o", api_key: str = None):
-        super().__init__()
-        from openai import OpenAI
-
-        self.logger = get_logger(self.__class__.__name__)
-        self.model = model
-
-        api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("An API key for OpenAI is required.")
-
-        self.client = OpenAI(api_key=api_key)
-
-    def _infer(
+class ChatGPT(LiteLLMProvider):
+    def __init__(
         self,
-        conversation: Conversation,
-        *,
-        session_state: dict,
-        tool_choice: str | dict = "auto",
+        model: str = "gpt-4o",
+        api_key: str | None = None,
+        api_base: str | None = None,
         **kwargs,
-    ) -> Generator[str | ToolCall, None, None]:
-        tools = [t.to_dict() for t in conversation.tools.values()] or None
-
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=conversation.messages,
-            tools=tools,
-            tool_choice=tool_choice if tools else None,
-            stream=True,
+    ):
+        super().__init__(
+            model=model,
+            provider="openai",
+            api_key=api_key,
+            api_base=api_base,
             **kwargs,
         )
 
-        tool_call_buffer = {}
-        for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
 
-            if delta.content:
-                yield delta.content
-
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_call_buffer:
-                        tool_call_buffer[idx] = {"name": "", "arguments": ""}
-                    if tc.function and tc.function.name:
-                        tool_call_buffer[idx]["name"] += tc.function.name
-                    if tc.function and tc.function.arguments:
-                        tool_call_buffer[idx]["arguments"] += tc.function.arguments
-
-        for tc_data in tool_call_buffer.values():
-            if tc_data["name"]:
-                try:
-                    args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
-                except json.JSONDecodeError:
-                    args = {}
-                yield ToolCall(name=tc_data["name"], arguments=args)
-
-
-class Gemini(LLM):
-    def __init__(self, model: str = "gemini-1.5-flash", api_key: str = None):
-        super().__init__()
-        import google.generativeai as genai
-
-        self.logger = get_logger(self.__class__.__name__)
-        self.model = model
-
-        if not api_key:
-            raise ValueError("An API key for Google Gemini is required.")
-
-        genai.configure(api_key=api_key)
-        self.client = genai.GenerativeModel(self.model)
-
-    # Using default approximation for count_tokens
-
-    def _infer(
+class Gemini(LiteLLMProvider):
+    def __init__(
         self,
-        conversation: Conversation,
-        *,
-        session_state: dict,
+        model: str = "gemini-1.5-flash",
+        api_key: str | None = None,
         **kwargs,
-    ) -> Generator[str, None, None]:
-        response = self.client.generate_content(
-            conversation.messages, stream=True, **kwargs
+    ):
+        super().__init__(
+            model=model,
+            provider="gemini",
+            api_key=api_key,
+            **kwargs,
         )
-        for chunk in response:
-            if content := chunk.text:
-                yield content
 
 
 # ----------------------------------------------------------------------
@@ -365,6 +509,56 @@ class LLMProviders:
     Gemini: type = Gemini
     Gemma4E2B: type = Gemma4E2B
     Gemma4_12B: type = Gemma4_12B
+    LiteLLM: type = LiteLLMProvider
+
+    # Configuration-friendly aliases retained for documented lower-case names.
+    openai: type = ChatGPT
+    gemini: type = Gemini
+    ollama: type = Ollama
+
+    _providers = {
+        "NemotronMini": NemotronMini,
+        "Qwen3": Qwen3,
+        "Ollama": Ollama,
+        "ChatGPT": ChatGPT,
+        "Gemini": Gemini,
+        "Gemma4E2B": Gemma4E2B,
+        "Gemma4_12B": Gemma4_12B,
+        "LiteLLM": LiteLLMProvider,
+        "openai": ChatGPT,
+        "gemini": Gemini,
+        "ollama": Ollama,
+    }
+
+    _settings_aliases = {
+        "ChatGPT": "openai",
+        "Gemini": "gemini",
+        "LiteLLM": "litellm",
+        "Ollama": "ollama",
+    }
+
+    @classmethod
+    def get(cls, name: str):
+        if not isinstance(name, str) or not name:
+            raise ValueError("LLM provider name must be a non-empty string.")
+        provider = cls._providers.get(name)
+        if provider is None:
+            raise ValueError(f"Unknown LLM provider: {name!r}.")
+        return provider
+
+    @classmethod
+    def create(cls, name: str, settings: dict | None = None):
+        provider = cls.get(name)
+        settings = settings or {}
+        if not isinstance(settings, dict):
+            raise TypeError("LLM provider settings must be an object.")
+        settings_key = cls._settings_aliases.get(name, name.lower())
+        provider_settings = settings.get(settings_key, {})
+        if not isinstance(provider_settings, dict):
+            raise TypeError("Selected LLM provider settings must be an object.")
+        # ASVS 2.2.1 / 15.3.3: only the selected provider's documented
+        # configuration object is passed into its constructor.
+        return provider(**provider_settings)
 
 
 # ----------------------------------------------------------------------

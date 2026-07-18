@@ -8,7 +8,7 @@ signal response_received(response)
 
 var zmq = ZMQ.new()
 var socket
-var endpoint = "tcp://0.0.0.0:8000"
+var endpoint = "tcp://127.0.0.1:8000"
 var auth_token = null # Set this to your auth token if needed
 
 var _id_counter = 0

@@ -30,7 +30,8 @@ class LuaParser(BaseParser):
         # Group 1: Comment content
         # Group 2: Function name
         pattern = re.compile(
-            r"--\[\[(.*?)\]\]\s*function\s+rpc_api\.(\w+)", re.DOTALL
+            r"--\[\[((?:(?!--\[\[).)*?)\]\]\s*function\s+rpc_api\.(\w+)",
+            re.DOTALL,
         )
 
         functions = []
@@ -40,13 +41,48 @@ class LuaParser(BaseParser):
             comment_block = match.group(1)
             func_name = match.group(2)
 
-            # Parse parameters from the comment block
-            params = []
-            param_matches = re.finditer(r"@param\s+(\w+)", comment_block)
-            for pm in param_matches:
-                params.append(pm.group(1))
+            description_lines = []
+            for line in comment_block.splitlines():
+                clean_line = line.strip()
+                if clean_line and not clean_line.startswith("@"):
+                    description_lines.append(clean_line)
 
-            functions.append({"name": func_name, "params": params})
+            properties = {}
+            required = []
+            param_pattern = re.compile(
+                r"@param\s+(\w+)\s*(?:\(([^)]+)\))?\s*:?\s*(.*)"
+            )
+            type_map = {
+                "boolean": "boolean",
+                "integer": "integer",
+                "number": "number",
+                "string": "string",
+                "table": "object",
+            }
+            for pm in param_pattern.finditer(comment_block):
+                param_name, lua_type, description = pm.groups()
+                json_type = type_map.get((lua_type or "string").lower(), "string")
+                properties[param_name] = {
+                    "type": json_type,
+                    "description": description.strip(),
+                }
+                required.append(param_name)
+
+            functions.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": func_name,
+                        "description": " ".join(description_lines),
+                        "parameters": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                            "additionalProperties": False,
+                        },
+                    },
+                }
+            )
 
         return functions
 

@@ -8,7 +8,8 @@ them using Pydantic models.
 
 import os
 import yaml
-from typing import Any, Dict
+from typing import Any
+from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from .config_models import AppConfig
@@ -44,6 +45,8 @@ class Config:
         if user_config_path is None:
             user_config_path = os.path.join(os.getcwd(), "config.yaml")
 
+        # Load project-local secrets before resolving env-backed YAML fields.
+        load_dotenv()
         config_data = self._load_config(default_config_path)
 
         if os.path.exists(user_config_path):

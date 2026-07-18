@@ -22,7 +22,12 @@ def main():
 
     try:
         provider = config.get("llm.provider")
-        getattr(LLMProviders, provider).download()
+        provider_cls = LLMProviders.get(provider)
+        if not hasattr(provider_cls, "download"):
+            raise ValueError(
+                f"Provider {provider!r} does not use downloadable local weights."
+            )
+        provider_cls.download()
         logger.info("Model download completed successfully.")
     except Exception as e:
         logger.error(f"Failed to download model: {e}")

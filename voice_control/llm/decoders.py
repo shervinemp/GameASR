@@ -24,7 +24,8 @@ class LegacyXMLDecoder(StreamDecoder):
         buffer, in_tool = "", False
         for chunk in stream:
             if isinstance(chunk, (dict, ToolCall)):
-                yield chunk; return
+                yield chunk
+                return
             buffer += chunk
 
             while buffer:
@@ -39,19 +40,20 @@ class LegacyXMLDecoder(StreamDecoder):
                             )
                         except Exception:
                             yield ToolCall(name="_parse_error", arguments={"raw": tool_body})
-                        return # Halt stream to execute tool
+                        return  # Halt stream to execute tool
                     else:
                         if len(buffer) > 500:
                             yield buffer
                             buffer = ""
-                        break # Wait for more chunks
+                        break  # Wait for more chunks
                 else:
                     if "<toolcall>" in buffer:
                         pre = buffer.split("<toolcall>")[0]
-                        if pre: yield pre
+                        if pre:
+                            yield pre
                         in_tool = True
                         buffer = buffer.split("<toolcall>", 1)[1]
-                        continue # Re-evaluate buffer
+                        continue  # Re-evaluate buffer
                     else:
                         match = re.search(r'<t(?:o(?:o(?:l(?:c(?:a(?:l(?:l)?)?)?)?)?)?)?)?$', buffer)
                         if match:
@@ -59,13 +61,14 @@ class LegacyXMLDecoder(StreamDecoder):
                             if safe_idx > 0:
                                 yield buffer[:safe_idx]
                                 buffer = buffer[safe_idx:]
-                            break # Wait for more chunks to complete the tag
+                            break  # Wait for more chunks to complete the tag
                         else:
                             yield buffer
                             buffer = ""
                             break
 
-        if buffer and not in_tool: yield buffer
+        if buffer and not in_tool:
+            yield buffer
 
 
 class GemmaE2BDecoder(StreamDecoder):
@@ -97,30 +100,32 @@ class GemmaE2BDecoder(StreamDecoder):
                                 except json.JSONDecodeError:
                                     yield ToolCall(name="_parse_error", arguments={"raw": args})
                         return  # CRITICAL: Halt stream to allow RAG pipeline to trigger
-                    break # Wait for more chunks
+                    break  # Wait for more chunks
 
                 # 2. Filter Thoughts
                 if in_thought:
                     if "<channel|>" in buffer:
                         in_thought = False
                         buffer = buffer.split("<channel|>", 1)[1]
-                        continue # Re-evaluate buffer
-                    break # Wait for more chunks
+                        continue  # Re-evaluate buffer
+                    break  # Wait for more chunks
 
                 # 3. Detect Openers
                 if "<|tool_call>" in buffer:
                     in_tool = True
                     pre = buffer.split("<|tool_call>")[0]
-                    if pre: yield pre
+                    if pre:
+                        yield pre
                     buffer = buffer.split("<|tool_call>", 1)[1]
-                    continue # Re-evaluate buffer
+                    continue  # Re-evaluate buffer
 
                 if "<|channel>thought" in buffer:
                     in_thought = True
                     pre = buffer.split("<|channel>thought")[0]
-                    if pre: yield pre
+                    if pre:
+                        yield pre
                     buffer = buffer.split("<|channel>thought", 1)[1]
-                    continue # Re-evaluate buffer
+                    continue  # Re-evaluate buffer
 
                 # 4. Safe Yield (Wait for partial tags to resolve)
                 safe_idx = max(buffer.rfind("<"), buffer.rfind("&"))
@@ -128,11 +133,12 @@ class GemmaE2BDecoder(StreamDecoder):
                     if safe_idx > 0:
                         yield buffer[:safe_idx]
                         buffer = buffer[safe_idx:]
-                    break # Wait for more chunks
+                    break  # Wait for more chunks
                 else:
-                    if buffer: yield buffer
+                    if buffer:
+                        yield buffer
                     buffer = ""
-                    break # Finished processing this chunk
+                    break  # Finished processing this chunk
 
         if buffer and not in_tool and not in_thought:
             yield buffer
