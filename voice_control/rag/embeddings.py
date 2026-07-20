@@ -9,7 +9,7 @@ class Embedder:
     def __init__(self, model_name: Optional[str] = None):
         self.logger = get_logger(__name__)
         self.model_name = model_name or config.get(
-            "llm.models.embedding", "all-MiniLM-L6-v2"
+            "llm.models.embedding", "google/embeddinggemma-300m"
         )
         self._model = None
 

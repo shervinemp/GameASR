@@ -81,14 +81,13 @@ class MessageList(list):
 
 class Conversation:
 
-    def __init__(self, max_turns: int = 20):
+    def __init__(self):
         self._messages: MessageList = MessageList()
         self._token_counts: List[int] = []
 
         self._system: str = ""
         self._tools: Dict[str, Tool] = {}
         self._cutoff_idx: int = 0
-        self._max_turns: int = max_turns
 
     def set_system_message(self, content: str):
         self._system = content
@@ -140,12 +139,11 @@ class Conversation:
             "system": self._system,
             "messages": [m.asdict() for m in list.__iter__(self._messages)],
             "cutoff_idx": self._cutoff_idx,
-            "max_turns": self._max_turns,
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Conversation":
-        conv = cls(max_turns=data.get("max_turns", 20))
+        conv = cls()
         conv._system = data.get("system", "")
         for msg_data in data.get("messages", []):
             conv._messages.append(Message.from_dict(msg_data))
