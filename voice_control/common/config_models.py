@@ -34,6 +34,9 @@ class TTSConfig(BaseModel):
 class ASRConfig(BaseModel):
     provider: str
     weights_dir: str
+    vad_threshold: float = Field(default=0.4, ge=0.0, le=1.0)
+    trailing_silence_ms: int = Field(default=800, ge=100, le=10_000)
+    leading_silence_ms: int = Field(default=1000, ge=0, le=10_000)
 
 
 class LLMServerConfig(BaseModel):
