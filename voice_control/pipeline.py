@@ -14,7 +14,6 @@ from .llm import Session, LLMProviders
 from .llm.tools import Tool
 from .rag import BaseRAG
 from .rag.backends import create_backend
-from .rag.embeddings import Embedder
 from .bridge.llm_server import LLMServer, LLMService
 
 from .common.base import stream_splitter
@@ -132,6 +131,9 @@ class Pipeline:
         self._conv_top_k = 2
         self._init_conv_history()
 
+        from .rag.embeddings import Embedder
+        self._embedder = Embedder()
+
     def register_command(self, pattern: str, handler: Callable, mode: str = "exact"):
         self._commands[pattern] = (handler, mode)
 
@@ -231,9 +233,7 @@ class Pipeline:
         # Auto-inject relevant conversation history before the LLM call
         original_query = text
         if self._conv_bank and self._conv_history_enabled:
-            from .rag.embeddings import Embedder
-            embedder = Embedder()
-            query_embedding = embedder.encode([text])[0]
+            query_embedding = self._embedder.encode([text])[0]
             matches = self._conv_bank.vector_search(
                 [query_embedding], top_k=self._conv_top_k,
                 source_filter="conv"

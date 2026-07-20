@@ -11,6 +11,7 @@ from ..common.config import config
 from ..common.utils import get_logger
 from ..exceptions import StorageError
 from .backends.base import StorageBackend
+from .embeddings import Embedder
 from .validation import normalize_triplets
 
 NODE_PROJ = "{id: node.id, label: node.label, description: node.description}"
@@ -26,7 +27,6 @@ class KnowledgeGraph(StorageBackend):
         database: str = "neo4j",
         query_timeout: float = 5.0,
     ):
-        from sentence_transformers import SentenceTransformer
         from neo4j import GraphDatabase
 
         self.logger = get_logger(__file__)
@@ -47,10 +47,7 @@ class KnowledgeGraph(StorageBackend):
             max_transaction_retry_time=3.0,
             keep_alive=True,
         )
-        embedding_model_name = config.get(
-            "llm.models.embedding", "google/embeddinggemma-300m"
-        )
-        self.embedding_model = SentenceTransformer(embedding_model_name)
+        self._embedder = Embedder()
 
     @staticmethod
     def _validate_uri(uri: str) -> None:
@@ -432,12 +429,11 @@ class KnowledgeGraph(StorageBackend):
             unique_labels.setdefault(obj, t["object"])
 
         label_keys = list(unique_labels)
-        vectors = self.embedding_model.encode(
+        vectors = self._embedder.encode(
             [unique_labels[key] for key in label_keys],
-            normalize_embeddings=True,
         )
         embedding_by_label = {
-            key: vectors[index].tolist()
+            key: vectors[index]
             for index, key in enumerate(label_keys)
         }
         for triplet in triplets:

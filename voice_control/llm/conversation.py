@@ -176,13 +176,30 @@ class Conversation:
     def visible_count(self) -> int:
         return len(self._messages) - self._cutoff_idx
 
+    def _get_raw_message(self, idx: int) -> Message:
+        """Access internal Message object bypassing MessageList's dict-returning __getitem__."""
+        return list.__getitem__(self._messages, idx)
+
+    def get_message_content(self, idx: int) -> str:
+        """Get the content string of a raw message by internal index."""
+        return self._get_raw_message(idx).content
+
+    def get_token_count(self, idx: int) -> int:
+        return self._token_counts[idx]
+
+    def set_token_count(self, idx: int, count: int):
+        self._token_counts[idx] = count
+        """Access internal Message object bypassing MessageList's dict-returning __getitem__."""
+        return list.__getitem__(self._messages, idx)
+
     def trim_oldest(self, excess: int, llm: "LLM") -> int:
         """Remove the oldest `excess` messages. Returns total tokens removed."""
         total_cut = 0
         for i in range(self._cutoff_idx, self._cutoff_idx + excess):
             if self._token_counts[i] == 0:
-                raw = self._messages[i].content
-                self._token_counts[i] = llm.count_tokens(raw) + 4
+                self._token_counts[i] = llm.count_tokens(
+                    self.get_message_content(i)
+                ) + 4
             total_cut += self._token_counts[i]
 
         del self._messages[:self._cutoff_idx + excess]
