@@ -22,8 +22,8 @@ class LLM(ABC):
         # Initialize ContextManager in the base class or let subclasses handle it.
         pass
 
-    def create_context_strategy(self, max_turns: int = 20) -> ContextStrategy:
-        """Return the best context strategy for this provider."""
+    def create_context_strategy(self, max_turns: int = 20):
+        """Return a context strategy for trimming conversation history."""
         return DropOldestStrategy(max_turns)
 
     def __call__(
@@ -117,7 +117,7 @@ class GGUFLLM(LLM):
         self._last_state = None
         self._lock = Lock()
 
-    def create_context_strategy(self, max_turns: int = 20) -> ContextStrategy:
+    def create_context_strategy(self, max_turns: int = 20):
         if hasattr(self.model, "kv_cache_seq_rm"):
             return KVCacheEvictStrategy(max_turns)
         return DropOldestStrategy(max_turns)

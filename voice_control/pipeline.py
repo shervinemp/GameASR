@@ -126,11 +126,37 @@ class Pipeline:
         self.push_to_talk = push_to_talk
         self.press_to_reset = press_to_reset
 
+        self._conv_bank = None
+        self._conv_history_enabled = False
+        self._conv_threshold = 0.75
+        self._conv_top_k = 2
+        self._init_conv_history()
+
     def register_command(self, pattern: str, handler: Callable, mode: str = "exact"):
         self._commands[pattern] = (handler, mode)
 
     def unregister_command(self, pattern: str):
         self._commands.pop(pattern, None)
+
+    def _init_conv_history(self):
+        from .rag.backends.sqlite import SQLiteBackend
+
+        hconfig = config.get("rag.conversation_history")
+        if not hconfig or not hconfig.enabled:
+            self._conv_bank = None
+            self._conv_history_enabled = False
+            return
+
+        self._conv_history_enabled = True
+
+        db_path = config.get("rag.runtime.sqlite_path", "data/rag.sqlite")
+        try:
+            self._conv_bank = SQLiteBackend(db_path=db_path)
+            self._conv_threshold = hconfig.threshold
+            self._conv_top_k = hconfig.top_k
+        except Exception as e:
+            self.logger.warning("Conversation history bank unavailable: %s", e)
+            self._conv_bank = None
 
     @property
     def status(self) -> dict:
@@ -202,6 +228,24 @@ class Pipeline:
         if self._match_command(text):
             return
 
+        # Auto-inject relevant conversation history before the LLM call
+        original_query = text
+        if self._conv_bank and self._conv_history_enabled:
+            from .rag.embeddings import Embedder
+            embedder = Embedder()
+            query_embedding = embedder.encode([text])[0]
+            matches = self._conv_bank.vector_search(
+                [query_embedding], top_k=self._conv_top_k,
+                source_filter="conv"
+            )[0]
+            injected = []
+            for match in matches:
+                score = 1.0 / (1.0 + match.get("distance", 1.0))
+                if score >= self._conv_threshold:
+                    injected.append(f"(Earlier: {match['description']})")
+            if injected:
+                text = "\n".join(injected) + "\n" + text
+
         self._response_parts = []
         self._llm_busy = True
         interrupt = True
@@ -221,6 +265,13 @@ class Pipeline:
                 self.events.emit("tts:utterance", s)
                 interrupt = False
         self._llm_busy = False
+
+        # Store Q&A pair in conversation history bank
+        if self._conv_bank and original_query:
+            self._conv_bank.store_conversation("user", original_query)
+            full_response = " ".join(self._response_parts)
+            if full_response:
+                self._conv_bank.store_conversation("assistant", full_response)
 
     def run(self):
         """Start the voice control pipeline."""
