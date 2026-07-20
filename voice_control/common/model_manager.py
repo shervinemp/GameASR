@@ -3,6 +3,7 @@ from typing import Dict
 
 import yaml
 
+from ..exceptions import ModelError
 from .utils import download_file, download_hf_file, verify_file_sha256, get_logger
 
 _MANIFEST_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +28,7 @@ def ensure_downloaded(
 
     entry = manifest.get(name)
     if not entry:
-        raise ValueError(f"Unknown model: {name!r}")
+        raise ModelError(f"Unknown model: {name!r}")
 
     results = {}
     base = _resolve_path(entry.get("local_dir", ""), local_dir)
@@ -66,4 +67,4 @@ def ensure_downloaded(
             results[key] = dest
         return results
 
-    raise ValueError(f"Model {name!r} has no files entry.")
+    raise ModelError(f"Model {name!r} has no files entry.")

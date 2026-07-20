@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from ..common.config import config
 from ..common.utils import get_logger
+from ..exceptions import StorageError
 from .validation import normalize_triplets
 
 NODE_PROJ = "{id: node.id, label: node.label, description: node.description}"
@@ -30,9 +31,9 @@ class KnowledgeGraph:
         self.logger = get_logger(__file__)
         self._validate_uri(uri)
         if not isinstance(database, str) or not database.strip():
-            raise ValueError("Neo4j database must be a non-empty string.")
+            raise StorageError("Neo4j database must be a non-empty string.")
         if not isinstance(query_timeout, (int, float)) or not 1 <= query_timeout <= 30:
-            raise ValueError("Neo4j query timeout must be between 1 and 30 seconds.")
+            raise StorageError("Neo4j query timeout must be between 1 and 30 seconds.")
         self._database = database
         self._query_timeout = float(query_timeout)
         self._deadline_state = threading.local()
@@ -54,7 +55,7 @@ class KnowledgeGraph:
     def _validate_uri(uri: str) -> None:
         parsed = urlparse(uri)
         if not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("Neo4j URI must not contain embedded credentials.")
+            raise StorageError("Neo4j URI must not contain embedded credentials.")
         secure = parsed.scheme in {"bolt+s", "neo4j+s"}
         local = parsed.hostname.lower() == "localhost"
         if not local:
@@ -67,7 +68,7 @@ class KnowledgeGraph:
         if not secure and not (
             local and parsed.scheme in {"bolt", "neo4j"}
         ):
-            raise ValueError(
+            raise StorageError(
                 "Remote Neo4j connections must use bolt+s or neo4j+s."
             )
 
@@ -126,9 +127,9 @@ class KnowledgeGraph:
         if not pairs:
             return []
         if not isinstance(k, int) or not 1 <= k <= 5:
-            raise ValueError("k must be between 1 and 5.")
+            raise StorageError("k must be between 1 and 5.")
         if len(pairs) > 64:
-            raise ValueError("At most 64 shortest-path pairs are allowed.")
+            raise StorageError("At most 64 shortest-path pairs are allowed.")
         if any(
             not isinstance(source, str)
             or not isinstance(target, str)
@@ -136,7 +137,7 @@ class KnowledgeGraph:
             or not target
             for source, target in pairs
         ):
-            raise ValueError("Shortest-path node identifiers must be strings.")
+            raise StorageError("Shortest-path node identifiers must be strings.")
 
         # ASVS 1.2.4: the only structural query value is an allowlisted integer;
         # all node identifiers remain Cypher parameters.

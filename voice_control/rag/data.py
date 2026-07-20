@@ -21,6 +21,7 @@ from neo4j_graphrag.indexes import create_vector_index
 
 from ..common.utils import download_file, get_logger, setup_logging
 from ..common.config import config
+from ..exceptions import StorageError
 
 
 class DataLoader:
@@ -166,11 +167,11 @@ class CodexDataLoader(DataLoader):
                     extraction_dir, f"codex-{self.CODEX_REVISION}"
                 )
                 if not os.path.isdir(extracted_root):
-                    raise ValueError("Dataset archive has an unexpected layout.")
+                    raise StorageError("Dataset archive has an unexpected layout.")
                 os.replace(extracted_root, repo_path)
             print("Download and extraction complete.")
-        except (OSError, ValueError, zipfile.BadZipFile) as e:
-            raise RuntimeError(f"Failed during download or extraction: {e}")
+        except (OSError, StorageError, zipfile.BadZipFile) as e:
+            raise StorageError(f"Failed during download or extraction: {e}")
         finally:
             if os.path.exists(archive_path):
                 os.unlink(archive_path)
@@ -181,20 +182,20 @@ class CodexDataLoader(DataLoader):
         extracted_bytes = 0
         with zipfile.ZipFile(archive_path) as archive:
             if len(archive.infolist()) > 20_000:
-                raise ValueError("Dataset archive contains too many entries.")
+                raise StorageError("Dataset archive contains too many entries.")
             for member in archive.infolist():
                 mode = member.external_attr >> 16
                 if stat.S_ISLNK(mode):
-                    raise ValueError("Dataset archive contains a symbolic link.")
+                    raise StorageError("Dataset archive contains a symbolic link.")
                 extracted_bytes += member.file_size
                 if extracted_bytes > self.CODEX_EXTRACTED_MAX_BYTES:
-                    raise ValueError("Dataset archive exceeds the extraction limit.")
+                    raise StorageError("Dataset archive exceeds the extraction limit.")
 
                 target = (destination_root / member.filename).resolve()
                 if os.path.commonpath((destination_root, target)) != str(
                     destination_root
                 ):
-                    raise ValueError("Dataset archive contains an unsafe path.")
+                    raise StorageError("Dataset archive contains an unsafe path.")
                 if member.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
@@ -410,14 +411,14 @@ def main():
     # Load Neo4j credentials from the central config
     config_id = "database.neo4j"
     if not config.get(config_id):
-        raise ValueError("Neo4j configuration not found in config file.")
+        raise StorageError("Neo4j configuration not found in config file.")
 
     uri = config.get(f"{config_id}.uri")
     user = config.get(f"{config_id}.user")
     password = config.get(f"{config_id}.password")
 
     if not all([uri, user, password]):
-        raise ValueError(
+        raise StorageError(
             "Neo4j credentials not fully configured. Check your config file."
         )
 

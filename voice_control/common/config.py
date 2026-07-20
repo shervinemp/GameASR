@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from .config_models import AppConfig
+from ..exceptions import ConfigError
 
 
 class Config:
@@ -58,7 +59,7 @@ class Config:
         try:
             self.config = AppConfig(**config_data)
         except ValidationError as e:
-            raise RuntimeError(f"Configuration validation error: {e}")
+            raise ConfigError(f"Configuration validation error: {e}")
 
         self._initialized = True
 
@@ -88,12 +89,12 @@ class Config:
         except FileNotFoundError:
             # It's okay if the user config doesn't exist, but not the default.
             if "defaults" in path:
-                raise RuntimeError(
+                raise ConfigError(
                     f"Default configuration file not found at {path}"
                 )
             return {}
         except yaml.YAMLError as e:
-            raise RuntimeError(f"Error parsing YAML file at {path}: {e}")
+            raise ConfigError(f"Error parsing YAML file at {path}: {e}")
 
     def _deep_merge(self, source: dict, destination: dict) -> dict:
         """

@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ..common.config import config
 from ..common.utils import get_logger, safe_json_loads
+from ..exceptions import StorageError
 from ..llm.session import Session
 
 
@@ -101,7 +102,7 @@ class Composer:
 
         self.logger.info("Starting iterative self-correction for answer generation.")
         if not isinstance(n_iter, int) or not 1 <= n_iter <= 5:
-            raise ValueError("n_iter must be between 1 and 5.")
+            raise StorageError("n_iter must be between 1 and 5.")
 
         critique = None
         answer = self.generate_answer(query=query, context=summary)

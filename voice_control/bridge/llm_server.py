@@ -6,6 +6,7 @@ import threading
 import time
 
 from ..common.utils import get_logger
+from ..exceptions import VoiceControlError
 from ..llm import LLMProviders, Session
 from ..common.config import config
 
@@ -17,20 +18,20 @@ class LLMService:
 
     def __init__(self, session: Session):
         if not isinstance(session, Session):
-            raise TypeError("Session must be an instance of Session class.")
+            raise VoiceControlError("Session must be an instance of Session class.")
         self.session = session
 
     def query(self, content: str, role: str = "user") -> str:
         # ASVS 2.2.1 / 8.2.1: external consumers can submit user content only;
         # they cannot manufacture system, assistant, or tool messages.
         if role != "user":
-            raise ValueError("Only the user role is accepted.")
+            raise VoiceControlError("Only the user role is accepted.")
         if not isinstance(content, str):
-            raise TypeError("Content must be a string.")
+            raise VoiceControlError("Content must be a string.")
         if not content.strip():
-            raise ValueError("Content must not be empty.")
+            raise VoiceControlError("Content must not be empty.")
         if len(content) > self.max_content_chars:
-            raise ValueError(
+            raise VoiceControlError(
                 f"Content exceeds the {self.max_content_chars}-character limit."
             )
 
@@ -39,7 +40,7 @@ class LLMService:
         for part in self.session(content):
             response_length += len(part)
             if response_length > self.max_response_chars:
-                raise RuntimeError("Model response exceeded the configured limit.")
+                raise VoiceControlError("Model response exceeded the configured limit.")
             response_parts.append(part)
         return "".join(response_parts)
 
@@ -71,11 +72,11 @@ class LLMServer:
         )
 
         if not self._allowed_methods:
-            raise ValueError("The RPC service must declare an explicit rpc_methods allowlist.")
+            raise VoiceControlError("The RPC service must declare an explicit rpc_methods allowlist.")
         if not isinstance(max_request_bytes, int) or not 1_024 <= max_request_bytes <= 1_048_576:
-            raise ValueError("max_request_bytes must be between 1024 and 1048576.")
+            raise VoiceControlError("max_request_bytes must be between 1024 and 1048576.")
         if not isinstance(requests_per_minute, int) or not 1 <= requests_per_minute <= 10_000:
-            raise ValueError("requests_per_minute must be between 1 and 10000.")
+            raise VoiceControlError("requests_per_minute must be between 1 and 10000.")
 
         # ASVS 6.3.4 / 13.1: local-only operation may omit a token. Any TCP
         # listener reachable beyond loopback fails closed with a strong token.
@@ -83,13 +84,13 @@ class LLMServer:
             not isinstance(auth_token, str)
             or len(auth_token.strip()) < 32
         ):
-            raise ValueError(
+            raise VoiceControlError(
                 "Configured RPC authentication tokens must contain at least "
                 "32 non-blank characters."
             )
         if not self._is_loopback_endpoint(endpoint):
             if auth_token is None:
-                raise ValueError(
+                raise VoiceControlError(
                     "Non-loopback RPC endpoints require an authentication token "
                     "of at least 32 characters."
                 )
@@ -137,13 +138,13 @@ class LLMServer:
 
     def _dispatch_method(self, method_name: str, params: dict):
         if method_name not in self._allowed_methods:
-            raise LookupError("Method not found")
+            raise VoiceControlError("Method not found")
         method_func = getattr(self.service_api, method_name, None)
 
         if method_func is None or not callable(method_func):
-            raise LookupError("Method not found")
+            raise VoiceControlError("Method not found")
         if not isinstance(params, dict):
-            raise TypeError("Parameters must be a dictionary.")
+            raise VoiceControlError("Parameters must be a dictionary.")
 
         return method_func(**params)
 
@@ -153,26 +154,26 @@ class LLMServer:
 
         try:
             if not isinstance(request_body_str, str):
-                raise ValueError("Invalid request encoding.")
+                raise VoiceControlError("Invalid request encoding.")
             if len(request_body_str.encode("utf-8")) > self.max_request_bytes:
-                raise ValueError("Request exceeds the configured size limit.")
+                raise VoiceControlError("Request exceeds the configured size limit.")
 
             request = json.loads(request_body_str)
             # ASVS 1.5.2 / 2.2.1: accept only the documented JSON object shape.
             if not isinstance(request, dict):
-                raise ValueError("Request must be a JSON object.")
+                raise VoiceControlError("Request must be a JSON object.")
             allowed_fields = {"jsonrpc", "id", "method", "params", "auth_token"}
             if set(request) - allowed_fields:
-                raise ValueError("Request contains unsupported fields.")
+                raise VoiceControlError("Request contains unsupported fields.")
             request_id = request.get("id")
             if not isinstance(request_id, (str, int, type(None))):
-                raise ValueError("Request id must be a string, integer, or null.")
+                raise VoiceControlError("Request id must be a string, integer, or null.")
             if isinstance(request_id, str) and len(request_id) > 128:
-                raise ValueError("Request id is too long.")
+                raise VoiceControlError("Request id is too long.")
             response_obj["id"] = request_id
 
             if request.get("jsonrpc") != "2.0" or "method" not in request:
-                raise ValueError("Invalid JSON-RPC request format.")
+                raise VoiceControlError("Invalid JSON-RPC request format.")
 
             if not self._is_authenticated(request):
                 self.logger.warning("RPC authentication failed.")

@@ -8,6 +8,8 @@ import re
 import threading
 from typing import Any, Dict, List
 
+from ..exceptions import StorageError
+
 
 _QUEUE_LOCK = threading.Lock()
 _PREDICATE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
@@ -18,16 +20,16 @@ def normalize_triplets(raw: Any, max_items: int = 20) -> List[Dict[str, str]]:
     # ASVS 1.5.2 / 2.2.1: model JSON is untrusted external data. Only the
     # expected scalar fields and bounded values are admitted to persistence.
     if not isinstance(raw, list):
-        raise ValueError("Triplets must be a JSON array.")
+        raise StorageError("Triplets must be a JSON array.")
     if len(raw) > max_items:
-        raise ValueError(f"Triplet count exceeds the limit of {max_items}.")
+        raise StorageError(f"Triplet count exceeds the limit of {max_items}.")
 
     normalized = []
     for item in raw:
         if not isinstance(item, dict):
-            raise ValueError("Each triplet must be a JSON object.")
+            raise StorageError("Each triplet must be a JSON object.")
         if set(item) != {"subject", "predicate", "object"}:
-            raise ValueError(
+            raise StorageError(
                 "Each triplet must contain only subject, predicate, and object."
             )
 
@@ -35,17 +37,17 @@ def normalize_triplets(raw: Any, max_items: int = 20) -> List[Dict[str, str]]:
         predicate = item["predicate"]
         obj = item["object"]
         if not all(isinstance(value, str) for value in (subject, predicate, obj)):
-            raise ValueError("Triplet fields must be strings.")
+            raise StorageError("Triplet fields must be strings.")
 
         subject = subject.strip()
         obj = obj.strip()
         predicate = re.sub(r"[^A-Z0-9_]", "", predicate.upper().replace(" ", "_"))
         if not subject or not obj or not predicate:
-            raise ValueError("Triplet fields must not be empty.")
+            raise StorageError("Triplet fields must not be empty.")
         if len(subject) > 200 or len(obj) > 200:
-            raise ValueError("Triplet entities must not exceed 200 characters.")
+            raise StorageError("Triplet entities must not exceed 200 characters.")
         if not _PREDICATE_PATTERN.fullmatch(predicate):
-            raise ValueError("Triplet predicate must be a valid relationship name.")
+            raise StorageError("Triplet predicate must be a valid relationship name.")
 
         normalized.append(
             {"subject": subject, "predicate": predicate, "object": obj}
@@ -69,9 +71,9 @@ def queue_triplets(
 
     # ASVS 5.3.2: a configured path may not escape the project directory.
     if os.path.commonpath((str(project_root), str(candidate))) != str(project_root):
-        raise ValueError("The review queue must be inside the project directory.")
+        raise StorageError("The review queue must be inside the project directory.")
     if candidate.suffix.lower() != ".jsonl":
-        raise ValueError("The review queue must use a .jsonl extension.")
+        raise StorageError("The review queue must use a .jsonl extension.")
 
     record = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -82,7 +84,7 @@ def queue_triplets(
     }
     encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > 64 * 1024:
-        raise ValueError("Review queue record exceeds 64 KiB.")
+        raise StorageError("Review queue record exceeds 64 KiB.")
 
     candidate.parent.mkdir(parents=True, exist_ok=True)
     # ASVS 15.4.1: serialize append operations from concurrent voice/RPC flows.

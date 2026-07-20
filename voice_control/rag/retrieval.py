@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..common.config import config
 from ..common.utils import get_logger
+from ..exceptions import StorageError
 from ..llm.session import Session
 from .knowledge import KnowledgeGraph
 
@@ -483,7 +484,7 @@ class WebRetriever(Retriever):
         if not isinstance(query, str) or not query.strip():
             return []
         if not isinstance(top_k, int) or not 1 <= top_k <= 10:
-            raise ValueError("Web top_k must be between 1 and 10.")
+            raise StorageError("Web top_k must be between 1 and 10.")
         # Search engines accept natural-language queries directly. Avoid an
         # unbounded LLM rewrite before the bounded network deadline.
         search_query = " ".join(query.split())
@@ -714,7 +715,7 @@ class WebRetriever(Retriever):
 
         parsed = urllib.parse.urlparse(request.full_url)
         if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
-            raise ValueError("Web search endpoint is not allowed.")
+            raise StorageError("Web search endpoint is not allowed.")
         opener = urllib.request.build_opener(HTTPSAllowlistRedirect())
         return opener.open(request, timeout=timeout)
 

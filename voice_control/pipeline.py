@@ -19,6 +19,7 @@ from .bridge.llm_server import LLMServer, LLMService
 from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
 from .common.config import config
+from .exceptions import VoiceControlError, ASRError, LLMError, TTSError, ConfigError
 from .transcript_gate import qualify_transcript
 
 
@@ -145,8 +146,10 @@ class Pipeline:
                 self.logger.debug(f"{transcript=}")
                 try:
                     self._callback(transcript)
+                except VoiceControlError as e:
+                    self.logger.error(f"Pipeline error: {e}")
                 except Exception as e:
-                    self.logger.error(f"Error in callback: {e}", exc_info=True)
+                    self.logger.error(f"Unexpected error in callback: {e}", exc_info=True)
         finally:
             self._running = False
             if self.llm_server:
@@ -285,7 +288,7 @@ def main():
 
     neo4j_config = config.get("database.neo4j")
     if not neo4j_config or not all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
-        raise ValueError(
+        raise ConfigError(
             "Neo4j credentials not fully configured. Check your config file and environment variables."
         )
 

@@ -6,6 +6,7 @@ from typing import List
 
 from ..common.config import config
 from ..common.utils import get_logger
+from ..exceptions import StorageError
 from ..llm.model import LLM
 from ..llm.session import Session
 from .generation import Composer
@@ -55,14 +56,14 @@ class BaseRAG(ABC):
     def _validate_request(self, query: str, top_k: int) -> str:
         max_query_chars = getattr(self.runtime, "max_query_chars", 2_000)
         if not isinstance(query, str):
-            raise TypeError("RAG query must be a string.")
+            raise StorageError("RAG query must be a string.")
         query = query.strip()
         if not query or len(query) > max_query_chars:
-            raise ValueError(
+            raise StorageError(
                 f"RAG query must contain 1 to {max_query_chars} characters."
             )
         if not isinstance(top_k, int) or not 1 <= top_k <= 20:
-            raise ValueError("top_k must be between 1 and 20.")
+            raise StorageError("top_k must be between 1 and 20.")
         return query
 
     @staticmethod
@@ -245,7 +246,7 @@ class SPathRAG(BaseRAG):
             not isinstance(max_iterations, int)
             or not 1 <= max_iterations <= configured_max
         ):
-            raise ValueError(
+            raise StorageError(
                 f"max_iterations must be between 1 and {configured_max}."
             )
 

@@ -12,6 +12,7 @@ from .tools import ToolCall
 from .decoders import StreamDecoder, NativeDecoder, LegacyXMLDecoder, GemmaE2BDecoder
 
 from ..common.utils import get_logger
+from ..exceptions import LLMError, ProviderError
 
 
 class LLM(ABC):
@@ -212,30 +213,30 @@ class LiteLLMProvider(LLM):
         self.logger = get_logger(self.__class__.__name__)
 
         if provider not in self.supported_providers:
-            raise ValueError(
+            raise ProviderError(
                 f"Unsupported LiteLLM provider: {provider!r}."
             )
         if not isinstance(model, str) or not 1 <= len(model.strip()) <= 256:
-            raise ValueError("Model must be a non-empty string up to 256 characters.")
+            raise ProviderError("Model must be a non-empty string up to 256 characters.")
         if "/" in model and not model.startswith(f"{provider}/"):
-            raise ValueError("The model prefix must match its configured provider.")
+            raise ProviderError("The model prefix must match its configured provider.")
         if not isinstance(timeout, (int, float)) or not 1 <= timeout <= 300:
-            raise ValueError("Provider timeout must be between 1 and 300 seconds.")
+            raise ProviderError("Provider timeout must be between 1 and 300 seconds.")
         if not isinstance(n_ctx, int) or not 512 <= n_ctx <= 2_000_000:
-            raise ValueError("n_ctx must be between 512 and 2000000.")
+            raise ProviderError("n_ctx must be between 512 and 2000000.")
         if not isinstance(max_tokens, int) or not 1 <= max_tokens < n_ctx:
-            raise ValueError("max_tokens must be positive and smaller than n_ctx.")
+            raise ProviderError("max_tokens must be positive and smaller than n_ctx.")
         if api_base is not None:
             self._validate_api_base(api_base)
 
         key_env = self._provider_key_env.get(provider)
         api_key = api_key or (os.environ.get(key_env) if key_env else None)
         if key_env and not api_key:
-            raise ValueError(f"{key_env} is required for the {provider} provider.")
+            raise ProviderError(f"{key_env} is required for the {provider} provider.")
         if api_key is not None and not isinstance(api_key, str):
-            raise TypeError("Provider API keys must be strings.")
+            raise ProviderError("Provider API keys must be strings.")
         if isinstance(api_key, str) and not api_key.strip():
-            raise ValueError("Provider API keys must not be blank.")
+            raise ProviderError("Provider API keys must not be blank.")
 
         if completion_fn is None:
             # Keep local/Ollama startup offline by default. LiteLLM otherwise
@@ -246,7 +247,7 @@ class LiteLLMProvider(LLM):
 
             completion_fn = completion
         if not callable(completion_fn):
-            raise TypeError("completion_fn must be callable.")
+            raise ProviderError("completion_fn must be callable.")
 
         self.provider = provider
         self.model = model if "/" in model else f"{provider}/{model}"
@@ -260,14 +261,14 @@ class LiteLLMProvider(LLM):
     @staticmethod
     def _validate_api_base(api_base: str) -> None:
         if not isinstance(api_base, str) or len(api_base) > 2_048:
-            raise ValueError("api_base must be a URL up to 2048 characters.")
+            raise ProviderError("api_base must be a URL up to 2048 characters.")
         parsed = urlparse(api_base)
         if not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("api_base must be an absolute URL without credentials.")
+            raise ProviderError("api_base must be an absolute URL without credentials.")
         if parsed.scheme == "https":
             return
         if parsed.scheme != "http":
-            raise ValueError("api_base must use HTTPS, or HTTP for loopback only.")
+            raise ProviderError("api_base must use HTTPS, or HTTP for loopback only.")
 
         hostname = parsed.hostname.lower()
         is_loopback = hostname == "localhost"
@@ -279,7 +280,7 @@ class LiteLLMProvider(LLM):
         # ASVS 12.3.1 / 12.3.2: custom remote provider endpoints must use
         # certificate-validated HTTPS; plaintext is limited to local runtimes.
         if not is_loopback:
-            raise ValueError("Plaintext provider endpoints are allowed on loopback only.")
+            raise ProviderError("Plaintext provider endpoints are allowed on loopback only.")
 
     @staticmethod
     def _field(value, name: str, default=None):
@@ -297,18 +298,18 @@ class LiteLLMProvider(LLM):
     ) -> Generator[str | ToolCall, None, None]:
         unexpected = set(kwargs) - self._allowed_generation_params
         if unexpected:
-            raise TypeError(
+            raise LLMError(
                 "Unsupported generation parameters: "
                 + ", ".join(sorted(unexpected))
             )
         if not isinstance(tool_choice, (str, dict)):
-            raise TypeError("tool_choice must be a string or object.")
+            raise LLMError("tool_choice must be a string or object.")
         if isinstance(tool_choice, str) and tool_choice not in {
             "auto",
             "none",
             "required",
         }:
-            raise ValueError("Unsupported tool_choice value.")
+            raise LLMError("Unsupported tool_choice value.")
 
         request = {
             "model": self.model,
@@ -346,7 +347,7 @@ class LiteLLMProvider(LLM):
             for tool_call in self._field(delta, "tool_calls", ()) or ():
                 index = self._field(tool_call, "index", 0)
                 if not isinstance(index, int) or not 0 <= index <= 128:
-                    raise ValueError("Provider returned an invalid tool call index.")
+                    raise LLMError("Provider returned an invalid tool call index.")
                 function = self._field(tool_call, "function", {}) or {}
                 entry = tool_call_buffer.setdefault(
                     index, {"name": "", "arguments": "", "object_args": None}
@@ -356,14 +357,14 @@ class LiteLLMProvider(LLM):
                 if isinstance(name, str):
                     entry["name"] += name
                     if len(entry["name"]) > 64:
-                        raise ValueError("Tool name exceeds 64 characters.")
+                        raise LLMError("Tool name exceeds 64 characters.")
                 if isinstance(arguments, dict):
                     entry["object_args"] = arguments
                 elif isinstance(arguments, str):
                     entry["arguments"] += arguments
                     # ASVS 2.2.1: bound model-generated serialized tool input.
                     if len(entry["arguments"]) > 65_536:
-                        raise ValueError("Tool arguments exceed 65536 characters.")
+                        raise LLMError("Tool arguments exceed 65536 characters.")
 
         for entry in tool_call_buffer.values():
             name = entry["name"]
@@ -379,7 +380,7 @@ class LiteLLMProvider(LLM):
                     )
                 # ASVS 1.5.2 / 15.3.5: accept only a JSON object as tool input.
                 if not isinstance(arguments, dict):
-                    raise ValueError("Tool arguments must be an object.")
+                    raise LLMError("Tool arguments must be an object.")
                 yield ToolCall(name=name, arguments=arguments)
             except (json.JSONDecodeError, ValueError):
                 self.logger.warning(
@@ -432,10 +433,10 @@ class LLMProviders:
     @classmethod
     def get(cls, name: str):
         if not isinstance(name, str) or not name:
-            raise ValueError("LLM provider name must be a non-empty string.")
+            raise ProviderError("LLM provider name must be a non-empty string.")
         provider = cls._providers.get(name)
         if provider is None:
-            raise ValueError(f"Unknown LLM provider: {name!r}.")
+            raise ProviderError(f"Unknown LLM provider: {name!r}.")
         return provider
 
     @classmethod
@@ -443,11 +444,11 @@ class LLMProviders:
         provider = cls.get(name)
         settings = settings or {}
         if not isinstance(settings, dict):
-            raise TypeError("LLM provider settings must be an object.")
+            raise ProviderError("LLM provider settings must be an object.")
         settings_key = cls._settings_aliases.get(name, name.lower())
         provider_settings = settings.get(settings_key, {})
         if not isinstance(provider_settings, dict):
-            raise TypeError("Selected LLM provider settings must be an object.")
+            raise ProviderError("Selected LLM provider settings must be an object.")
         # ASVS 2.2.1 / 15.3.3: only the selected provider's documented
         # configuration object is passed into its constructor.
         return provider(**provider_settings)

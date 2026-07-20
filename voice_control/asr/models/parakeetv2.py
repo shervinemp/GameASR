@@ -7,6 +7,7 @@ import numpy as np
 from .base import ModelBase
 from ...common.base import ConsumerProducer
 from ...common.utils import get_logger
+from ...exceptions import ASRError
 
 _vad_lock = threading.Lock()
 

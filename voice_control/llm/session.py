@@ -9,6 +9,7 @@ from ..common.utils import get_logger
 
 from .model import LLM
 from .conversation import Conversation
+from ..exceptions import LLMError, ToolError
 from .tools import ToolCall
 
 
@@ -48,7 +49,7 @@ class Session:
     ) -> str:
         """Run an isolated completion without mutating conversation history."""
         if not isinstance(query, str) or not query.strip():
-            raise ValueError("One-shot queries must be non-empty strings.")
+            raise LLMError("One-shot queries must be non-empty strings.")
 
         conversation = Conversation()
         if system:
@@ -203,7 +204,7 @@ class ToolCaller:
 
         self._loop_ready_event.wait(timeout=5.0)
         if not self._loop_ready_event.is_set():
-            raise RuntimeError(
+            raise LLMError(
                 "Failed to start background asyncio loop within timeout."
             )
 

@@ -43,6 +43,7 @@ from ..common.utils import get_logger  # noqa: E402
 
 
 from ..common.config import config  # noqa: E402
+from ..exceptions import TTSError  # noqa: E402
 
 
 class Kokoro:
