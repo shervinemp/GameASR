@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
-from typing import Optional
+from typing import Callable, Optional
 from dotenv import load_dotenv
 
 from .llm.conversation import Conversation
@@ -45,7 +45,7 @@ class Pipeline:
 
         self._running = False
         self.llm_server = None
-        self._interrupt_requested = False
+        self._interrupt_event = threading.Event()
         self._response_parts: list[str] = []
         self._interrupted_at: str | None = None
         self._llm_busy = False
@@ -171,7 +171,7 @@ class Pipeline:
             "asr": "unavailable" if self.asr is None else ("muted" if asr_muted else "listening"),
             "llm": "generating" if self._llm_busy else "idle",
             "tts": "unavailable" if self.tts is None else ("speaking" if tts_running else "idle"),
-            "interrupted": self._interrupt_requested,
+            "interrupted": self._interrupt_event.is_set(),
         }
 
     def register_tools(self, *tools: Tool | list[Tool]):
@@ -190,7 +190,7 @@ class Pipeline:
         """Called from VAD thread when new speech onset is detected."""
         if self.tts:
             self.tts.stop_playback()
-        self._interrupt_requested = True
+        self._interrupt_event.set()
 
     def _match_command(self, text: str) -> bool:
         cleaned = text.strip().lower()
@@ -251,8 +251,8 @@ class Pipeline:
         interrupt = True
         out = self.session(text)
         for sentence in stream_splitter(out, min_len=8):
-            if self._interrupt_requested:
-                self._interrupt_requested = False
+            if self._interrupt_event.is_set():
+                self._interrupt_event.clear()
                 self._interrupted_at = self._response_parts[-1] if self._response_parts else None
                 break
             if s := sentence.strip():
@@ -356,6 +356,9 @@ class Pipeline:
 
     @push_to_talk.setter
     def push_to_talk(self, value: str | None):
+        if self.asr is None:
+            self.logger.warning("ASR unavailable — push-to-talk not configured.")
+            return
         dispatcher = self.hotkey_dispatcher
         if k_ := getattr(self, "_push_to_talk", None):
             dispatcher.unregister(k_)

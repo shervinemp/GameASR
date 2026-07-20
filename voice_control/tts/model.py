@@ -23,6 +23,7 @@ if not _espeak_lib:
     espeak_exe = shutil.which("espeak-ng")
     if espeak_exe:
         candidates.append(espeak_exe)
+    candidates = [c for c in candidates if c is not None]
     for path in candidates:
         if os.path.exists(path):
             _espeak_lib = path

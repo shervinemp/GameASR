@@ -54,7 +54,7 @@ class Config:
         config_data = self._load_config(default_config_path)
 
         if os.path.exists(user_config_path):
-            user_config = self._load_config(user_config_path)
+            user_config = self._load_config(user_config_path) or {}
             self._deep_merge(config_data, user_config)
 
         config_data = self._recursive_resolve_env_vars(config_data)

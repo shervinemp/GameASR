@@ -31,6 +31,7 @@ class ModelBase(ConsumerProducer, ABC):
         self._device_lost = threading.Event()
         self._lost_since: Optional[float] = None
         self._fail_count = 0
+        self._last_chunk_time = time.monotonic()
         self._last_check = 0.0  # throttle watchdog to once per second
 
         self._vad_thread = threading.Thread(target=self._vad_worker, daemon=True)

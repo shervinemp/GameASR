@@ -133,7 +133,11 @@ class MicButton:
         intensity = 0.3
         target_r = 14  # base radius
 
-        if self._state == "unavail" or self._pipeline.status["asr"] == "unavailable":
+        if self._state == "error":
+            color = self._MUTED
+            target_r = 14
+            intensity = 0.3 + 0.3 * math.sin(time.monotonic() * 4)
+        elif self._state == "unavail" or self._pipeline.status["asr"] == "unavailable":
             color = self._UNAVAIL
             target_r = 14
         elif self._muted or self._pipeline.status["asr"] == "muted":

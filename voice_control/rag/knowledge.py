@@ -399,11 +399,14 @@ class KnowledgeGraph(StorageBackend):
         def _run():
             with self._read_session() as session:
                 records = session.run(self._timed_query(query), **params)
-                return [
-                    record.data()[key]
-                    for record in records
-                    for key in record.keys()
-                ]
+                results = []
+                for record in records:
+                    data = record.data()
+                    if "s" in data and "o" in data:
+                        results.append({"subject": data["s"], "object": data["o"]})
+                    else:
+                        results.append(next(iter(data.values())))
+                return results
 
         return self._execute_with_retry(_run)
 

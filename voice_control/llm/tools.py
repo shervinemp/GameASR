@@ -335,14 +335,6 @@ class Tool:
     def clear_registry(cls):
         cls._registry.clear()
 
-    @classmethod
-    def registry(cls) -> Dict[str, "Tool"]:
-        return dict(cls._registry)
-
-    @classmethod
-    def clear_registry(cls):
-        cls._registry.clear()
-
 
 def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
     """
