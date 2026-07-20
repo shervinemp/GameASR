@@ -15,7 +15,8 @@ llm:
       model: "Ternary-Bonsai-27B-Q2_0.gguf"
       api_base: "http://localhost:9000/v1"
       timeout: 120
-      max_tokens: 4096
+      n_ctx: 65536
+      max_tokens: 8192
 
 rag:
   runtime:

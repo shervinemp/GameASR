@@ -245,25 +245,32 @@ class LiteLLMProvider(LLM):
         if isinstance(api_key, str) and not api_key.strip():
             raise ProviderError("Provider API keys must not be blank.")
 
-        if completion_fn is None:
-            # Keep local/Ollama startup offline by default. LiteLLM otherwise
-            # refreshes its model-cost map from GitHub during import. An
-            # explicit environment value still lets operators opt back in.
-            os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-            from litellm import completion
-
-            completion_fn = completion
-        if not callable(completion_fn):
-            raise ProviderError("completion_fn must be callable.")
-
         self.provider = provider
-        self.model = model if "/" in model else f"{provider}/{model}"
+        self.model = model
         self.api_key = api_key
         self.api_base = api_base
         self.timeout = float(timeout)
         self.n_ctx = n_ctx
         self.max_tokens = max_tokens
-        self._completion = completion_fn
+        self._openai_client = None
+
+        # For local OpenAI-compatible servers (llama.cpp, Ollama), use the
+        # OpenAI SDK directly — LiteLLM's CustomStreamWrapper has issues with
+        # synchronous iteration on Windows.
+        if provider == "openai" and api_base and self._is_loopback(api_base):
+            from openai import OpenAI
+            self._openai_client = OpenAI(
+                base_url=api_base.rstrip("/") + "/v1" if "/v1" not in api_base else api_base,
+                api_key=api_key or "sk-no-key-required",
+            )
+        else:
+            if completion_fn is None:
+                os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+                from litellm import completion
+                completion_fn = completion
+            if not callable(completion_fn):
+                raise ProviderError("completion_fn must be callable.")
+            self._completion = completion_fn
 
     @staticmethod
     def _is_loopback(api_base: str) -> bool:
@@ -307,6 +314,10 @@ class LiteLLMProvider(LLM):
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
     ) -> Generator[str | ToolCall, None, None]:
+        if self._openai_client:
+            yield from self._infer_openai(conversation, tool_choice=tool_choice)
+            return
+
         unexpected = set(kwargs) - self._allowed_generation_params
         if unexpected:
             raise LLMError(
@@ -408,6 +419,78 @@ class LiteLLMProvider(LLM):
                     arguments={"tool_name": name},
                 )
 
+    def _infer_openai(
+        self,
+        conversation: Conversation,
+        *,
+        tool_choice: str | Dict[str, Any] = "auto",
+    ) -> Generator[str | ToolCall, None, None]:
+        kwargs = {
+            "model": self.model,
+            "messages": conversation.messages,
+            "stream": True,
+            "max_tokens": self.max_tokens,
+            "timeout": self.timeout,
+        }
+        tools = [tool.to_dict() for tool in conversation.tools.values()]
+        if tools and tool_choice != "none":
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+
+        stream = self._openai_client.chat.completions.create(**kwargs)
+        tool_call_buffer = {}
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta is None:
+                continue
+
+            if delta.content:
+                yield delta.content
+
+            rc = getattr(delta, "reasoning_content", None)
+            if rc:
+                yield rc
+
+            for tc in (getattr(delta, "tool_calls", None) or ()):
+                index = getattr(tc, "index", 0) if hasattr(tc, "index") else 0
+                function = getattr(tc, "function", {}) or {}
+                entry = tool_call_buffer.setdefault(
+                    index, {"name": "", "arguments": "", "object_args": None}
+                )
+                name = getattr(function, "name", None)
+                arguments = getattr(function, "arguments", None)
+                if isinstance(name, str):
+                    entry["name"] += name
+                    if len(entry["name"]) > 64:
+                        raise LLMError("Tool name exceeds 64 characters.")
+                if isinstance(arguments, dict):
+                    entry["object_args"] = arguments
+                elif isinstance(arguments, str):
+                    entry["arguments"] += arguments
+                    if len(entry["arguments"]) > 65_536:
+                        raise LLMError("Tool arguments exceed 65536 characters.")
+
+        for entry in tool_call_buffer.values():
+            name = entry["name"]
+            if not name:
+                continue
+            try:
+                arguments = entry["object_args"] or (
+                    json.loads(entry["arguments"]) if entry["arguments"] else {}
+                )
+                if not isinstance(arguments, dict):
+                    raise LLMError("Tool arguments must be an object.")
+                yield ToolCall(name=name, arguments=arguments)
+            except (json.JSONDecodeError, ValueError):
+                self.logger.warning(
+                    "Provider returned malformed arguments for tool %s.", name
+                )
+                yield ToolCall(
+                    name="_parse_error",
+                    arguments={"tool_name": name},
+                )
 
 
 class Qwen3(GGUFLLM):
