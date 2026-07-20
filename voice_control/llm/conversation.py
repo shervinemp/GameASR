@@ -1,6 +1,8 @@
+import json
+import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List, Dict
+from typing import Iterable, List, Dict, Optional
 from .tools import Tool
 
 
@@ -122,6 +124,32 @@ class Conversation:
         if not isinstance(tools, dict):
             tools = {t.name: t for t in tools}
         self._tools = tools
+
+    def to_dict(self) -> Dict:
+        return {
+            "system": self._system,
+            "messages": [m.asdict() for m in list.__iter__(self._messages)],
+            "cutoff_idx": self._cutoff_idx,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Conversation":
+        conv = cls()
+        conv._system = data.get("system", "")
+        for msg_data in data.get("messages", []):
+            conv._messages.append(Message.from_dict(msg_data))
+        conv._cutoff_idx = data.get("cutoff_idx", 0)
+        return conv
+
+    def save(self, path: str):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def load(cls, path: str) -> "Conversation":
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return cls.from_dict(data)
 
     @property
     def cutoff_idx(self):

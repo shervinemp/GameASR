@@ -1,15 +1,17 @@
 from functools import partial
 import asyncio
 import inspect
+import json
+import os
 from queue import Queue
 import threading
 from typing import Any, Dict, Generator, Optional, Tuple
 
 from ..common.utils import get_logger
+from ..exceptions import LLMError, ToolError
 
 from .model import LLM
 from .conversation import Conversation
-from ..exceptions import LLMError, ToolError
 from .tools import ToolCall
 
 
@@ -39,6 +41,48 @@ class Session:
     def close(self):
         """Release the background tool execution loop."""
         self.tool_caller.stop()
+
+    def save(self, path: str, *, save_kv_cache: bool = False):
+        """Save session to a directory."""
+        os.makedirs(path, exist_ok=True)
+        self.conversation.save(os.path.join(path, "conversation.json"))
+        state = {}
+        with self._lock:
+            for k, v in self._session_state.items():
+                if k == "model_state" and not save_kv_cache:
+                    continue
+                if isinstance(v, (bytes, bytearray)):
+                    continue
+                state[k] = v
+        with open(os.path.join(path, "state.json"), "w") as f:
+            json.dump(state, f, indent=2)
+
+        if save_kv_cache:
+            state_data = self._session_state.get("model_state")
+            if isinstance(state_data, (bytes, bytearray)):
+                with open(os.path.join(path, "kv_cache.bin"), "wb") as f:
+                    f.write(state_data)
+
+    @classmethod
+    def load(cls, path: str, llm: LLM) -> "Session":
+        """Load session from a directory with a fresh LLM instance."""
+        conv_path = os.path.join(path, "conversation.json")
+        state_path = os.path.join(path, "state.json")
+        kv_path = os.path.join(path, "kv_cache.bin")
+
+        conversation = Conversation.load(conv_path) if os.path.exists(conv_path) else Conversation()
+        session = cls(llm=llm, conversation=conversation)
+
+        if os.path.exists(state_path):
+            with open(state_path) as f:
+                state = json.load(f)
+                session._session_state.update(state)
+
+        if os.path.exists(kv_path):
+            with open(kv_path, "rb") as f:
+                session._session_state["model_state"] = f.read()
+
+        return session
 
     def complete_once(
         self,
