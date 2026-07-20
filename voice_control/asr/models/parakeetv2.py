@@ -98,6 +98,7 @@ class Silero(ConsumerProducer):
         trailing_silence_duration: float = 0.8,
         trailing_buffer_duration: float = 1.2,
         max_segment_duration: float = 0.0,
+        wake_word_detector=None,
         on_speech_onset: Callable | None = None,
     ):
         from onnx_asr import load_vad
@@ -116,6 +117,8 @@ class Silero(ConsumerProducer):
         self.max_segment_duration = max_segment_duration
         self.on_speech_onset = on_speech_onset
         self.on_audio_level: Callable | None = None
+        self._ww = wake_word_detector
+        self._ww_active = False
 
         self.reset()
 
@@ -159,6 +162,14 @@ class Silero(ConsumerProducer):
                 pass
 
     def _consume(self, chunk: Iterable[np.ndarray]):
+        # Wake-word gate (outside VAD lock — detector is independent)
+        if self._ww and not self._ww_active:
+            state = self._ww.process(np.asarray(chunk))
+            if state == "active":
+                self._ww_active = True
+                self.reset()
+            return
+
         acquired = self._lock.acquire(blocking=False)
         if not acquired:
             return
@@ -218,6 +229,7 @@ class Silero(ConsumerProducer):
                 if self._silence_counter >= self._trailing_silent_chunks:
                     self._is_speech_segment = False
                     self._silence_counter = 0
+                    self._ww_active = False
                     self._queue.put(None)
 
         if not is_loud:
