@@ -520,8 +520,8 @@ class Gemma4_12B(GGUFLLM):
 
 
 class Gemma4E4B(GGUFLLM):
-    n_ctx: int = 32768
-    max_tokens: int = 8192
+    n_ctx: int = 8192
+    max_tokens: int = 2048
     decoder = GemmaE2BDecoder()
     type_k: str = "q4_0"
     type_v: str = "q4_0"
