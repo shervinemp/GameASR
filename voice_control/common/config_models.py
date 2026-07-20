@@ -31,6 +31,11 @@ class TTSConfig(BaseModel):
     weights_dir: str
 
 
+class HotkeyConfig(BaseModel):
+    push_to_talk: Optional[str] = None
+    press_to_reset: Optional[str] = None
+
+
 class ASRConfig(BaseModel):
     provider: str
     weights_dir: str
@@ -102,6 +107,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig
     tts: TTSConfig
     asr: ASRConfig
+    hotkeys: HotkeyConfig = Field(default_factory=HotkeyConfig)
     llm_server: Optional[LLMServerConfig] = None
     tool_client: Optional[ToolClientConfig] = None
     rpc_server: Optional[LLMServerConfig] = None

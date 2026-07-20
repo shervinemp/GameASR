@@ -70,6 +70,13 @@ def main():
         help="Enable push-to-talk with the specified key or key combination. "
         "Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s'. ",
     )
+    parser.add_argument(
+        "--press-to-reset",
+        type=str,
+        default=None,
+        help="Enable press-to-reset with the specified key or key combination. "
+        "Examples: '<ctrl_l>+<ctrl_r>'. ",
+    )
     args = parser.parse_args()
 
     setup_logging(log_level=args.log_level)
@@ -103,6 +110,7 @@ def main():
         pipe = Pipeline(
             server_endpoint=f"{args.protocol}://{args.host}:{args.port}",
             push_to_talk=args.push_to_talk,
+            press_to_reset=args.press_to_reset,
         )
         pipe.session.conversation.tools = tools
         logger.info("Pipeline instance created.")

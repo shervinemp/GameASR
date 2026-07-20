@@ -36,6 +36,14 @@ llm:
       timeout: 60
       max_tokens: 1024
 
+# --- Hotkey Configuration ---
+# Set these to keyboard shortcuts to enable push-to-talk or press-to-reset.
+# Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s', '<ctrl_r>+<shift_r>'
+# When null (default), voice activation is always-on (no hotkey needed).
+hotkeys:
+  push_to_talk: null
+  press_to_reset: null
+
 # --- TTS Configuration ---
 tts:
   provider: "Kokoro"

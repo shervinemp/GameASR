@@ -97,6 +97,10 @@ class Pipeline:
                 ),
             )
 
+        if push_to_talk is None:
+            push_to_talk = config.get("hotkeys.push_to_talk")
+        if press_to_reset is None:
+            press_to_reset = config.get("hotkeys.press_to_reset")
         self.push_to_talk = push_to_talk
         self.press_to_reset = press_to_reset
 
@@ -320,10 +324,7 @@ def main():
         )
 
     try:
-        pipe = Pipeline(
-            push_to_talk="<ctrl_r>+<shift_r>",
-            press_to_reset="<ctrl_l>+<ctrl_r>",
-        )
+        pipe = Pipeline()
         llm = pipe.session.llm
 
         embedder = Embedder()
