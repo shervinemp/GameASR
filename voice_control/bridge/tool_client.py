@@ -48,3 +48,18 @@ class ToolClient:
                 self.socket.connect(self.endpoint)
 
         return {"error": f"Game engine RPC failed after {max_retries} attempts: {last_error}"}
+
+    def close(self):
+        """Release ZMQ resources."""
+        try:
+            self.socket.setsockopt(zmq.LINGER, 0)
+            self.socket.close()
+        except Exception:
+            pass
+        try:
+            self.context.term()
+        except Exception:
+            pass
+
+    def __del__(self):
+        self.close()

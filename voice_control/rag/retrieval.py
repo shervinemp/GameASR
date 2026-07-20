@@ -49,6 +49,12 @@ class Reranker:
         # ASVS 15.4.1: model inference and cache mutation are synchronized;
         # CrossEncoder implementations are not guaranteed to be thread-safe.
         with self._predict_lock:
+            # Double-check: another thread may have computed while we waited
+            with self._cache_lock:
+                cached = self._cache.get(cache_key)
+                if cached is not None:
+                    self._cache.move_to_end(cache_key)
+                    return list(cached[0]), list(cached[1])
             scores = self.reranker.predict(pairs, show_progress_bar=False)
 
         sorted_pairs = sorted(

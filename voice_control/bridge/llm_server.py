@@ -37,11 +37,24 @@ class LLMService:
 
         response_parts = []
         response_length = 0
-        for part in self.session(content):
-            response_length += len(part)
-            if response_length > self.max_response_chars:
-                raise VoiceControlError("Model response exceeded the configured limit.")
-            response_parts.append(part)
+        try:
+            for part in self.session(content):
+                response_length += len(part)
+                if response_length > self.max_response_chars:
+                    raise VoiceControlError(
+                        "Model response exceeded the configured limit."
+                    )
+                response_parts.append(part)
+        except VoiceControlError:
+            # Rollback: remove the user message that self.session() already
+            # added to conversation history.
+            conv = self.session.conversation
+            if conv.visible_count() > 0:
+                last = conv._get_raw_message(-1)
+                if last.role.value == "user":
+                    conv._messages.pop()
+                    conv._token_counts.pop()
+            raise
         return "".join(response_parts)
 
 

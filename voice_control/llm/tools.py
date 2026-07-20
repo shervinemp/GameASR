@@ -102,6 +102,10 @@ class Tool:
     instruction: Optional[str] = None
 
     def __call__(self, **kwargs) -> Any:
+        if self.callback is None:
+            raise ToolError(
+                f"Tool '{self.name}' has no callback registered."
+            )
         return self.callback(**self._parse_args(**kwargs))
 
     def _parse_args(self, **kwargs) -> Dict[str, Any]:

@@ -257,8 +257,11 @@ class ToolCaller:
 
     def stop(self):
         """Stops the background asyncio event loop gracefully."""
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop:
+            try:
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            except RuntimeError:
+                pass  # loop already closed
             self._loop_thread.join(timeout=5)
             if self._loop_thread.is_alive():
                 self.logger.warning(

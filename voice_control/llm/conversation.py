@@ -190,6 +190,10 @@ class Conversation:
 
     def trim_oldest(self, excess: int, llm: "LLM") -> int:
         """Remove the oldest `excess` messages. Returns total tokens removed."""
+        visible = len(self._messages) - self._cutoff_idx
+        excess = min(excess, visible)
+        if excess <= 0:
+            return 0
         total_cut = 0
         for i in range(self._cutoff_idx, self._cutoff_idx + excess):
             if self._token_counts[i] == 0:

@@ -3,7 +3,10 @@ import json
 import re
 from typing import Generator, Iterator
 
+from ..common.utils import get_logger
 from .tools import ToolCall
+
+_log = get_logger(__name__)
 
 
 class StreamDecoder(ABC):
@@ -39,10 +42,16 @@ class LegacyXMLDecoder(StreamDecoder):
                                 arguments=tool_dict.get("arguments", {})
                             )
                         except Exception:
+                            _log.warning(
+                                "Failed to parse toolcall: %s", tool_body[:200]
+                            )
                             yield ToolCall(name="_parse_error", arguments={"raw": tool_body})
                         return  # Halt stream to execute tool
                     else:
-                        if len(buffer) > 500:
+                        if len(buffer) > 10_000:
+                            _log.warning(
+                                "Toolcall buffer exceeded 10K chars, discarding"
+                            )
                             yield buffer
                             buffer = ""
                         break  # Wait for more chunks
@@ -98,6 +107,9 @@ class GemmaE2BDecoder(StreamDecoder):
                                 try:
                                     yield ToolCall(name=name, arguments=json.loads(args))
                                 except json.JSONDecodeError:
+                                    _log.warning(
+                                        "Failed to parse gemma toolcall args: %s", args[:200]
+                                    )
                                     yield ToolCall(name="_parse_error", arguments={"raw": args})
                         return  # CRITICAL: Halt stream to allow RAG pipeline to trigger
                     break  # Wait for more chunks
