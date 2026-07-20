@@ -32,6 +32,7 @@ class TTSConfig(BaseModel):
 
 
 class HotkeyConfig(BaseModel):
+    enable: bool = True
     push_to_talk: Optional[str] = None
     press_to_reset: Optional[str] = None
 

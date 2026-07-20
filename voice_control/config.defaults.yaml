@@ -46,6 +46,9 @@ llm:
 #   press_to_reset: null   → No reset hotkey.
 #   press_to_reset: "<key>" → Press to reset conversation.
 hotkeys:
+  # Set enable: false to temporarily disable all hotkeys (always-on VAD)
+  # without removing the key bindings below.
+  enable: true
   push_to_talk: null
   press_to_reset: null
 

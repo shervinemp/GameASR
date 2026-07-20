@@ -101,6 +101,10 @@ class Pipeline:
             push_to_talk = config.get("hotkeys.push_to_talk")
         if press_to_reset is None:
             press_to_reset = config.get("hotkeys.press_to_reset")
+        if push_to_talk is not None and not config.get("hotkeys.enable", True):
+            push_to_talk = None
+        if press_to_reset is not None and not config.get("hotkeys.enable", True):
+            press_to_reset = None
         self.push_to_talk = push_to_talk
         self.press_to_reset = press_to_reset
 
