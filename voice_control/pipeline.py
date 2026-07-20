@@ -189,8 +189,8 @@ class Pipeline:
 
     def _on_user_interrupt(self):
         """Called from VAD thread when new speech onset is detected."""
-        if self.tts:
-            self.tts.stop_playback()
+        if self.tts and hasattr(self.tts, "audio_player"):
+            self.tts.audio_player.stop_playback()
         self._interrupt_event.set()
 
     def _match_command(self, text: str) -> bool:
