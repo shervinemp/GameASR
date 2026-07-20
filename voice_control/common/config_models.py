@@ -43,7 +43,7 @@ class ASRConfig(BaseModel):
     vad_threshold: float = Field(default=0.4, ge=0.0, le=1.0)
     trailing_silence_ms: int = Field(default=800, ge=100, le=10_000)
     leading_silence_ms: int = Field(default=1000, ge=0, le=10_000)
-    max_segment_duration: float = Field(default=30.0, ge=0.0, le=300.0)
+    max_segment_duration: float = Field(default=0.0, ge=0.0, le=300.0)
 
 
 class LLMServerConfig(BaseModel):

@@ -70,17 +70,29 @@ class Pipeline:
                     LLMProviders.create, llm_provider, llm_settings
                 )
 
-                for future in as_completed([asr_future, tts_future, llm_future]):
+                for name, future in [("ASR", asr_future), ("TTS", tts_future), ("LLM", llm_future)]:
                     exc = future.exception()
                     if exc:
-                        raise exc
+                        self.logger.error(
+                            "%s initialization failed: %s", name, exc
+                        )
 
-                self.asr = asr_future.result()
-                self.tts = tts_future.result()
-                self.session = Session(llm=llm_future.result())
+                self.asr = asr_future.result() if not asr_future.exception() else None
+                self.tts = tts_future.result() if not tts_future.exception() else None
+                llm = llm_future.result() if not llm_future.exception() else None
+                if llm is None:
+                    raise LLMError(
+                        "LLM initialization failed — pipeline cannot start without a language model."
+                    )
+                self.session = Session(llm=llm)
+
+        if self.asr is None:
+            self.logger.warning("ASR unavailable — voice input disabled.")
+        if self.tts is None:
+            self.logger.warning("TTS unavailable — responses printed to console.")
 
         # Barge-in: when VAD detects new speech onset, stop TTS immediately
-        if hasattr(self.asr, "_vad"):
+        if self.asr and hasattr(self.asr, "_vad"):
             self.asr._vad.on_speech_onset = self._on_user_interrupt
 
         self.rag = rag
@@ -124,9 +136,9 @@ class Pipeline:
             and self.tts.audio_player._running
         )
         return {
-            "asr": "muted" if asr_muted else "listening",
+            "asr": "unavailable" if self.asr is None else ("muted" if asr_muted else "listening"),
             "llm": "generating" if self._llm_busy else "idle",
-            "tts": "speaking" if tts_running else "idle",
+            "tts": "unavailable" if self.tts is None else ("speaking" if tts_running else "idle"),
             "interrupted": self._interrupt_requested,
         }
 
@@ -144,7 +156,8 @@ class Pipeline:
 
     def _on_user_interrupt(self):
         """Called from VAD thread when new speech onset is detected."""
-        self.tts.stop_playback()
+        if self.tts:
+            self.tts.stop_playback()
         self._interrupt_requested = True
 
     def _match_command(self, text: str) -> bool:
@@ -197,15 +210,23 @@ class Pipeline:
             if s := sentence.strip():
                 self._response_parts.append(s)
                 self.events.emit("tts:start", s)
-                self.tts(s, interrupt=interrupt)
+                if self.tts:
+                    self.tts(s, interrupt=interrupt)
+                else:
+                    self.logger.info("[TTS degraded] %s", s)
                 self.events.emit("tts:utterance", s)
                 interrupt = False
         self._llm_busy = False
 
     def run(self):
         """Start the voice control pipeline."""
-        self.asr.start()
-        self.tts.start()
+        if self.asr:
+            self.asr.start()
+        else:
+            self.logger.error("Cannot start pipeline — ASR is unavailable.")
+            return
+        if self.tts:
+            self.tts.start()
         self.hotkey_dispatcher.start()
         if self.llm_server:
             self.llm_server.start()
@@ -227,8 +248,10 @@ class Pipeline:
                 self.llm_server.stop()
             if dispatcher := getattr(self, "_hotkey_dispatcher", None):
                 dispatcher.stop()
-            self.asr.stop()
-            self.tts.stop()
+            if self.asr:
+                self.asr.stop()
+            if self.tts:
+                self.tts.stop()
             self.session.close()
             if self._rag and hasattr(self._rag, "close"):
                 self._rag.close()

@@ -41,7 +41,7 @@ class ParakeetV2(ModelBase):
         vad_threshold = _cfg.get("asr.vad_threshold", 0.4)
         trailing_ms = _cfg.get("asr.trailing_silence_ms", 800)
         leading_ms = _cfg.get("asr.leading_silence_ms", 1000)
-        max_segment = _cfg.get("asr.max_segment_duration", 30.0)
+        max_segment = _cfg.get("asr.max_segment_duration", 0.0)
         self._vad = Silero(
             vad_threshold=vad_threshold,
             trailing_silence_duration=trailing_ms / 1000.0,
@@ -97,7 +97,7 @@ class Silero(ConsumerProducer):
         leading_silence_duration: float = 1.0,
         trailing_silence_duration: float = 0.8,
         trailing_buffer_duration: float = 1.2,
-        max_segment_duration: float = 30.0,
+        max_segment_duration: float = 0.0,
         on_speech_onset: Callable | None = None,
     ):
         from onnx_asr import load_vad
