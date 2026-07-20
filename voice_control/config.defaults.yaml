@@ -37,9 +37,14 @@ llm:
       max_tokens: 1024
 
 # --- Hotkey Configuration ---
-# Set these to keyboard shortcuts to enable push-to-talk or press-to-reset.
-# Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s', '<ctrl_r>+<shift_r>'
-# When null (default), voice activation is always-on (no hotkey needed).
+# Controls how ASR listening is activated.
+#   push_to_talk: null     → Voice activation (VAD) is always-on.
+#     (the default — ASR listens continuously and VAD segments speech)
+#   push_to_talk: "<key>"  → Push-to-talk mode.
+#     (ASR is muted until the hotkey is held; e.g. '<ctrl_r>+<shift_r>')
+#
+#   press_to_reset: null   → No reset hotkey.
+#   press_to_reset: "<key>" → Press to reset conversation.
 hotkeys:
   push_to_talk: null
   press_to_reset: null

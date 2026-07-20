@@ -67,8 +67,9 @@ def main():
         "--push-to-talk",
         type=str,
         default=None,
-        help="Enable push-to-talk with the specified key or key combination. "
-        "Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s'. ",
+        help="Enable push-to-talk (ASR muted until held). "
+        "Examples: 'a', '<ctrl>+k', '<shift>+<alt>+s'. "
+        "Omit for always-on VAD mode.",
     )
     parser.add_argument(
         "--press-to-reset",
