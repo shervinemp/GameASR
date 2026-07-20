@@ -455,6 +455,7 @@ def main():
         pipe = Pipeline()
         llm = pipe.session.llm
 
+        from .rag.embeddings import Embedder
         embedder = Embedder()
         rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
         pipe.rag = rag
