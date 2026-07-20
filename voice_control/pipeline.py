@@ -97,6 +97,18 @@ class Pipeline:
         self.push_to_talk = push_to_talk
         self.press_to_reset = press_to_reset
 
+    def register_tools(self, *tools: Tool | list[Tool]):
+        for tool in tools:
+            if isinstance(tool, Tool):
+                self.session.conversation.tools[tool.name] = tool
+            elif isinstance(tool, list):
+                for t in tool:
+                    if isinstance(t, Tool):
+                        self.session.conversation.tools[t.name] = t
+            else:
+                self.logger.warning("Ignoring invalid tool registration: %r", tool)
+        self._configure_session()
+
     def _on_user_interrupt(self):
         """Called from VAD thread when new speech onset is detected."""
         self.tts.stop_playback()

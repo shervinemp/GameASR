@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import inspect
 import re
-from typing import Callable, List, Dict, Optional, Any, Type, Union, Literal, get_origin, get_args
+from typing import Callable, ClassVar, List, Dict, Optional, Any, Type, Union, Literal, get_origin, get_args
 
 from ..exceptions import ToolError
 
@@ -300,6 +300,48 @@ class Tool:
             ),
             instruction=function_data.get("instruction"),
         )
+
+    _registry: ClassVar[Dict[str, "Tool"]] = {}
+
+    @classmethod
+    def register(cls, fn: Callable | None = None, *, name: str | None = None):
+        if fn is not None:
+            if isinstance(fn, Tool):
+                cls._registry[fn.name] = fn
+                return fn
+            tool_name = name if name is not None else fn.__name__
+            if hasattr(fn, "__name__") or callable(fn):
+                tool = cls.from_callable(tool_name, fn)
+                cls._registry[tool.name] = tool
+                return tool
+            raise ToolError("Tool.register expects a callable or Tool instance.")
+        if name is not None:
+            def decorator(f: Callable) -> "Tool":
+                tool = cls.from_callable(name, f)
+                cls._registry[tool.name] = tool
+                return tool
+            return decorator
+        def bare_decorator(f: Callable) -> "Tool":
+            tool = cls.from_callable(f.__name__, f)
+            cls._registry[tool.name] = tool
+            return tool
+        return bare_decorator
+
+    @classmethod
+    def registry(cls) -> Dict[str, "Tool"]:
+        return dict(cls._registry)
+
+    @classmethod
+    def clear_registry(cls):
+        cls._registry.clear()
+
+    @classmethod
+    def registry(cls) -> Dict[str, "Tool"]:
+        return dict(cls._registry)
+
+    @classmethod
+    def clear_registry(cls):
+        cls._registry.clear()
 
 
 def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
