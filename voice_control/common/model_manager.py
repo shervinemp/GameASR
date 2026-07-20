@@ -47,6 +47,22 @@ def ensure_downloaded(
                 expected_sha256=entry["sha256"],
             )
         results["model"] = dest
+
+        if "mtp" in entry:
+            mtp_info = entry["mtp"]
+            mtp_dest = os.path.join(base, mtp_info["file"])
+            if os.path.exists(mtp_dest):
+                verify_file_sha256(mtp_dest, mtp_info["sha256"])
+            else:
+                download_hf_file(
+                    repo_id=entry["repo"],
+                    filename=mtp_info["file"],
+                    directory=base,
+                    revision=entry["revision"],
+                    expected_sha256=mtp_info["sha256"],
+                )
+            results["mtp"] = mtp_dest
+
         return results
 
     if "files" in entry:
