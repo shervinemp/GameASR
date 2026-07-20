@@ -74,9 +74,11 @@ class GGUFLLM(LLM):
 
         self.logger = get_logger(self.__class__.__name__)
         from ..common.model_manager import ensure_downloaded
+        import ctypes as _ctypes
 
         paths = ensure_downloaded(self.__class__.__name__, local_dir=self.local_dir)
         model_path = paths["model"]
+        mtp_path = paths.get("mtp")
 
         self.logger.info("Loading model...")
         n_gpu_layers = -1
@@ -98,6 +100,9 @@ class GGUFLLM(LLM):
                 if self.type_v:
                     kwargs["type_v"] = _GGML_CACHE_TYPES.get(self.type_v, self.type_v)
                 self.model = Llama(**kwargs)
+                if mtp_path:
+                    self._attach_mtp(mtp_path, model_path, n_gpu_layers)
+                    self.logger.info("Model loaded with MTP.")
                 break
             except Exception as e:
                 self.logger.warning(
@@ -115,6 +120,43 @@ class GGUFLLM(LLM):
 
         self._last_state = None
         self._lock = Lock()
+
+    def _attach_mtp(self, mtp_path: str, main_path: str, n_gpu_layers: int):
+        try:
+            self._do_attach_mtp(mtp_path, main_path, n_gpu_layers)
+        except Exception as e:
+            self.logger.warning("MTP attachment failed: %s — continuing without MTP.", e)
+
+    def _do_attach_mtp(self, mtp_path: str, main_path: str, n_gpu_layers: int):
+        from llama_cpp import llama_cpp
+        import ctypes as _ctypes
+
+        self.logger.info("Attaching MTP head...")
+
+        ctx_params = llama_cpp.llama_context_default_params()
+        ctx_params.n_ctx = self.n_ctx
+
+        paths_arr = (_ctypes.c_char_p * 2)(main_path.encode(), mtp_path.encode())
+        model_params = llama_cpp.llama_model_default_params()
+        model_params.n_gpu_layers = n_gpu_layers
+
+        new_model = llama_cpp.llama_model_load_from_splits(
+            paths_arr, 2, model_params
+        )
+        if not new_model:
+            self.logger.warning("MTP load via splits returned null — skipping.")
+            return
+
+        new_ctx = llama_cpp.llama_new_context_with_model(new_model, ctx_params)
+        if not new_ctx:
+            self.logger.warning("MTP context creation failed — skipping.")
+            llama_cpp.llama_free_model(new_model)
+            return
+
+        self.model._model._model = new_model
+        self.model._ctx._ctx = new_ctx
+
+        self.logger.info("MTP head attached.")
 
     def create_context_strategy(self, max_turns: int = 20):
         return DropOldestStrategy(max_turns)
