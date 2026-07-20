@@ -20,6 +20,7 @@ from .bridge.llm_server import LLMServer, LLMService
 from .common.base import stream_splitter
 from .common.utils import setup_logging, get_logger
 from .common.config import config
+from .events import EventEmitter
 from .exceptions import VoiceControlError, ASRError, LLMError, TTSError, ConfigError
 from .transcript_gate import qualify_transcript
 
@@ -41,6 +42,7 @@ class Pipeline:
         Initialize the voice control pipeline.
         """
         self.logger = get_logger(__name__)
+        self.events = EventEmitter()
 
         self._running = False
         self.llm_server = None
@@ -119,9 +121,11 @@ class Pipeline:
         """
         Process transcribed text through LLM and then send to TTS.
         """
+        self.events.emit("asr:transcript", transcription)
         text, annotation = qualify_transcript(transcription)
         if text is None:
             return
+        self.events.emit("asr:utterance", text, annotation=annotation)
 
         if annotation:
             text = f"{annotation}\n{text}"
@@ -143,7 +147,9 @@ class Pipeline:
                 break
             if s := sentence.strip():
                 self._response_parts.append(s)
+                self.events.emit("tts:start", s)
                 self.tts(s, interrupt=interrupt)
+                self.events.emit("tts:utterance", s)
                 interrupt = False
 
     def run(self):
@@ -160,8 +166,10 @@ class Pipeline:
                 try:
                     self._callback(transcript)
                 except VoiceControlError as e:
+                    self.events.emit("pipeline:error", e)
                     self.logger.error(f"Pipeline error: {e}")
                 except Exception as e:
+                    self.events.emit("pipeline:error", e)
                     self.logger.error(f"Unexpected error in callback: {e}", exc_info=True)
         finally:
             self._running = False
@@ -174,6 +182,7 @@ class Pipeline:
             self.session.close()
             if self._rag and hasattr(self._rag, "close"):
                 self._rag.close()
+            self.events.close()
 
     def _configure_session(self):
         if cb := getattr(self, "_rag", None):
@@ -256,6 +265,7 @@ class Pipeline:
 
             def cb():
                 self.logger.info("Conversation reset.")
+                self.events.emit("session:reset")
                 old_system_msg = self.session.conversation._system
                 old_tools = self.session.conversation.tools
 
