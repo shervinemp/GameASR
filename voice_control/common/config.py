@@ -44,7 +44,10 @@ class Config:
             )
 
         if user_config_path is None:
-            user_config_path = os.path.join(os.getcwd(), "config.yaml")
+            user_config_path = os.environ.get(
+                "VOICE_CONTROL_CONFIG",
+                os.path.join(os.getcwd(), "config.yaml"),
+            )
 
         # Load project-local secrets before resolving env-backed YAML fields.
         load_dotenv()
