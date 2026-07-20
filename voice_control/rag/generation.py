@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ..common.config import config
 from ..common.utils import get_logger, safe_json_loads
-from ..exceptions import StorageError
+from ..exceptions import VoiceControlError, StorageError
 from ..llm.session import Session
 
 
@@ -143,7 +143,7 @@ class Composer:
         try:
             response_str = self._ask(prompt)
             d = safe_json_loads(response_str, fallback={"explanation": "", "is_correct": False})
-        except (ValueError, TypeError, RuntimeError) as e:
+        except (VoiceControlError, ValueError, TypeError, RuntimeError) as e:
             self.logger.error(f"LLM call during critique failed: {e}", exc_info=True)
             d = {"explanation": "", "is_correct": False}
         return d["explanation"], d["is_correct"]

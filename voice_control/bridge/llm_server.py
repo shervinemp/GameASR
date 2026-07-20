@@ -197,17 +197,19 @@ class LLMServer:
             try:
                 result = self._dispatch_method(method_name, params)
                 response_obj["result"] = result
-            except LookupError:
-                response_obj["error"] = {
-                    "code": -32601,
-                    "message": "Method not found",
-                }
-            except (TypeError, ValueError) as e:
-                self.logger.warning("Invalid RPC parameters: %s", e)
-                response_obj["error"] = {
-                    "code": -32602,
-                    "message": "Invalid method parameters",
-                }
+            except VoiceControlError as e:
+                msg = str(e)
+                if "Method not found" in msg:
+                    response_obj["error"] = {
+                        "code": -32601,
+                        "message": "Method not found",
+                    }
+                else:
+                    self.logger.warning("Invalid RPC parameters: %s", e)
+                    response_obj["error"] = {
+                        "code": -32602,
+                        "message": "Invalid method parameters",
+                    }
             except Exception as e:
                 # ASVS 16.5.1: keep internal exception details in logs only.
                 response_obj["error"] = {

@@ -234,7 +234,7 @@ class TestParetoRetrieval(unittest.TestCase):
             "soap": {"id": "soap", "label": "Soap", "description": ""},
         }
         primary = MagicMock()
-        primary.graph = graph
+        primary.backend = graph
         primary.search.return_value = []
         primary.format_results.return_value = []
         retriever = SmartGraphRetriever(session, primary)
@@ -250,7 +250,7 @@ class TestParetoRetrieval(unittest.TestCase):
 
         session = MagicMock()
         primary = MagicMock()
-        primary.graph.exact_label_search.return_value = {}
+        primary.backend.exact_label_search.return_value = {}
         primary.search.return_value = []
         primary.format_results.return_value = []
         retriever = SmartGraphRetriever(session, primary)
@@ -267,7 +267,7 @@ class TestParetoRetrieval(unittest.TestCase):
         from voice_control.rag.model import BaseRAG
 
         class DummyRAG(BaseRAG):
-            def _attach_graph_retriever(self, graph):
+            def _attach_graph_retriever(self, backend):
                 pass
 
             def __call__(self, query: str, **kwargs) -> str:
@@ -296,7 +296,7 @@ class TestParetoRetrieval(unittest.TestCase):
         from voice_control.rag.model import BaseRAG
 
         class DummyRAG(BaseRAG):
-            def _attach_graph_retriever(self, graph):
+            def _attach_graph_retriever(self, backend):
                 pass
 
             def __call__(self, query: str, **kwargs) -> str:
@@ -463,23 +463,22 @@ class TestKnowledgeGraphQueries(unittest.TestCase):
     def test_shortest_path_embeds_only_unresolved_entities(self):
         from voice_control.rag.retrieval import ShortestPathStrategy
 
-        graph = MagicMock()
-        graph.exact_label_search.return_value = {
+        backend = MagicMock()
+        backend.exact_label_search.return_value = {
             "alpha": {"id": "a", "label": "Alpha", "description": ""}
         }
-        graph.embedding_model.encode.return_value.tolist.return_value = [[0.1]]
-        graph.vector_search.return_value = [
+        backend.vector_search.return_value = [
             [{"id": "b", "label": "Bravo", "description": ""}]
         ]
-        graph.k_shortest_paths_batch.return_value = []
-        strategy = ShortestPathStrategy(graph)
+        backend.k_shortest_paths_batch.return_value = []
+        embedder = MagicMock()
+        embedder.encode.return_value = [[0.1]]
+        strategy = ShortestPathStrategy(backend, embedder=embedder)
 
         strategy.search(["Alpha", "unknown Bravo"])
 
-        graph.embedding_model.encode.assert_called_once_with(
-            ["unknown Bravo"]
-        )
-        graph.k_shortest_paths_batch.assert_called_once_with(
+        embedder.encode.assert_called_once_with(["unknown Bravo"])
+        backend.k_shortest_paths_batch.assert_called_once_with(
             [("a", "b")], k=3
         )
 
