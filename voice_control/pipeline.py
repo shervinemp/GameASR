@@ -41,6 +41,9 @@ class Pipeline:
 
         self._running = False
         self.llm_server = None
+        self._interrupt_requested = False
+        self._response_parts: list[str] = []
+        self._interrupted_at: str | None = None
 
         asr_cls = getattr(ASRProviders, config.get("asr.provider"))
         tts_cls = getattr(TTSProviders, config.get("tts.provider"))
@@ -69,6 +72,10 @@ class Pipeline:
                 self.tts = tts_future.result()
                 self.session = Session(llm=llm_future.result())
 
+        # Barge-in: when VAD detects new speech onset, stop TTS immediately
+        if hasattr(self.asr, "_vad"):
+            self.asr._vad.on_speech_onset = self._on_user_interrupt
+
         self.rag = rag
 
         if server_endpoint:
@@ -88,6 +95,11 @@ class Pipeline:
         self.push_to_talk = push_to_talk
         self.press_to_reset = press_to_reset
 
+    def _on_user_interrupt(self):
+        """Called from VAD thread when new speech onset is detected."""
+        self.tts.stop_playback()
+        self._interrupt_requested = True
+
     def _callback(self, transcription: str):
         """
         Process transcribed text through LLM and then send to TTS.
@@ -95,10 +107,23 @@ class Pipeline:
         if not transcription:
             return
 
+        if self._interrupted_at:
+            transcription = (
+                f'(User interrupted after: "{self._interrupted_at}". Continue naturally.)\n'
+                f"{transcription}"
+            )
+            self._interrupted_at = None
+
+        self._response_parts = []
         interrupt = True
         out = self.session(transcription)
         for sentence in stream_splitter(out, min_len=8):
+            if self._interrupt_requested:
+                self._interrupt_requested = False
+                self._interrupted_at = self._response_parts[-1] if self._response_parts else None
+                break
             if s := sentence.strip():
+                self._response_parts.append(s)
                 self.tts(s, interrupt=interrupt)
                 interrupt = False
 

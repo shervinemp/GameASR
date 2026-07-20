@@ -93,6 +93,7 @@ class Silero(ConsumerProducer):
         leading_silence_duration: float = 1.0,
         trailing_silence_duration: float = 0.8,
         trailing_buffer_duration: float = 1.2,
+        on_speech_onset: Callable | None = None,
     ):
         from onnx_asr import load_vad
 
@@ -107,6 +108,7 @@ class Silero(ConsumerProducer):
         self.pre_speech_dur = leading_silence_duration
         self.post_speech_dur = trailing_silence_duration
         self.post_speech_keep = trailing_buffer_duration
+        self.on_speech_onset = on_speech_onset
 
         self.reset()
 
@@ -174,6 +176,8 @@ class Silero(ConsumerProducer):
 
         if not self._is_speech_segment and is_loud:
             self._is_speech_segment = True
+            if self.on_speech_onset:
+                self.on_speech_onset()
             if self._pre_speech_buffer:
                 r = np.concatenate(self._pre_speech_buffer, dtype=np.float32)
                 self._queue.put(r)

@@ -26,16 +26,22 @@ class AudioPlayer:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
         self._play_lock = threading.Lock()
+        self._gen = 0
         atexit.register(self.stop)
 
     def _run(self):
         while self._running:
             try:
-                audio_data, sample_rate, _ = self._queue.get(timeout=1.0)
+                audio_data, sample_rate, gen, _ = self._queue.get(timeout=1.0)
             except Empty:
                 continue
 
+            if gen != self._gen:
+                continue
+
             with self._play_lock:
+                if gen != self._gen:
+                    continue
                 self.play(audio_data, sample_rate)
 
     def __call__(
@@ -52,10 +58,16 @@ class AudioPlayer:
                         self._queue.get_nowait()
                     except Empty:
                         break
+        gen = self._gen
         try:
-            self._queue.put_nowait((audio_data, sample_rate, interrupt))
+            self._queue.put_nowait((audio_data, sample_rate, gen, interrupt))
         except Full:
             self.logger.warning("TTS queue full, dropping sentence to stay responsive.")
+
+    def stop_playback(self):
+        with self._queue_lock:
+            self._gen += 1
+            sd.stop()
 
     def play(
         self,
