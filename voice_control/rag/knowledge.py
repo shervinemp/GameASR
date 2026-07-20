@@ -10,12 +10,13 @@ from urllib.parse import urlparse
 from ..common.config import config
 from ..common.utils import get_logger
 from ..exceptions import StorageError
+from .backends.base import StorageBackend
 from .validation import normalize_triplets
 
 NODE_PROJ = "{id: node.id, label: node.label, description: node.description}"
 REL_PROJ = "{id: rel.id, source: startNode(rel).id, target: endNode(rel).id, type: type(rel)}"
 
-class KnowledgeGraph:
+class KnowledgeGraph(StorageBackend):
     def __init__(
         self,
         uri: str,

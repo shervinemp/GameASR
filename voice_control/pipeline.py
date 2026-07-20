@@ -13,7 +13,8 @@ from .hotkey_dispatcher import HotkeyDispatcher
 from .llm import Session, LLMProviders
 from .llm.tools import Tool
 from .rag import BaseRAG
-from .rag.knowledge import KnowledgeGraph
+from .rag.backends import create_backend
+from .rag.embeddings import Embedder
 from .bridge.llm_server import LLMServer, LLMService
 
 from .common.base import stream_splitter
@@ -298,25 +299,14 @@ def main():
 
     load_dotenv()
 
-    neo4j_config = config.get("database.neo4j")
-    if not neo4j_config or not all([neo4j_config.uri, neo4j_config.user, neo4j_config.password]):
-        raise ConfigError(
-            "Neo4j credentials not fully configured. Check your config file and environment variables."
-        )
-
+    backend = None
     try:
-        graph = KnowledgeGraph(
-            neo4j_config.uri,
-            neo4j_config.user,
-            neo4j_config.password,
-            database=neo4j_config.database,
-            query_timeout=neo4j_config.query_timeout_seconds,
-        )
-        graph.verify_connectivity()
+        from .rag.backends import create_backend
+        backend = create_backend()
+        backend.verify_connectivity()
     except Exception as e:
-        graph = None
         logger.warning(
-            f"Skipping knowledge graph initialization due to error: {e}"
+            f"Skipping storage backend initialization: {e}"
         )
 
     try:
@@ -326,9 +316,8 @@ def main():
         )
         llm = pipe.session.llm
 
-        # Switch from SimpleRAG to SPathRAG
-        # Note: Ensure config.yaml sets llm.provider to 'Gemma4_12B' (or another provider)
-        rag = SPathRAG(llm=llm, graph=graph, web_search=True)
+        embedder = Embedder()
+        rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
         pipe.rag = rag
 
         logger.info("Voice pipeline ready. Press and hold <ctrl_r>+<shift_r> to speak.")

@@ -13,7 +13,8 @@ from ..common.config import config
 from ..common.utils import get_logger
 from ..exceptions import StorageError
 from ..llm.session import Session
-from .knowledge import KnowledgeGraph
+from .backends.base import StorageBackend
+from .embeddings import Embedder
 
 
 class Reranker:
@@ -73,10 +74,12 @@ class Retriever(ABC):
 
 
 class GraphSearchStrategy(ABC):
-    """Defines the specific mathematical approach to traversing the Knowledge Graph."""
+    """Defines the specific mathematical approach to traversing the backend graph."""
 
-    def __init__(self, graph: KnowledgeGraph):
-        self.graph = graph
+    def __init__(self, backend: StorageBackend, embedder: Embedder | None = None):
+        self.backend = backend
+        self.embedder = embedder or Embedder()
+        self.logger = get_logger(f"{__name__}.{type(self).__name__}")
 
     @abstractmethod
     def search(self, keywords: List[str], **kwargs) -> List[Dict]:
@@ -98,11 +101,11 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         n_hops: int = 1,
         **kwargs,
     ) -> List[Dict]:
-        if not self.graph:
+        if not self.backend:
             return []
 
         # 1. Exact-label lookup: fast path for known entities
-        exact_matches = self.graph.exact_label_search(keywords)
+        exact_matches = self.backend.exact_label_search(keywords)
         seen_ids = {n["id"] for n in exact_matches.values() if n.get("id")}
         all_matched = len(exact_matches) >= sum(1 for k in keywords if k.strip())
 
@@ -116,7 +119,7 @@ class NeighborhoodStrategy(GraphSearchStrategy):
                     self._do_vector_search, keywords, top_k_vector
                 )
                 keyword_future = pool.submit(
-                    self.graph.keyword_search, keywords, top_k_keyword
+                    self.backend.keyword_search, keywords, top_k_keyword
                 )
                 for future in as_completed([vector_future, keyword_future]):
                     try:
@@ -125,7 +128,7 @@ class NeighborhoodStrategy(GraphSearchStrategy):
                             if item["id"] not in seen_ids:
                                 combined[item["id"]] = item
                     except Exception as e:
-                        self.graph.logger.warning(
+                        self.logger.warning(
                             f"Parallel search failed: {e}"
                         )
 
@@ -140,14 +143,14 @@ class NeighborhoodStrategy(GraphSearchStrategy):
         return results
 
     def _do_vector_search(self, keywords, top_k):
-        embeddings = self.graph.embedding_model.encode(keywords).tolist()
-        return self.graph.vector_search(embeddings, top_k=top_k)
+        embeddings = self.embedder.encode(keywords)
+        return self.backend.vector_search(embeddings, top_k=top_k)
 
     def _expand(self, seed_results, n_hops):
-        seed_nodes = self.graph.subgraph(
+        seed_nodes = self.backend.subgraph(
             [n["id"] for n in seed_results]
         ).get("nodes", [])
-        expansion = self.graph.expansion(
+        expansion = self.backend.expansion(
             frontier_ids=[n["id"] for n in seed_results],
             excluded_ids=[n["id"] for n in seed_results],
             n_hops=n_hops,
@@ -181,11 +184,11 @@ class ShortestPathStrategy(GraphSearchStrategy):
         max_paths: int = 3,
         **kwargs,
     ) -> List[Dict]:
-        if not self.graph or len(keywords) < 2:
+        if not self.backend or len(keywords) < 2:
             return []  # S-Path mathematically requires 2+ anchors
 
         # 1. Exact-label lookup: fast path
-        exact_matches = self.graph.exact_label_search(keywords)
+        exact_matches = self.backend.exact_label_search(keywords)
 
         unresolved = [
             keyword
@@ -194,8 +197,8 @@ class ShortestPathStrategy(GraphSearchStrategy):
         ]
         vector_by_keyword = {}
         if unresolved:
-            embeddings = self.graph.embedding_model.encode(unresolved).tolist()
-            batch_results = self.graph.vector_search(
+            embeddings = self.embedder.encode(unresolved)
+            batch_results = self.backend.vector_search(
                 embeddings, top_k=top_k_vector
             )
             vector_by_keyword = dict(zip(unresolved, batch_results))
@@ -232,7 +235,7 @@ class ShortestPathStrategy(GraphSearchStrategy):
                     break
             if len(pairs) >= 64:
                 break
-        return self.graph.k_shortest_paths_batch(pairs, k=max_paths)
+        return self.backend.k_shortest_paths_batch(pairs, k=max_paths)
 
     def format_results(self, results: List[Dict]) -> List[str]:
         formatted = []
@@ -350,7 +353,7 @@ class SmartGraphRetriever(Retriever):
         # Resolve entity spans against the indexed graph before spending an
         # LLM call. This also works with lowercase ASR transcripts.
         phrases = self._candidate_phrases(query)
-        exact_matches = self.primary.graph.exact_label_search(phrases)
+        exact_matches = self.primary.backend.exact_label_search(phrases)
         keywords = []
         for phrase in phrases:
             node = exact_matches.get(phrase.strip().lower())
@@ -400,8 +403,8 @@ class SmartGraphRetriever(Retriever):
     def __call__(self, query: str, **kwargs) -> List[str]:
         deadline = kwargs.get("deadline")
         deadline_scope = (
-            self.primary.graph.deadline(deadline)
-            if hasattr(self.primary.graph, "deadline")
+            self.primary.backend.deadline(deadline)
+            if hasattr(self.primary.backend, "deadline")
             else nullcontext()
         )
         with deadline_scope:

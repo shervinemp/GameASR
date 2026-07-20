@@ -66,6 +66,8 @@ class ActiveLearningConfig(BaseModel):
 
 
 class RAGRuntimeConfig(BaseModel):
+    backend: str = Field(default="neo4j", pattern="^(neo4j|sqlite)$")
+    sqlite_path: str = Field(default="data/rag.sqlite")
     max_query_chars: int = Field(default=2_000, ge=64, le=16_384)
     top_k: int = Field(default=5, ge=1, le=20)
     reranker_input_limit: int = Field(default=20, ge=1, le=100)

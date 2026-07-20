@@ -9,8 +9,9 @@ from ..common.utils import get_logger
 from ..exceptions import StorageError
 from ..llm.model import LLM
 from ..llm.session import Session
+from .backends.base import StorageBackend
+from .embeddings import Embedder
 from .generation import Composer
-from .knowledge import KnowledgeGraph
 from .retrieval import (
     Retriever,
     WebRetriever,
@@ -50,7 +51,7 @@ class BaseRAG(ABC):
         return ""
 
     @abstractmethod
-    def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
+    def _attach_graph_retriever(self, backend: StorageBackend | None):
         pass
 
     def _validate_request(self, query: str, top_k: int) -> str:
@@ -187,14 +188,14 @@ class BaseRAG(ABC):
 class SimpleRAG(BaseRAG):
     """Standard single-pass retrieval augmented generation."""
 
-    def __init__(self, llm: LLM | None = None, graph: KnowledgeGraph | None = None, web_search: bool = True):
+    def __init__(self, llm: LLM | None = None, backend: StorageBackend | None = None, embedder: Embedder | None = None, web_search: bool = True):
         super().__init__(session=Session(llm=llm), web_search=web_search)
-        self._attach_graph_retriever(graph)
+        self._embedder = embedder or Embedder()
+        self._attach_graph_retriever(backend)
 
-    def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
-        if graph:
-            # Simple RAG only uses Neighborhood expansion
-            strategy = NeighborhoodStrategy(graph)
+    def _attach_graph_retriever(self, backend: StorageBackend | None):
+        if backend:
+            strategy = NeighborhoodStrategy(backend, embedder=self._embedder)
 
             retriever = SmartGraphRetriever(
                 session=self.session,
@@ -210,22 +211,22 @@ class SimpleRAG(BaseRAG):
 class SPathRAG(BaseRAG):
     """Implements the Neural-Socratic Graph Dialogue loop utilizing S-Path-RAG principles."""
 
-    def __init__(self, llm: LLM | None = None, graph: KnowledgeGraph | None = None, web_search: bool = False):
+    def __init__(self, llm: LLM | None = None, backend: StorageBackend | None = None, embedder: Embedder | None = None, web_search: bool = False):
         super().__init__(session=Session(llm=llm), web_search=web_search)
-        self._graph = graph
+        self._backend = backend
+        self._embedder = embedder or Embedder()
         self._web_search_enabled = web_search
-        self._attach_graph_retriever(graph)
+        self._attach_graph_retriever(backend)
 
     def close(self):
         super().close()
-        if self._graph:
-            self._graph.close()
+        if self._backend:
+            self._backend.close()
 
-    def _attach_graph_retriever(self, graph: KnowledgeGraph | None):
-        if graph:
-            # S-Path RAG uses Shortest Paths primarily, but falls back to Neighborhoods
-            primary = ShortestPathStrategy(graph)
-            fallback = NeighborhoodStrategy(graph)
+    def _attach_graph_retriever(self, backend: StorageBackend | None):
+        if backend:
+            primary = ShortestPathStrategy(backend, embedder=self._embedder)
+            fallback = NeighborhoodStrategy(backend, embedder=self._embedder)
 
             retriever = SmartGraphRetriever(
                 session=self.session,
@@ -356,7 +357,7 @@ class SPathRAG(BaseRAG):
             line.startswith("[web]") for line in final_context.splitlines()
         )
         can_learn = (
-            self._graph
+            self._backend
             and has_info
             and learning_enabled
             and (not used_web or web_allowed)
@@ -386,7 +387,7 @@ class SPathRAG(BaseRAG):
                             path,
                         )
                     else:
-                        self._graph.add_triplets(triplets)
+                        self._backend.add_triplets(triplets)
                         self._clear_cache()
                         self.logger.info(
                             "Added %s reviewed-policy triplets to the graph.",
