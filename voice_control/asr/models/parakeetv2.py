@@ -1,5 +1,6 @@
 from queue import Empty, Queue
 import threading
+import time
 from typing import Any, Callable, Generator, Iterable
 from collections import deque
 import numpy as np
@@ -40,10 +41,12 @@ class ParakeetV2(ModelBase):
         vad_threshold = _cfg.get("asr.vad_threshold", 0.4)
         trailing_ms = _cfg.get("asr.trailing_silence_ms", 800)
         leading_ms = _cfg.get("asr.leading_silence_ms", 1000)
+        max_segment = _cfg.get("asr.max_segment_duration", 30.0)
         self._vad = Silero(
             vad_threshold=vad_threshold,
             trailing_silence_duration=trailing_ms / 1000.0,
             leading_silence_duration=leading_ms / 1000.0,
+            max_segment_duration=max_segment,
         )
         self._lock = _vad_lock
 
@@ -94,6 +97,7 @@ class Silero(ConsumerProducer):
         leading_silence_duration: float = 1.0,
         trailing_silence_duration: float = 0.8,
         trailing_buffer_duration: float = 1.2,
+        max_segment_duration: float = 30.0,
         on_speech_onset: Callable | None = None,
     ):
         from onnx_asr import load_vad
@@ -109,6 +113,7 @@ class Silero(ConsumerProducer):
         self.pre_speech_dur = leading_silence_duration
         self.post_speech_dur = trailing_silence_duration
         self.post_speech_keep = trailing_buffer_duration
+        self.max_segment_duration = max_segment_duration
         self.on_speech_onset = on_speech_onset
 
         self.reset()
@@ -116,6 +121,7 @@ class Silero(ConsumerProducer):
     def reset(self):
         self._is_speech_segment = False
         self._silence_counter = 0
+        self._segment_start_time = time.monotonic()
 
         coeff_ = self._model.SAMPLE_RATE / self._model.HOP_SIZE
 
@@ -157,6 +163,17 @@ class Silero(ConsumerProducer):
             return
 
         try:
+            # Force-flush if segment exceeds max duration (safety net for
+            # sustained noise that keeps speech probability above threshold).
+            if self._is_speech_segment and self.max_segment_duration > 0:
+                elapsed = time.monotonic() - self._segment_start_time
+                if elapsed > self.max_segment_duration:
+                    self._is_speech_segment = False
+                    self._silence_counter = 0
+                    self._segment_start_time = time.monotonic()
+                    self._queue.put(None)
+                    return
+
             if len(chunk.shape) > 1 and chunk.shape[1] > 1:
                 chunk = np.mean(chunk, axis=1)
             elif len(chunk.shape) > 1:
@@ -177,6 +194,7 @@ class Silero(ConsumerProducer):
 
         if not self._is_speech_segment and is_loud:
             self._is_speech_segment = True
+            self._segment_start_time = time.monotonic()
             if self.on_speech_onset:
                 self.on_speech_onset()
             if self._pre_speech_buffer:

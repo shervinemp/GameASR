@@ -66,6 +66,8 @@ asr:
   vad_threshold: 0.4       # Speech probability threshold (0.0-1.0)
   trailing_silence_ms: 800 # ms of silence before speech segment ends
   leading_silence_ms: 1000 # ms of pre-roll audio kept before speech onset
+  max_segment_duration: 30 # seconds; force-flush VAD if speech exceeds this
+                           # (safety net for sustained noise causing hangs; 0 disables)
 
 #----------------------------
 
