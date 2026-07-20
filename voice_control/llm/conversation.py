@@ -189,8 +189,6 @@ class Conversation:
 
     def set_token_count(self, idx: int, count: int):
         self._token_counts[idx] = count
-        """Access internal Message object bypassing MessageList's dict-returning __getitem__."""
-        return list.__getitem__(self._messages, idx)
 
     def trim_oldest(self, excess: int, llm: "LLM") -> int:
         """Remove the oldest `excess` messages. Returns total tokens removed."""

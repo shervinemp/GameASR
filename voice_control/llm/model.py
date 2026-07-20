@@ -118,8 +118,6 @@ class GGUFLLM(LLM):
         self._lock = Lock()
 
     def create_context_strategy(self, max_turns: int = 20):
-        if hasattr(self.model, "kv_cache_seq_rm"):
-            return KVCacheEvictStrategy(max_turns)
         return DropOldestStrategy(max_turns)
 
     @classmethod

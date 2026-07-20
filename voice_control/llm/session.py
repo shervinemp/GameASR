@@ -25,7 +25,7 @@ class Session:
     ):
         self.logger = get_logger(__name__)
         self.llm = llm
-        self.conversation = conversation or Conversation()
+        self.conversation = conversation or Conversation(max_turns=max_turns)
         self.tool_caller = ToolCaller()
         self._context_strategy = llm.create_context_strategy(max_turns)
 
