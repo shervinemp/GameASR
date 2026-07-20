@@ -354,6 +354,12 @@ class LiteLLMProvider(LLM):
             content = self._field(delta, "content")
             if isinstance(content, str) and content:
                 yield content
+            else:
+                # Some models (e.g. Ternary-Bonsai, DeepSeek-R1) emit
+                # reasoning tokens in a dedicated field instead of content.
+                rc = self._field(delta, "reasoning_content")
+                if isinstance(rc, str) and rc:
+                    yield rc
 
             for tool_call in self._field(delta, "tool_calls", ()) or ():
                 index = self._field(tool_call, "index", 0)
