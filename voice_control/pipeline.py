@@ -49,6 +49,7 @@ class Pipeline:
         self._interrupt_requested = False
         self._response_parts: list[str] = []
         self._interrupted_at: str | None = None
+        self._llm_busy = False
         self._commands: dict[str, tuple[Callable, str]] = {}
 
         asr_cls = getattr(ASRProviders, config.get("asr.provider"))
@@ -115,6 +116,20 @@ class Pipeline:
     def unregister_command(self, pattern: str):
         self._commands.pop(pattern, None)
 
+    @property
+    def status(self) -> dict:
+        asr_muted = getattr(self.asr, "_is_muted", None)
+        tts_running = (
+            hasattr(self.tts, "audio_player")
+            and self.tts.audio_player._running
+        )
+        return {
+            "asr": "muted" if asr_muted else "listening",
+            "llm": "generating" if self._llm_busy else "idle",
+            "tts": "speaking" if tts_running else "idle",
+            "interrupted": self._interrupt_requested,
+        }
+
     def register_tools(self, *tools: Tool | list[Tool]):
         for tool in tools:
             if isinstance(tool, Tool):
@@ -171,6 +186,7 @@ class Pipeline:
             return
 
         self._response_parts = []
+        self._llm_busy = True
         interrupt = True
         out = self.session(text)
         for sentence in stream_splitter(out, min_len=8):
@@ -184,6 +200,7 @@ class Pipeline:
                 self.tts(s, interrupt=interrupt)
                 self.events.emit("tts:utterance", s)
                 interrupt = False
+        self._llm_busy = False
 
     def run(self):
         """Start the voice control pipeline."""
