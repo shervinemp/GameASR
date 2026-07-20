@@ -78,6 +78,12 @@ def main():
         help="Enable press-to-reset with the specified key or key combination. "
         "Examples: '<ctrl_l>+<ctrl_r>'. ",
     )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        default=False,
+        help="Show the transparent mic overlay button.",
+    )
     args = parser.parse_args()
 
     setup_logging(log_level=args.log_level)
@@ -138,6 +144,16 @@ def main():
         )
 
     logger.info("Voice pipeline ready.")
+
+    if args.gui:
+        try:
+            from .gui import MicButton
+            import threading
+            gui = MicButton(pipe)
+            threading.Thread(target=gui.run, daemon=True).start()
+        except Exception as e:
+            logger.warning("Failed to start GUI overlay: %s", e)
+
     pipe.run()
 
 
