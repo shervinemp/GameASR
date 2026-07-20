@@ -33,7 +33,7 @@ def ensure_downloaded(
     results = {}
     base = _resolve_path(entry.get("local_dir", ""), local_dir)
 
-    if entry["backend"] == "huggingface":
+    if entry.get("backend") == "huggingface":
         dest = os.path.join(base, entry["file"])
         if os.path.exists(dest):
             verify_file_sha256(dest, entry["sha256"])
