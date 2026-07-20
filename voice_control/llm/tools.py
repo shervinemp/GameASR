@@ -97,6 +97,7 @@ class Tool:
     description: str
     parameters: Optional[Parameter] = field(default=None)
     callback: Optional[Callable] = None
+    instruction: Optional[str] = None
 
     def __call__(self, **kwargs) -> Any:
         return self.callback(**self._parse_args(**kwargs))
@@ -150,6 +151,7 @@ class Tool:
         """
         doc_info = _parse_method_docstring(inspect.getdoc(fn))
         description = doc_info["description"] or "No description provided."
+        instruction = doc_info.get("instruction") or None
 
         signature = inspect.signature(fn)
         method_properties: Dict[str, Tool.Parameter] = {}
@@ -192,6 +194,7 @@ class Tool:
             description=description,
             parameters=tool_parameters_obj,
             callback=fn,
+            instruction=instruction,
         )
 
         return tool
@@ -299,25 +302,30 @@ class Tool:
 def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
     """
     Parses a method's docstring to extract overall description, parameter descriptions,
-    and return description. Supports reStructuredText-like ':param:' and ':returns:' and
-    simple Google-style 'Args:', 'Returns:'.
+    return description, and usage instruction. Supports reStructuredText-like
+    ':param:', ':returns:', ':instruction:' and simple Google-style
+    'Args:', 'Returns:', 'Instruction:'.
     """
     if not docstring:
-        return {"description": "", "params": {}, "returns": ""}
+        return {"description": "", "params": {}, "returns": "", "instruction": ""}
 
     lines = docstring.strip().split("\n")
     main_description_lines = []
     param_descriptions = {}
     returns_description = ""
+    instruction = ""
 
     in_params_section = False
     in_returns_section = False
+    in_instruction_section = False
 
     param_re_rst = re.compile(r"^\s*:param\s+([a-zA-Z0-9_]+):(.*)$")
     returns_re_rst = re.compile(r"^\s*:returns:\s*(.*)$")
+    instruction_re_rst = re.compile(r"^\s*:instruction:\s*(.*)$")
     param_re_google = re.compile(r"^\s*(\w+)\s*(?:\([^\)]+\))?:\s*(.*)$")
     args_header_re = re.compile(r"^\s*Args:\s*$")
     returns_header_re = re.compile(r"^\s*Returns:\s*$")
+    instruction_header_re = re.compile(r"^\s*Instruction:\s*$")
 
     i = 0
     while i < len(lines):
@@ -326,11 +334,25 @@ def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
         if args_header_re.match(line):
             in_params_section = True
             in_returns_section = False
+            in_instruction_section = False
             i += 1
             continue
         elif returns_header_re.match(line):
             in_returns_section = True
             in_params_section = False
+            in_instruction_section = False
+            i += 1
+            continue
+        elif instruction_header_re.match(line):
+            in_instruction_section = True
+            in_params_section = False
+            in_returns_section = False
+            i += 1
+            continue
+
+        match_rst_inst = instruction_re_rst.match(line)
+        if match_rst_inst:
+            instruction = match_rst_inst.group(1).strip()
             i += 1
             continue
 
@@ -362,6 +384,12 @@ def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
                 if returns_description and line.startswith(" "):
                     returns_description += " " + line.strip()
 
+        elif in_instruction_section:
+            if line:
+                instruction = (instruction + " " + line).strip()
+            else:
+                in_instruction_section = False
+
         else:
             main_description_lines.append(line)
 
@@ -374,6 +402,7 @@ def _parse_method_docstring(docstring: Optional[str]) -> Dict[str, Any]:
         "description": main_desc,
         "params": param_descriptions,
         "returns": returns_description,
+        "instruction": instruction,
     }
 
 
