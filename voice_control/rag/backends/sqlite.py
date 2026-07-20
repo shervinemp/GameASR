@@ -110,25 +110,38 @@ class SQLiteBackend(StorageBackend):
         return results
 
     def vector_search(
-        self, embeddings: List[List[float]], top_k: int = 5
+        self, embeddings: List[List[float]], top_k: int = 5,
+        source_filter: str | None = None,
     ) -> List[List[Dict]]:
         results = []
         for emb in embeddings:
             blob = struct_pack_f32(emb)
-            cur = self._conn.execute(
-                "SELECT e.id, e.label, e.description, vec.distance "
-                "FROM entities_vec AS vec "
-                "JOIN entities e ON e.rowid = vec.rowid "
-                "WHERE embedding MATCH ? "
-                "ORDER BY distance LIMIT ?",
-                (blob, top_k),
-            )
+            if source_filter:
+                cur = self._conn.execute(
+                    "SELECT e.id, e.label, e.description, e.source, vec.distance "
+                    "FROM entities_vec AS vec "
+                    "JOIN entities e ON e.rowid = vec.rowid "
+                    "WHERE embedding MATCH ? AND e.source = ? "
+                    "ORDER BY distance LIMIT ?",
+                    (blob, source_filter, top_k),
+                )
+            else:
+                cur = self._conn.execute(
+                    "SELECT e.id, e.label, e.description, e.source, vec.distance "
+                    "FROM entities_vec AS vec "
+                    "JOIN entities e ON e.rowid = vec.rowid "
+                    "WHERE embedding MATCH ? "
+                    "ORDER BY distance LIMIT ?",
+                    (blob, top_k),
+                )
             batch = []
             for row in cur.fetchall():
                 batch.append({
                     "id": row[0],
                     "label": row[1],
                     "description": row[2],
+                    "source": row[3],
+                    "distance": row[4],
                 })
             results.append(batch)
         return results
@@ -375,6 +388,54 @@ class SQLiteBackend(StorageBackend):
                     "VALUES (?, ?, ?, ?)",
                     (rel_id, sub_id, obj_id, pred),
                 )
+            self._conn.commit()
+
+    def store_conversation(self, role: str, content: str):
+        import hashlib
+        from ..embeddings import Embedder
+
+        entry_id = hashlib.md5(content.encode()).hexdigest()[:16]
+        label = f"[{role}] {content[:100]}"
+        embedder = Embedder()
+        embedding = embedder.encode([content])[0]
+        blob = struct_pack_f32(embedding)
+
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO entities (id, label, description, source) "
+                "VALUES (?, ?, ?, 'conv')",
+                (entry_id, label, content),
+            )
+            row = self._conn.execute(
+                "SELECT rowid FROM entities WHERE id = ?", (entry_id,)
+            ).fetchone()
+            if row:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO entities_vec (rowid, embedding) "
+                    "VALUES (?, ?)",
+                    (row[0], blob),
+                )
+            self._conn.commit()
+
+        # Evict oldest conv entries if over limit
+        max_entries = 1000
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM entities WHERE source = 'conv'"
+        ).fetchone()[0]
+        if count > max_entries:
+            to_remove = count - max_entries
+            self._conn.execute(
+                "DELETE FROM entities_vec WHERE rowid IN ("
+                "SELECT e.rowid FROM entities e WHERE e.source = 'conv' "
+                "ORDER BY e.created_at ASC LIMIT ?"
+                ")", (to_remove,),
+            )
+            self._conn.execute(
+                "DELETE FROM entities WHERE rowid IN ("
+                "SELECT rowid FROM entities WHERE source = 'conv' "
+                "ORDER BY created_at ASC LIMIT ?"
+                ")", (to_remove,),
+            )
             self._conn.commit()
 
     def close(self):

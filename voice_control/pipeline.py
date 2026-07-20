@@ -84,7 +84,8 @@ class Pipeline:
                     raise LLMError(
                         "LLM initialization failed — pipeline cannot start without a language model."
                     )
-                self.session = Session(llm=llm)
+                max_turns = config.get("rag.conversation.max_turns", 20)
+                self.session = Session(llm=llm, max_turns=max_turns)
 
         if self.asr is None:
             self.logger.warning("ASR unavailable — voice input disabled.")

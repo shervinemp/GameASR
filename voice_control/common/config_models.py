@@ -72,6 +72,16 @@ class ActiveLearningConfig(BaseModel):
     max_triplets_per_answer: int = Field(default=20, ge=1, le=100)
 
 
+class ConversationConfig(BaseModel):
+    max_turns: int = Field(default=20, ge=1, le=200)
+
+
+class ConversationHistoryConfig(BaseModel):
+    enabled: bool = True
+    threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+    top_k: int = Field(default=2, ge=1, le=10)
+
+
 class RAGRuntimeConfig(BaseModel):
     backend: str = Field(default="neo4j", pattern="^(neo4j|sqlite)$")
     sqlite_path: str = Field(default="data/rag.sqlite")
@@ -88,6 +98,10 @@ class RAGRuntimeConfig(BaseModel):
 
 class RAGConfig(BaseModel):
     runtime: RAGRuntimeConfig = Field(default_factory=RAGRuntimeConfig)
+    conversation: ConversationConfig = Field(default_factory=ConversationConfig)
+    conversation_history: ConversationHistoryConfig = Field(
+        default_factory=ConversationHistoryConfig
+    )
     active_learning: ActiveLearningConfig = Field(
         default_factory=ActiveLearningConfig
     )

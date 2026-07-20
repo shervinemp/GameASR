@@ -232,7 +232,8 @@ class KnowledgeGraph(StorageBackend):
         return self._execute_with_retry(_run)
 
     def vector_search(
-        self, embeddings: List[List[float]], top_k: int = 5
+        self, embeddings: List[List[float]], top_k: int = 5,
+        source_filter: str | None = None,
     ) -> List[List[Dict]]:
         queries_data = [
             {"id": i, "embedding": emb}

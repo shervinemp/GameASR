@@ -89,6 +89,16 @@ tools_server:
 
 # --- RAG Persistence Configuration ---
 rag:
+  # --- Conversation context management ---
+  conversation:
+    max_turns: 20 # visible history turns; oldest dropped when exceeded
+
+  # --- Conversation history auto-inject ---
+  conversation_history:
+    enabled: true
+    threshold: 0.75  # min similarity score to auto-inject old context
+    top_k: 2         # max old turns prepended to current query
+
   runtime:
     # Hard limits keep retrieval below the tool server's 10-second deadline.
     max_query_chars: 2000

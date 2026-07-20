@@ -7,7 +7,7 @@ from typing import Any, Dict, Generator
 from urllib.parse import urlparse
 
 from .conversation import Conversation
-from .context import ContextManager  # Added import
+from .context import DropOldestStrategy
 from .tools import ToolCall
 from .decoders import StreamDecoder, NativeDecoder, LegacyXMLDecoder, GemmaE2BDecoder
 
@@ -22,6 +22,10 @@ class LLM(ABC):
         # Initialize ContextManager in the base class or let subclasses handle it.
         pass
 
+    def create_context_strategy(self, max_turns: int = 20) -> ContextStrategy:
+        """Return the best context strategy for this provider."""
+        return DropOldestStrategy(max_turns)
+
     def __call__(
         self,
         conversation: Conversation,
@@ -29,10 +33,6 @@ class LLM(ABC):
         **kwargs,
     ) -> Generator[str | ToolCall, None, None]:
         session_state = session_state or dict()
-
-        # Manage context before inference
-        context_manager = ContextManager()
-        context_manager.manage_context(conversation, self)
 
         try:
             raw_stream = self._infer(
@@ -116,6 +116,11 @@ class GGUFLLM(LLM):
 
         self._last_state = None
         self._lock = Lock()
+
+    def create_context_strategy(self, max_turns: int = 20) -> ContextStrategy:
+        if hasattr(self.model, "kv_cache_seq_rm"):
+            return KVCacheEvictStrategy(max_turns)
+        return DropOldestStrategy(max_turns)
 
     @classmethod
     def download(cls):

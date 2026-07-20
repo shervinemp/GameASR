@@ -16,7 +16,8 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def vector_search(
-        self, embeddings: List[List[float]], top_k: int = 5
+        self, embeddings: List[List[float]], top_k: int = 5,
+        source_filter: str | None = None,
     ) -> List[List[Dict]]:
         ...
 
@@ -52,6 +53,10 @@ class StorageBackend(ABC):
     @abstractmethod
     def add_triplets(self, triplets: List[Dict[str, str]]):
         ...
+
+    def store_conversation(self, role: str, content: str):
+        """Optional: store a conversation turn. Default no-op."""
+        pass
 
     @abstractmethod
     def close(self):

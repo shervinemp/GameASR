@@ -21,11 +21,13 @@ class Session:
         self,
         llm: LLM,
         conversation: Optional[Conversation] = None,
+        max_turns: int = 20,
     ):
         self.logger = get_logger(__name__)
         self.llm = llm
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
+        self._context_strategy = llm.create_context_strategy(max_turns)
 
         self._session_state = dict()
         self._lock = threading.Lock()
@@ -127,6 +129,7 @@ class Session:
                 self.conversation.add_user_message(query)
                 self.logger.info(f"{query=}")
 
+            self._context_strategy.trim(self.conversation, self.llm)
             yield from self._generate_response()
 
             tool_responses = self.tool_caller.gather()

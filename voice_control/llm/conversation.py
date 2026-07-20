@@ -1,9 +1,13 @@
 import json
 import os
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Dict, Optional, Tuple
 from .tools import Tool
+
+if TYPE_CHECKING:
+    from .model import LLM
 
 
 @dataclass
@@ -77,12 +81,14 @@ class MessageList(list):
 
 class Conversation:
 
-    def __init__(self):
+    def __init__(self, max_turns: int = 20):
         self._messages: MessageList = MessageList()
+        self._token_counts: List[int] = []
 
         self._system: str = ""
         self._tools: Dict[str, Tool] = {}
         self._cutoff_idx: int = 0
+        self._max_turns: int = max_turns
 
     def set_system_message(self, content: str):
         self._system = content
@@ -90,17 +96,21 @@ class Conversation:
     def add_user_message(self, content: str):
         msg = Message(role=Message.Role.user, content=content)
         self._messages.append(msg)
+        self._token_counts.append(0)
 
     def add_assistant_message(self, content: str):
         msg = Message(role=Message.Role.assistant, content=content)
         self._messages.append(msg)
+        self._token_counts.append(0)
 
     def add_tool_message(self, content: str):
         msg = Message(role=Message.Role.tool, content=content)
         self._messages.append(msg)
+        self._token_counts.append(0)
 
     def clear(self):
         self._messages.clear()
+        self._token_counts.clear()
 
     @property
     def messages(self) -> List[Dict[str, str]]:
@@ -130,14 +140,16 @@ class Conversation:
             "system": self._system,
             "messages": [m.asdict() for m in list.__iter__(self._messages)],
             "cutoff_idx": self._cutoff_idx,
+            "max_turns": self._max_turns,
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Conversation":
-        conv = cls()
+        conv = cls(max_turns=data.get("max_turns", 20))
         conv._system = data.get("system", "")
         for msg_data in data.get("messages", []):
             conv._messages.append(Message.from_dict(msg_data))
+            conv._token_counts.append(0)
         conv._cutoff_idx = data.get("cutoff_idx", 0)
         return conv
 
@@ -160,3 +172,20 @@ class Conversation:
     @cutoff_idx.setter
     def cutoff_idx(self, value):
         self._cutoff_idx = value
+
+    def visible_count(self) -> int:
+        return len(self._messages) - self._cutoff_idx
+
+    def trim_oldest(self, excess: int, llm: "LLM") -> int:
+        """Remove the oldest `excess` messages. Returns total tokens removed."""
+        total_cut = 0
+        for i in range(self._cutoff_idx, self._cutoff_idx + excess):
+            if self._token_counts[i] == 0:
+                raw = self._messages[i].content
+                self._token_counts[i] = llm.count_tokens(raw) + 4
+            total_cut += self._token_counts[i]
+
+        del self._messages[:self._cutoff_idx + excess]
+        del self._token_counts[:self._cutoff_idx + excess]
+        self._cutoff_idx = 0
+        return total_cut
