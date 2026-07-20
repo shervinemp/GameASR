@@ -115,6 +115,7 @@ class Silero(ConsumerProducer):
         self.post_speech_keep = trailing_buffer_duration
         self.max_segment_duration = max_segment_duration
         self.on_speech_onset = on_speech_onset
+        self.on_audio_level: Callable | None = None
 
         self.reset()
 
@@ -189,6 +190,10 @@ class Silero(ConsumerProducer):
             speech_prob = speech_prob[0]
         finally:
             self._lock.release()
+
+        if self.on_audio_level:
+            rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+            self.on_audio_level(rms, float(speech_prob))
 
         is_loud = speech_prob > self.vad_threshold
 

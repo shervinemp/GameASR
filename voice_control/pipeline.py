@@ -91,9 +91,12 @@ class Pipeline:
         if self.tts is None:
             self.logger.warning("TTS unavailable — responses printed to console.")
 
-        # Barge-in: when VAD detects new speech onset, stop TTS immediately
+        # Barge-in + audio level: VAD callbacks for interrupt and UI feedback
         if self.asr and hasattr(self.asr, "_vad"):
             self.asr._vad.on_speech_onset = self._on_user_interrupt
+            self.asr._vad.on_audio_level = lambda rms, prob: self.events.emit(
+                "vad:level", rms, prob
+            )
 
         self.rag = rag
 
