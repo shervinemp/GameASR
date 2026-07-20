@@ -433,7 +433,9 @@ class LiteLLMProvider(LLM):
 
         stream = self._openai_client.chat.completions.create(**kwargs)
         tool_call_buffer = {}
+        chunk_count = 0
         for chunk in stream:
+            chunk_count += 1
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
@@ -441,7 +443,16 @@ class LiteLLMProvider(LLM):
                 continue
 
             if delta.content:
+                self.logger.debug(
+                    "openai chunk[%d] content=%s", chunk_count, delta.content[:50]
+                )
                 yield delta.content
+            else:
+                rc = getattr(delta, "reasoning_content", None)
+                if rc:
+                    self.logger.debug(
+                        "openai chunk[%d] reasoning=%s", chunk_count, rc[:50]
+                    )
 
             for tc in (getattr(delta, "tool_calls", None) or ()):
                 index = getattr(tc, "index", 0) if hasattr(tc, "index") else 0

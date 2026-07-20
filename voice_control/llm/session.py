@@ -130,9 +130,12 @@ class Session:
                 self.logger.info(f"{query=}")
 
             self._context_strategy.trim(self.conversation, self.llm)
+            self.logger.info("Starting LLM call...")
             yield from self._generate_response()
+            self.logger.info("First LLM call complete, gathering tools...")
 
             tool_responses = self.tool_caller.gather()
+            self.logger.info("Tool responses: %s", tool_responses)
             if tool_responses:
                 has_error = False
                 for k, v in tool_responses.items():
@@ -157,10 +160,12 @@ class Session:
             return
 
         response_chunks = []
-        for chunk in self.llm(
+        llm_stream = self.llm(
             self.conversation, session_state=self._session_state, **kwargs
-        ):
+        )
+        for chunk in llm_stream:
             if isinstance(chunk, ToolCall):
+                self.logger.info("ToolCall: %s args=%s", chunk.name, chunk.arguments)
                 try:
                     tool_name = chunk.name
                     tool_args = chunk.arguments
