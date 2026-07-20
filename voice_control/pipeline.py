@@ -175,7 +175,7 @@ class Pipeline:
 
             for tool in self.session.conversation.tools.values():
                 if tool.instruction:
-                    rules.append(f"- {tool.instruction}")
+                    rules.append(f"- {' '.join(tool.instruction.split())}")
 
             rules.extend([
                 "- To call a tool, output: <toolcall>{\"name\": \"tool_name\", \"arguments\": {}}</toolcall>",

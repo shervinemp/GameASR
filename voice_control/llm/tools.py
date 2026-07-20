@@ -296,6 +296,7 @@ class Tool:
                 if parameters_data
                 else None
             ),
+            instruction=function_data.get("instruction"),
         )
 
 
