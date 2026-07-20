@@ -365,6 +365,10 @@ class LiteLLMProvider(LLM):
             content = self._field(delta, "content")
             if isinstance(content, str) and content:
                 yield content
+            else:
+                rc = self._field(delta, "reasoning_content")
+                if isinstance(rc, str) and rc:
+                    yield rc
 
             for tool_call in self._field(delta, "tool_calls", ()) or ():
                 index = self._field(tool_call, "index", 0)
@@ -447,6 +451,11 @@ class LiteLLMProvider(LLM):
                     "openai chunk[%d] content=%s", chunk_count, delta.content[:50]
                 )
                 yield delta.content
+            elif getattr(delta, "reasoning_content", None):
+                # Reasoning models (Qwen3, DeepSeek-R1) emit reasoning
+                # before content. Yield it so the pipeline stays live.
+                rc = getattr(delta, "reasoning_content")
+                yield rc
             else:
                 rc = getattr(delta, "reasoning_content", None)
                 if rc:
