@@ -49,6 +49,7 @@ class Pipeline:
         self._interrupt_requested = False
         self._response_parts: list[str] = []
         self._interrupted_at: str | None = None
+        self._commands: dict[str, tuple[Callable, str]] = {}
 
         asr_cls = getattr(ASRProviders, config.get("asr.provider"))
         tts_cls = getattr(TTSProviders, config.get("tts.provider"))
@@ -108,6 +109,12 @@ class Pipeline:
         self.push_to_talk = push_to_talk
         self.press_to_reset = press_to_reset
 
+    def register_command(self, pattern: str, handler: Callable, mode: str = "exact"):
+        self._commands[pattern] = (handler, mode)
+
+    def unregister_command(self, pattern: str):
+        self._commands.pop(pattern, None)
+
     def register_tools(self, *tools: Tool | list[Tool]):
         for tool in tools:
             if isinstance(tool, Tool):
@@ -124,6 +131,20 @@ class Pipeline:
         """Called from VAD thread when new speech onset is detected."""
         self.tts.stop_playback()
         self._interrupt_requested = True
+
+    def _match_command(self, text: str) -> bool:
+        cleaned = text.strip().lower()
+        for pattern, (handler, mode) in self._commands.items():
+            if mode == "exact" and cleaned == pattern:
+                handler()
+                return True
+            if mode == "prefix" and cleaned.startswith(pattern):
+                handler()
+                return True
+            if mode == "regex" and __import__("re").match(pattern, cleaned):
+                handler()
+                return True
+        return False
 
     def _callback(self, transcription: str):
         """
@@ -144,6 +165,10 @@ class Pipeline:
                 f"{text}"
             )
             self._interrupted_at = None
+
+        # Voice commands bypass the LLM for instant response
+        if self._match_command(text):
+            return
 
         self._response_parts = []
         interrupt = True
