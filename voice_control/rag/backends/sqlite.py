@@ -118,7 +118,8 @@ class SQLiteBackend(StorageBackend):
             blob = struct_pack_f32(emb)
             if source_filter:
                 cur = self._conn.execute(
-                    "SELECT e.id, e.label, e.description, e.source, vec.distance "
+                    "SELECT e.id, e.label, e.description, e.source, "
+                    "vec.distance, e.created_at "
                     "FROM entities_vec AS vec "
                     "JOIN entities e ON e.rowid = vec.rowid "
                     "WHERE embedding MATCH ? AND e.source = ? "
@@ -127,7 +128,8 @@ class SQLiteBackend(StorageBackend):
                 )
             else:
                 cur = self._conn.execute(
-                    "SELECT e.id, e.label, e.description, e.source, vec.distance "
+                    "SELECT e.id, e.label, e.description, e.source, "
+                    "vec.distance, e.created_at "
                     "FROM entities_vec AS vec "
                     "JOIN entities e ON e.rowid = vec.rowid "
                     "WHERE embedding MATCH ? "
@@ -142,6 +144,7 @@ class SQLiteBackend(StorageBackend):
                     "description": row[2],
                     "source": row[3],
                     "distance": row[4],
+                    "created_at": row[5],
                 })
             results.append(batch)
         return results
@@ -394,27 +397,53 @@ class SQLiteBackend(StorageBackend):
         import hashlib
         from ..embeddings import Embedder
 
-        entry_id = hashlib.md5(content.encode()).hexdigest()[:16]
-        label = f"[{role}] {content[:100]}"
         embedder = Embedder()
         embedding = embedder.encode([content])[0]
         blob = struct_pack_f32(embedding)
 
+        # Check for near-duplicate before inserting (merge threshold 0.9)
+        similar = self.vector_search(
+            [embedding], top_k=1, source_filter="conv"
+        )[0]
+        merge_target = None
+        if similar:
+            score = 1.0 / (1.0 + similar[0].get("distance", 1.0))
+            if score > 0.9:
+                merge_target = similar[0]["id"]
+
         with self._lock:
-            self._conn.execute(
-                "INSERT OR IGNORE INTO entities (id, label, description, source) "
-                "VALUES (?, ?, ?, 'conv')",
-                (entry_id, label, content),
-            )
-            row = self._conn.execute(
-                "SELECT rowid FROM entities WHERE id = ?", (entry_id,)
-            ).fetchone()
-            if row:
+            if merge_target:
                 self._conn.execute(
-                    "INSERT OR REPLACE INTO entities_vec (rowid, embedding) "
-                    "VALUES (?, ?)",
-                    (row[0], blob),
+                    "UPDATE entities SET description = ?, label = ?, "
+                    "created_at = datetime('now') WHERE id = ?",
+                    (content, f"[{role}] {content[:100]}", merge_target),
                 )
+                row = self._conn.execute(
+                    "SELECT rowid FROM entities WHERE id = ?",
+                    (merge_target,)
+                ).fetchone()
+                if row:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO entities_vec (rowid, embedding) "
+                        "VALUES (?, ?)", (row[0], blob),
+                    )
+            else:
+                entry_id = hashlib.md5(content.encode()).hexdigest()[:16]
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO entities "
+                    "(id, label, description, source, created_at) "
+                    "VALUES (?, ?, ?, 'conv', datetime('now'))",
+                    (entry_id, f"[{role}] {content[:100]}", content),
+                )
+                row = self._conn.execute(
+                    "SELECT rowid FROM entities WHERE id = ?",
+                    (entry_id,)
+                ).fetchone()
+                if row:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO entities_vec (rowid, embedding) "
+                        "VALUES (?, ?)", (row[0], blob),
+                    )
             self._conn.commit()
 
         # Evict oldest conv entries if over limit
