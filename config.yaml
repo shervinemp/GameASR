@@ -8,8 +8,13 @@ database:
       password: "NEO4J_PASSWORD"
 
 llm:
-  provider: "LiteLLM"
+  provider: "Gemma4E4B"
+  models:
+    default: ""
+    extraction_heavy: ""
+    embedding: "avsolatorio/GIST-small-Embedding-v0"
   providers:
+    gemma4e4b: {}
     litellm:
       provider: "openai"
       model: "Ternary-Bonsai-27B-Q2_0.gguf"

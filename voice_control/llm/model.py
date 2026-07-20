@@ -82,20 +82,8 @@ class GGUFLLM(LLM):
         n_gpu_layers = -1
         flash_attn = True
 
-    @classmethod
-    def _resolve_mtp_path(cls):
-        mtp = getattr(cls, "draft_model", None)
-        if not mtp:
-            return None
-        path = os.path.join(cls.local_dir, mtp)
-        if os.path.exists(path):
-            return os.path.abspath(path)
-        return None
-
-        # String-to-int mapping for KV cache quantization types
         _GGML_CACHE_TYPES = {"f16": 1, "q4_0": 2, "q8_0": 8}
 
-        mtp_path = paths.get("mtp") or self._resolve_mtp_path()
         for attempt in range(3):
             try:
                 kwargs = dict(
@@ -105,8 +93,6 @@ class GGUFLLM(LLM):
                     flash_attn=flash_attn,
                     verbose=False,
                 )
-                if mtp_path:
-                    kwargs["draft_model"] = mtp_path
                 if self.type_k:
                     kwargs["type_k"] = _GGML_CACHE_TYPES.get(self.type_k, self.type_k)
                 if self.type_v:
@@ -452,12 +438,8 @@ class LiteLLMProvider(LLM):
             kwargs.setdefault("extra_body", {})["n_predict"] = self.n_predict
 
         stream = self._openai_client.chat.completions.create(**kwargs)
-        print("[INFER] stream created, starting iteration...", flush=True)
         tool_call_buffer = {}
-        chunk_count = 0
         for chunk in stream:
-            chunk_count += 1
-            print(f"[INFER] chunk {chunk_count}", flush=True)
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
@@ -465,12 +447,9 @@ class LiteLLMProvider(LLM):
                 continue
 
             if delta.content:
-                print(f"[INFER] content: {delta.content[:80]}", flush=True)
                 yield delta.content
             elif getattr(delta, "reasoning_content", None):
-                rc = getattr(delta, "reasoning_content")
-                print(f"[INFER] reasoning: {rc[:80]}", flush=True)
-                yield rc
+                yield getattr(delta, "reasoning_content")
             else:
                 rc = getattr(delta, "reasoning_content", None)
                 if rc:
@@ -546,7 +525,6 @@ class Gemma4E4B(GGUFLLM):
     decoder = GemmaE2BDecoder()
     type_k: str = "q4_0"
     type_v: str = "q4_0"
-    draft_model: str | None = "mtp-gemma-4-E4B-it.gguf"
 
 
 # ----------------------------------------------------------------------
