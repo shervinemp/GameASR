@@ -11,7 +11,7 @@ from .context import ContextManager  # Added import
 from .tools import ToolCall
 from .decoders import StreamDecoder, NativeDecoder, LegacyXMLDecoder, GemmaE2BDecoder
 
-from ..common.utils import download_hf_file, get_logger, verify_file_sha256
+from ..common.utils import get_logger
 
 
 class LLM(ABC):
@@ -61,10 +61,6 @@ class LLM(ABC):
 
 
 class GGUFLLM(LLM):
-    hf_repo: str = ""
-    filename: str = ""
-    revision: str = ""
-    sha256: str = ""
     local_dir: str = os.path.join("model_files", "llm")
     n_ctx: int = 512
     max_tokens: int = 128
@@ -76,16 +72,10 @@ class GGUFLLM(LLM):
         from llama_cpp import Llama
 
         self.logger = get_logger(self.__class__.__name__)
-        model_path = os.path.join(self.local_dir, self.filename)
+        from ..common.model_manager import ensure_downloaded
 
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Model not found at {model_path}. "
-                "Please run the download script first."
-            )
-
-        # ASVS 15.2.4: verify model integrity before native code parses it.
-        verify_file_sha256(model_path, self.sha256)
+        paths = ensure_downloaded(self.__class__.__name__, local_dir=self.local_dir)
+        model_path = paths["model"]
 
         self.logger.info("Loading model...")
         n_gpu_layers = -1
@@ -128,14 +118,8 @@ class GGUFLLM(LLM):
 
     @classmethod
     def download(cls):
-        os.makedirs(cls.local_dir, exist_ok=True)
-        download_hf_file(
-            repo_id=cls.hf_repo,
-            filename=cls.filename,
-            directory=cls.local_dir,
-            revision=cls.revision,
-            expected_sha256=cls.sha256,
-        )
+        from ..common.model_manager import ensure_downloaded
+        ensure_downloaded(cls.__name__, local_dir=cls.local_dir)
 
     def count_tokens(self, text: str) -> int:
         return len(self.model.tokenize(text.encode("utf-8")))
@@ -407,46 +391,14 @@ class LiteLLMProvider(LLM):
                 )
 
 
-class Ollama(LiteLLMProvider):
-    def __init__(
-        self,
-        model: str,
-        host: str = "http://localhost:11434",
-        **kwargs,
-    ):
-        super().__init__(
-            model=model,
-            provider="ollama",
-            api_base=host,
-            **kwargs,
-        )
-
-
-class NemotronMini(GGUFLLM):
-    hf_repo: str = "bartowski/Nemotron-Mini-4B-Instruct-GGUF"
-    filename: str = "Nemotron-Mini-4B-Instruct-Q5_K_M.gguf"
-    revision: str = "63e28adee7c1228bdcdda1c6f10f8b5e4d17c42c"
-    sha256: str = "6230395444f14a10e4675e4d625183ae3c094567ddfe757991c0909f0f21c2d8"
-    n_ctx: int = 4096
-    max_tokens: int = 1024
-    decoder = LegacyXMLDecoder()
-
 
 class Qwen3(GGUFLLM):
-    hf_repo: str = "Qwen/Qwen3-4B-GGUF"
-    filename: str = "Qwen3-4B-Q5_K_M.gguf"
-    revision: str = "a9a60d009fa7ff9606305047c2bf77ac25dbec49"
-    sha256: str = "aca596860e8cb40af6539e3f2ea40df305f42515deac56d49c08d39a02e6533f"
     n_ctx: int = 40960
     max_tokens: int = 8192
     decoder = LegacyXMLDecoder()
 
 
 class Gemma4E2B(GGUFLLM):
-    hf_repo: str = "unsloth/gemma-4-E2B-it-GGUF"
-    filename: str = "gemma-4-E2B-it-UD-Q4_K_XL.gguf"
-    revision: str = "90f9618340396838ee7ff5b0ba2da27da62953d3"
-    sha256: str = "b8906b8c5e05e57b657646bbc657bd35814a269b2c20f0a2579047fafa1a67dd"
     n_ctx: int = 131072
     max_tokens: int = 8192
     decoder = GemmaE2BDecoder()
@@ -455,10 +407,6 @@ class Gemma4E2B(GGUFLLM):
 
 
 class Gemma4_12B(GGUFLLM):
-    hf_repo: str = "unsloth/gemma-4-12b-it-GGUF"
-    filename: str = "gemma-4-12b-it-UD-IQ3_XXS.gguf"
-    revision: str = "3249fa54d5efa384afc552cc6700ad091efd5c39"
-    sha256: str = "1eb42ae04731500a614acaf658c707c07af5a320822eabc50040852442fa6a4c"
     n_ctx: int = 8192
     max_tokens: int = 2048
     type_k: str = "q4_0"
@@ -466,75 +414,19 @@ class Gemma4_12B(GGUFLLM):
     decoder = LegacyXMLDecoder()
 
 
-class ChatGPT(LiteLLMProvider):
-    def __init__(
-        self,
-        model: str = "gpt-4o",
-        api_key: str | None = None,
-        api_base: str | None = None,
-        **kwargs,
-    ):
-        super().__init__(
-            model=model,
-            provider="openai",
-            api_key=api_key,
-            api_base=api_base,
-            **kwargs,
-        )
-
-
-class Gemini(LiteLLMProvider):
-    def __init__(
-        self,
-        model: str = "gemini-1.5-flash",
-        api_key: str | None = None,
-        **kwargs,
-    ):
-        super().__init__(
-            model=model,
-            provider="gemini",
-            api_key=api_key,
-            **kwargs,
-        )
-
-
 # ----------------------------------------------------------------------
 
 
 class LLMProviders:
-    NemotronMini: type = NemotronMini
-    Qwen3: type = Qwen3
-    Ollama: type = Ollama
-    ChatGPT: type = ChatGPT
-    Gemini: type = Gemini
-    Gemma4E2B: type = Gemma4E2B
-    Gemma4_12B: type = Gemma4_12B
-    LiteLLM: type = LiteLLMProvider
-
-    # Configuration-friendly aliases retained for documented lower-case names.
-    openai: type = ChatGPT
-    gemini: type = Gemini
-    ollama: type = Ollama
-
     _providers = {
-        "NemotronMini": NemotronMini,
         "Qwen3": Qwen3,
-        "Ollama": Ollama,
-        "ChatGPT": ChatGPT,
-        "Gemini": Gemini,
         "Gemma4E2B": Gemma4E2B,
         "Gemma4_12B": Gemma4_12B,
         "LiteLLM": LiteLLMProvider,
-        "openai": ChatGPT,
-        "gemini": Gemini,
-        "ollama": Ollama,
     }
 
     _settings_aliases = {
-        "ChatGPT": "openai",
-        "Gemini": "gemini",
         "LiteLLM": "litellm",
-        "Ollama": "ollama",
     }
 
     @classmethod

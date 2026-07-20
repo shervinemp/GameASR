@@ -6,12 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.model import (
-    ChatGPT,
-    Gemini,
     LLMProviders,
     LiteLLMProvider,
-    NemotronMini,
-    Ollama,
     Qwen3,
 )
 from voice_control.llm.tools import ToolCall
@@ -21,9 +17,9 @@ class TestLLM(unittest.TestCase):
     @patch("voice_control.llm.model.os.path.exists", return_value=True)
     @patch("voice_control.llm.model.GGUFLLM.__init__", return_value=None)
     @patch("voice_control.llm.model.Llama", create=True)
-    def test_nemotron_llm(self, mock_llama, mock_init, mock_exists):
+    def test_gguf_llm(self, mock_llama, mock_init, mock_exists):
         """
-        Test the NemotronLLM.
+        Test a GGUF-backed LLM.
         """
         # Mock the Llama model
         mock_model = MagicMock()
@@ -33,7 +29,7 @@ class TestLLM(unittest.TestCase):
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
-        llm = NemotronMini()
+        llm = Qwen3()
         llm.model = mock_model
         llm.max_tokens = 128
         llm._last_state = None
@@ -58,7 +54,7 @@ class TestLLM(unittest.TestCase):
         completion = MagicMock(return_value=iter([]))
 
         # Initialize the LLM
-        llm = Ollama(model="test", completion_fn=completion)
+        llm = LiteLLMProvider(model="test", provider="ollama", completion_fn=completion)
 
         # Create an empty conversation
         conversation = Conversation()
@@ -119,7 +115,10 @@ class TestLLM(unittest.TestCase):
         )
 
         # Initialize the LLM
-        llm = Ollama(model="test", completion_fn=completion)
+        llm = LiteLLMProvider(
+            model="test", provider="ollama",
+            api_base="http://localhost:11434", completion_fn=completion,
+        )
 
         # Create a conversation
         conversation = Conversation()
@@ -136,17 +135,15 @@ class TestLLM(unittest.TestCase):
         self.assertEqual(request["timeout"], 60.0)
         self.assertEqual(request["num_retries"], 0)
 
-    def test_openai_and_gemini_use_prefixed_litellm_models(self):
+    def test_litellm_model_prefixing(self):
         completion = MagicMock(return_value=iter([]))
-        openai = ChatGPT(
-            model="gpt-test",
-            api_key="test-openai-key",
-            completion_fn=completion,
+        openai = LiteLLMProvider(
+            model="gpt-test", provider="openai",
+            api_key="test-openai-key", completion_fn=completion,
         )
-        gemini = Gemini(
-            model="gemini-test",
-            api_key="test-gemini-key",
-            completion_fn=completion,
+        gemini = LiteLLMProvider(
+            model="gemini-test", provider="gemini",
+            api_key="test-gemini-key", completion_fn=completion,
         )
 
         self.assertEqual(openai.model, "openai/gpt-test")
@@ -154,9 +151,9 @@ class TestLLM(unittest.TestCase):
 
     def test_remote_plaintext_provider_endpoint_is_rejected(self):
         with self.assertRaises(ValueError):
-            Ollama(
-                model="test",
-                host="http://192.0.2.10:11434",
+            LiteLLMProvider(
+                model="test", provider="ollama",
+                api_base="http://192.0.2.10:11434",
                 completion_fn=MagicMock(),
             )
 
@@ -201,7 +198,7 @@ class TestLLM(unittest.TestCase):
                 ]
             )
         )
-        llm = Ollama(model="test", completion_fn=completion)
+        llm = LiteLLMProvider(model="test", provider="ollama", completion_fn=completion)
 
         result = list(llm._infer(Conversation(), session_state={}))
 
@@ -231,7 +228,7 @@ class TestLLM(unittest.TestCase):
                 ]
             )
         )
-        llm = Ollama(model="test", completion_fn=completion)
+        llm = LiteLLMProvider(model="test", provider="ollama", completion_fn=completion)
 
         result = list(llm._infer(Conversation(), session_state={}))
 

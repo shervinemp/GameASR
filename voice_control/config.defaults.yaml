@@ -14,8 +14,7 @@ database:
 
 # --- LLM Configuration ---
 llm:
-  # Default provider to use. Can be 'openai', 'gemini', 'ollama', etc.
-  # This setting can be used to dynamically load the correct LLM class.
+  # Provider: one of Qwen3, Gemma4E2B, Gemma4_12B (GGUF/local), or LiteLLM (remote).
   provider: "Gemma4_12B"
 
   # --- Model specifications ---
@@ -29,25 +28,7 @@ llm:
 
   # --- Provider-specific settings ---
   providers:
-    ollama:
-      model: "qwen3:latest"
-      host: "http://localhost:11434"
-      timeout: 60
-      max_tokens: 1024
-    gemini:
-      model: "gemini-1.5-flash"
-      timeout: 60
-      max_tokens: 1024
-      env:
-        api_key: "GEMINI_API_KEY"
-    openai:
-      model: "gpt-4o"
-      timeout: 60
-      max_tokens: 1024
-      env:
-        api_key: "OPENAI_API_KEY"
-    # Generic LiteLLM mode can target any provider currently allowlisted by
-    # LiteLLMProvider: openai, gemini, or ollama.
+    # LiteLLM-backed providers: set provider to "openai", "gemini", or "ollama".
     litellm:
       provider: "ollama"
       model: "qwen3:latest"

@@ -39,7 +39,7 @@ from kokoro_onnx.tokenizer import Tokenizer  # noqa: E402
 
 from .audio import AudioPlayer  # noqa: E402
 
-from ..common.utils import download_file, get_logger  # noqa: E402
+from ..common.utils import get_logger  # noqa: E402
 
 
 from ..common.config import config  # noqa: E402
@@ -52,10 +52,12 @@ class Kokoro:
         self.logger = get_logger(__name__)
 
         weights_dir = config.get("tts.weights_dir", "model_files/tts")
+        from ..common.model_manager import ensure_downloaded
+        paths = ensure_downloaded("Kokoro", local_dir=weights_dir)
 
         self.kokoro = KokoroONNX(
-            model_path=os.path.join(weights_dir, "kokoro-v1.0.onnx"),
-            voices_path=os.path.join(weights_dir, "voices-v1.0.bin"),
+            model_path=paths["model"],
+            voices_path=paths["voices"],
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
@@ -64,39 +66,8 @@ class Kokoro:
     @classmethod
     def download(cls):
         weights_dir = config.get("tts.weights_dir", "model_files/tts")
-        os.makedirs(weights_dir, exist_ok=True)
-
-        required_files = {
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx": (
-                "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
-                400_000_000,
-            ),
-            "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin": (
-                "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
-                100_000_000,
-            ),
-        }
-
-        allowed_hosts = {
-            "github.com",
-            "objects.githubusercontent.com",
-            "release-assets.githubusercontent.com",
-        }
-        for url, (expected_sha256, max_bytes) in required_files.items():
-            filename = url.split("/")[-1]
-            destination = os.path.join(weights_dir, filename)
-            if os.path.exists(destination):
-                from ..common.utils import verify_file_sha256
-
-                verify_file_sha256(destination, expected_sha256)
-            else:
-                download_file(
-                    url,
-                    destination,
-                    expected_sha256=expected_sha256,
-                    allowed_hosts=allowed_hosts,
-                    max_bytes=max_bytes,
-                )
+        from ..common.model_manager import ensure_downloaded
+        ensure_downloaded("Kokoro", local_dir=weights_dir)
 
     def _synthesize(self, text: str, voice: str, language: str, speed: float, interrupt: bool):
         text = re.sub(r'[*_~`´<>]', '', text)

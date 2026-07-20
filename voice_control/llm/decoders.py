@@ -13,7 +13,7 @@ class StreamDecoder(ABC):
 
 
 class NativeDecoder(StreamDecoder):
-    """Yields stream exactly as it arrives (used for ChatGPT, Gemini, and native tools)."""
+    """Yields stream exactly as it arrives (used for OpenAI, Gemini, and native tools)."""
     def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]:
         yield from stream
 
