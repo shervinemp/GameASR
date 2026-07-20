@@ -298,6 +298,11 @@ class Pipeline:
                 except Exception as e:
                     self.events.emit("pipeline:error", e)
                     self.logger.error(f"Unexpected error in callback: {e}", exc_info=True)
+        except Exception as e:
+            self.events.emit("pipeline:error", e)
+            self.logger.error(
+                "ASR loop terminated unexpectedly: %s", e, exc_info=True
+            )
         finally:
             self._running = False
             if self.llm_server:
@@ -460,7 +465,11 @@ def main():
         rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
         pipe.rag = rag
 
-        logger.info("Voice pipeline ready. Press and hold <ctrl_r>+<shift_r> to speak.")
+        ptt = config.get("hotkeys.push_to_talk")
+        if ptt:
+            logger.info("Voice pipeline ready. Hold %s to speak.", ptt)
+        else:
+            logger.info("Voice pipeline ready. Always-on VAD mode.")
         pipe.run()
     except Exception as e:
         logger.error(f"Error in main(): {e}", exc_info=True)

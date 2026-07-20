@@ -1,0 +1,23 @@
+database:
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4juser"
+    database: "neo4j"
+    query_timeout_seconds: 5
+    env:
+      password: "NEO4J_PASSWORD"
+
+llm:
+  provider: "LiteLLM"
+  providers:
+    litellm:
+      provider: "openai"
+      model: "Ternary-Bonsai-27B-Q2_0.gguf"
+      api_base: "http://localhost:9000/v1"
+      timeout: 120
+      max_tokens: 4096
+
+rag:
+  runtime:
+    backend: "neo4j"
+    top_k: 3

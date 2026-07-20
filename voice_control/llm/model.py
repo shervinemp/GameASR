@@ -235,7 +235,11 @@ class LiteLLMProvider(LLM):
         key_env = self._provider_key_env.get(provider)
         api_key = api_key or (os.environ.get(key_env) if key_env else None)
         if key_env and not api_key:
-            raise ProviderError(f"{key_env} is required for the {provider} provider.")
+            # Local servers (llama.cpp, Ollama) don't need API keys
+            if api_base and self._is_loopback(api_base):
+                api_key = "sk-no-key-required"
+            else:
+                raise ProviderError(f"{key_env} is required for the {provider} provider.")
         if api_key is not None and not isinstance(api_key, str):
             raise ProviderError("Provider API keys must be strings.")
         if isinstance(api_key, str) and not api_key.strip():
@@ -262,6 +266,17 @@ class LiteLLMProvider(LLM):
         self._completion = completion_fn
 
     @staticmethod
+    def _is_loopback(api_base: str) -> bool:
+        parsed = urlparse(api_base)
+        hostname = parsed.hostname.lower() if parsed.hostname else ""
+        if hostname == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            return False
+
+    @staticmethod
     def _validate_api_base(api_base: str) -> None:
         if not isinstance(api_base, str) or len(api_base) > 2_048:
             raise ProviderError("api_base must be a URL up to 2048 characters.")
@@ -273,16 +288,9 @@ class LiteLLMProvider(LLM):
         if parsed.scheme != "http":
             raise ProviderError("api_base must use HTTPS, or HTTP for loopback only.")
 
-        hostname = parsed.hostname.lower()
-        is_loopback = hostname == "localhost"
-        if not is_loopback:
-            try:
-                is_loopback = ipaddress.ip_address(hostname).is_loopback
-            except ValueError:
-                is_loopback = False
         # ASVS 12.3.1 / 12.3.2: custom remote provider endpoints must use
         # certificate-validated HTTPS; plaintext is limited to local runtimes.
-        if not is_loopback:
+        if not LiteLLMProvider._is_loopback(api_base):
             raise ProviderError("Plaintext provider endpoints are allowed on loopback only.")
 
     @staticmethod
