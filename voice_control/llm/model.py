@@ -74,11 +74,9 @@ class GGUFLLM(LLM):
 
         self.logger = get_logger(self.__class__.__name__)
         from ..common.model_manager import ensure_downloaded
-        import ctypes as _ctypes
 
         paths = ensure_downloaded(self.__class__.__name__, local_dir=self.local_dir)
         model_path = paths["model"]
-        mtp_path = paths.get("mtp")
 
         self.logger.info("Loading model...")
         n_gpu_layers = -1
@@ -100,9 +98,6 @@ class GGUFLLM(LLM):
                 if self.type_v:
                     kwargs["type_v"] = _GGML_CACHE_TYPES.get(self.type_v, self.type_v)
                 self.model = Llama(**kwargs)
-                if mtp_path:
-                    self._attach_mtp(mtp_path, model_path, n_gpu_layers)
-                    self.logger.info("Model loaded with MTP.")
                 break
             except Exception as e:
                 self.logger.warning(
@@ -120,43 +115,6 @@ class GGUFLLM(LLM):
 
         self._last_state = None
         self._lock = Lock()
-
-    def _attach_mtp(self, mtp_path: str, main_path: str, n_gpu_layers: int):
-        try:
-            self._do_attach_mtp(mtp_path, main_path, n_gpu_layers)
-        except Exception as e:
-            self.logger.warning("MTP attachment failed: %s — continuing without MTP.", e)
-
-    def _do_attach_mtp(self, mtp_path: str, main_path: str, n_gpu_layers: int):
-        from llama_cpp import llama_cpp
-        import ctypes as _ctypes
-
-        self.logger.info("Attaching MTP head...")
-
-        ctx_params = llama_cpp.llama_context_default_params()
-        ctx_params.n_ctx = self.n_ctx
-
-        paths_arr = (_ctypes.c_char_p * 2)(main_path.encode(), mtp_path.encode())
-        model_params = llama_cpp.llama_model_default_params()
-        model_params.n_gpu_layers = n_gpu_layers
-
-        new_model = llama_cpp.llama_model_load_from_splits(
-            paths_arr, 2, model_params
-        )
-        if not new_model:
-            self.logger.warning("MTP load via splits returned null — skipping.")
-            return
-
-        new_ctx = llama_cpp.llama_new_context_with_model(new_model, ctx_params)
-        if not new_ctx:
-            self.logger.warning("MTP context creation failed — skipping.")
-            llama_cpp.llama_free_model(new_model)
-            return
-
-        self.model._model._model = new_model
-        self.model._ctx._ctx = new_ctx
-
-        self.logger.info("MTP head attached.")
 
     def create_context_strategy(self, max_turns: int = 20):
         return DropOldestStrategy(max_turns)
@@ -177,7 +135,9 @@ class GGUFLLM(LLM):
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
     ) -> Generator[str | ToolCall, None, None]:
+        print(f"[LOCK] GGUFLLM._infer waiting for model lock", flush=True)
         with self._lock:
+            print(f"[LOCK] GGUFLLM._infer acquired model lock", flush=True)
             if self._last_state and id(self._last_state) != id(session_state):
                 k_ = "model_state"
                 self._last_state[k_] = self.model.save_state()
@@ -187,6 +147,9 @@ class GGUFLLM(LLM):
 
             self._last_state = session_state
 
+            import time as _time
+            _t0 = _time.monotonic()
+            print(f"[GGUF_INFER] starting create_chat_completion at {_t0:.3f}", flush=True)
             stream = self.model.create_chat_completion(
                 messages=conversation.messages,
                 tools=[t.to_dict() for t in conversation.tools.values()],
@@ -196,12 +159,17 @@ class GGUFLLM(LLM):
                 **kwargs,
             )
 
+            _chunk_count = 0
             for chunk in stream:
+                _chunk_count += 1
+                _now = _time.monotonic()
                 delta = chunk["choices"][0]["delta"]
 
                 # Handle standard text content
                 if "content" in delta and delta["content"]:
-                    yield delta["content"]
+                    c = delta["content"]
+                    print(f"[GGUF_INFER] [{_now-_t0:.3f}s] chunk#{_chunk_count} len={len(c)} first={ord(c[0]) if c else 0}", flush=True)
+                    yield c
 
                 # Handle native tool calls from llama.cpp
                 elif "tool_calls" in delta:
@@ -546,8 +514,8 @@ class Qwen3(GGUFLLM):
 
 
 class Gemma4E2B(GGUFLLM):
-    n_ctx: int = 131072
-    max_tokens: int = 8192
+    n_ctx: int = 8192
+    max_tokens: int = 2048
     decoder = GemmaE2BDecoder()
     type_k: str = "q4_0"
     type_v: str = "q4_0"

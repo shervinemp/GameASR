@@ -7,6 +7,12 @@ database:
     env:
       password: "NEO4J_PASSWORD"
 
+asr:
+  vad_threshold: 0.4
+  trailing_silence_ms: 2000
+  leading_silence_ms: 1000
+  max_segment_duration: 60
+
 llm:
   provider: "Gemma4E4B"
   models:

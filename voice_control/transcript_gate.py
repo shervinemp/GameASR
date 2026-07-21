@@ -19,7 +19,7 @@ def qualify_transcript(text: str) -> tuple[str | None, str | None]:
     words = t.split()
 
     # Noise / fragment — drop silently
-    if not words or len(words) < 2 or not any(c.isalpha() for c in t):
+    if not words or not any(c.isalpha() for c in t):
         return None, None
 
     # Incomplete — ends with a hanging word that strongly suggests more speech

@@ -285,9 +285,17 @@ class SmartGraphRetriever(Retriever):
         self._cache_lock = threading.Lock()
 
     def _ask(self, prompt: str) -> str:
-        if isinstance(self.session, Session):
-            return self.session.complete_once(prompt)
-        return "".join(self.session(prompt)).strip()
+        import threading as _th
+        print(f"[LOCK] _ask calling llm directly (thread={_th.current_thread().name})", flush=True)
+        from ..llm.conversation import Conversation as _Conv
+        conv = _Conv()
+        conv.add_user_message(prompt)
+        chunks = []
+        for chunk in self.session.llm(conv, session_state={}, tool_choice="none"):
+            if isinstance(chunk, str):
+                chunks.append(chunk)
+        print(f"[LOCK] _ask done (thread={_th.current_thread().name})", flush=True)
+        return "".join(chunks).strip()
 
     def _get_nlp(self):
         if self._nlp is None:

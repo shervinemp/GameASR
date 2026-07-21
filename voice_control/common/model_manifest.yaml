@@ -33,9 +33,6 @@ Gemma4E4B:
   revision: "8c5a9e4fd5482e2be20fe0bf013b4c262a8f4265"
   sha256: "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3"
   local_dir: "model_files/llm"
-  mtp:
-    file: "mtp-gemma-4-E4B-it.gguf"
-    sha256: "423074e537504b4f9ec5eafed5c639fac82c96631626efccacdd3c4039b20605"
 
 Kokoro:
   local_dir: "model_files/tts"
