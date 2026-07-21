@@ -313,5 +313,141 @@ class TestModelManager(unittest.TestCase):
         self.assertIn("repo", data["Gemma4E4B"])
 
 
+class TestPipelineCallback(unittest.TestCase):
+    """Pipeline._callback flow: gate → context → LLM → TTS."""
+
+    def _make(self, **kw):
+        from voice_control.pipeline import Pipeline
+        p = Pipeline.__new__(Pipeline)
+        p.logger = MagicMock()
+        p.events = MagicMock()
+        p._rag = None
+        p._conv_bank = None
+        p._conv_history_enabled = False
+        p._conv_threshold = 0.75
+        p._conv_top_k = 2
+        p._embedder = MagicMock()
+        p._response_parts = []
+        p._llm_busy = False
+        p._interrupt_event = MagicMock()
+        p._interrupt_event.is_set.return_value = False
+        p._interrupted_at = None
+        p._match_command = MagicMock(return_value=False)
+        p.session = MagicMock()
+        p.session.return_value = iter([])
+        p.tts = None
+        for k, v in kw.items():
+            setattr(p, k, v)
+        return p
+
+    def test_callback_gate_filters_noise(self):
+        pipe = self._make()
+        pipe._callback("...")
+        pipe.session.assert_not_called()
+
+    def test_callback_valid_text_calls_session(self):
+        pipe = self._make()
+        pipe.session.return_value = iter(["hello world"])
+        pipe._callback("hello world")
+        pipe.session.assert_called_once()
+
+    def test_callback_match_command_skips_llm(self):
+        pipe = self._make(_match_command=MagicMock(return_value=True))
+        pipe._callback("stop")
+        pipe.session.assert_not_called()
+
+
+class TestConfigModelsAdvanced(unittest.TestCase):
+    """Configuration model validation."""
+
+    def test_asr_config_fields(self):
+        from voice_control.common.config_models import ASRConfig
+        cfg = ASRConfig(provider="test", weights_dir="/tmp")
+        self.assertEqual(cfg.provider, "test")
+
+    def test_llm_config_fields(self):
+        from voice_control.common.config_models import LLMConfig, LLMModelsConfig
+        cfg = LLMConfig(provider="test",
+                        models=LLMModelsConfig(default="", extraction_heavy="", embedding=""),
+                        providers={})
+        self.assertEqual(cfg.provider, "test")
+
+    def test_tts_config_fields(self):
+        from voice_control.common.config_models import TTSConfig
+        cfg = TTSConfig(provider="test", weights_dir="/tmp")
+        self.assertEqual(cfg.provider, "test")
+
+    def test_rag_config_fields(self):
+        from voice_control.common.config_models import RAGConfig
+        cfg = RAGConfig()
+        self.assertTrue(hasattr(cfg, "runtime"))
+
+    def test_hotkey_config(self):
+        from voice_control.common.config_models import HotkeyConfig
+        cfg = HotkeyConfig()
+        self.assertTrue(hasattr(cfg, "enable"))
+
+
+class TestEmbedder(unittest.TestCase):
+    """Embedding generation."""
+
+    def test_embedder_encode(self):
+        from voice_control.rag.embeddings import Embedder
+        emb = Embedder()
+        result = emb.encode(["hello world"])
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], list)
+        # default dimension should be non-zero
+        self.assertGreater(len(result[0]), 0)
+
+    def test_embedder_multiple_queries(self):
+        from voice_control.rag.embeddings import Embedder
+        emb = Embedder()
+        result = emb.encode(["hello", "world"])
+        self.assertEqual(len(result), 2)
+
+
+class TestDataLoader(unittest.TestCase):
+    """Data loading utilities."""
+
+    def test_data_loader_imports(self):
+        from voice_control.rag.data import DataLoader, CodexDataLoader
+        self.assertTrue(callable(DataLoader))
+        self.assertTrue(callable(CodexDataLoader))
+
+
+class TestAudioPlayer(unittest.TestCase):
+    """AudioPlayer initialization and state."""
+
+    @patch("voice_control.tts.audio.sd.query_devices")
+    @patch("voice_control.tts.audio.sd.InputStream")
+    @patch("voice_control.tts.audio.sd.OutputStream")
+    @patch("voice_control.tts.audio.sd.default.device", new_callable=PropertyMock)
+    def test_audio_player_init(self, mock_dev, mock_out, mock_in, mock_qd):
+        from voice_control.tts.audio import AudioPlayer
+        mock_dev.return_value = (0, 1)
+        mock_qd.side_effect = lambda d: {"name": "test", "max_output_channels": 2}
+        mock_out.return_value = MagicMock()
+        ap = AudioPlayer()
+        self.assertIsNotNone(ap)
+        ap.stop()
+
+    @patch("voice_control.tts.audio.sd.query_devices")
+    @patch("voice_control.tts.audio.sd.InputStream")
+    @patch("voice_control.tts.audio.sd.OutputStream")
+    @patch("voice_control.tts.audio.sd.default.device", new_callable=PropertyMock)
+    def test_stop_playback_clears_queue(self, mock_dev, mock_out, mock_in, mock_qd):
+        from voice_control.tts.audio import AudioPlayer
+        mock_dev.return_value = (0, 1)
+        mock_qd.side_effect = lambda d: {"name": "test", "max_output_channels": 2}
+        mock_out.return_value = MagicMock()
+        ap = AudioPlayer()
+        old_gen = ap._gen
+        ap.stop_playback()
+        self.assertGreater(ap._gen, old_gen)
+        ap.stop()
+
+
 if __name__ == "__main__":
     unittest.main()

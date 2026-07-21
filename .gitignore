@@ -55,3 +55,6 @@ model_files/
 
 # RAG facts proposed by models may contain sensitive user-derived content.
 data/pending_triplets.jsonl
+
+# Test audio artifacts (regenerated on each run)
+tests/*.wav
