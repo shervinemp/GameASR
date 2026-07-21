@@ -29,12 +29,10 @@ class ToolCall:
 class ToolResult:
     _result: str | list | dict
     speech: str | None = None
-    choices: dict | None = None
 
-    def __init__(self, result: str | list | dict, speech: str | None = None, choices: dict | None = None):
+    def __init__(self, result: str | list | dict, speech: str | None = None):
         self._result = result
         self.speech = speech
-        self.choices = choices
 
     @property
     def result(self) -> str:

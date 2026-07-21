@@ -12,7 +12,7 @@ from ..exceptions import LLMError, ToolError
 
 from .model import LLM
 from .conversation import Conversation
-from .tools import ToolCall, ToolResult, ToolChoice
+from .tools import Tool, ToolCall, ToolResult, ToolChoice
 
 
 class Session:
@@ -44,7 +44,6 @@ class Session:
             for t in self.conversation.tools.values()
         ):
             return
-        from .tools import Tool
         self.conversation.tools["_confirm"] = Tool(
             name="_confirm",
             description="Call this with the user's resolved parameters to confirm a pending action.",
