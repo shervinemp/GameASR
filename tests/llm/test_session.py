@@ -353,3 +353,45 @@ class TestSessionMethods(unittest.TestCase):
         result = sess.tool_caller.gather()
         self.assertEqual(result, {})
         sess.close()
+
+    def test_lock_released_after_full_consumption(self):
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm(["hello", " world"])
+        sess = Session(llm=llm)
+        gen = sess("Hi.")
+        list(gen)
+        self.assertFalse(sess._lock.locked(), "Lock still held after generator consumed")
+        sess.close()
+
+    def test_lock_released_after_close(self):
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm(["hello", " world"])
+        sess = Session(llm=llm)
+        gen = sess("Hi.")
+        try:
+            next(gen)
+        except StopIteration:
+            pass
+        finally:
+            gen.close()
+        self.assertFalse(sess._lock.locked(), "Lock still held after partial iteration + close")
+        sess.close()
+
+    def test_concurrent_call_blocks_until_lock_released(self):
+        import threading
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm(["hello", " world"])
+        sess = Session(llm=llm)
+
+        results = []
+        def consume(gen):
+            list(gen)
+            results.append("done")
+
+        gen1 = sess("First.")
+        t = threading.Thread(target=consume, args=(gen1,), daemon=True)
+        t.start()
+        t.join(timeout=5)
+        self.assertIn("done", results)
+        self.assertFalse(sess._lock.locked(), "Lock still held after threaded consumption")
+        sess.close()
