@@ -474,12 +474,6 @@ class Pipeline:
 
 def main():
     """Main function to run the pipeline."""
-    import argparse
-    parser = argparse.ArgumentParser(description="Run the voice-control pipeline.")
-    parser.add_argument("--gui", action="store_true", default=False,
-                        help="Show the transparent mic overlay button.")
-    args = parser.parse_args()
-
     faulthandler.enable()
     setup_logging(log_level="INFO")
     logger = get_logger(__name__)
@@ -506,15 +500,6 @@ def main():
             embedder = Embedder()
             rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
             pipe.rag = rag
-
-            if args.gui:
-                try:
-                    from .gui import MicButton
-                    import threading
-                    gui = MicButton(pipe)
-                    threading.Thread(target=gui.run, daemon=True).start()
-                except Exception as e:
-                    logger.warning("Failed to start GUI overlay: %s", e)
 
             ptt = config.get("hotkeys.push_to_talk")
             if ptt:
