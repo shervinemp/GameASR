@@ -1,6 +1,5 @@
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import faulthandler
 import sys
 import threading
 import time
@@ -474,7 +473,6 @@ class Pipeline:
 
 def main():
     """Main function to run the pipeline."""
-    faulthandler.enable()
     setup_logging(log_level="INFO")
     logger = get_logger(__name__)
 
