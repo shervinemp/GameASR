@@ -156,12 +156,12 @@ class GemmaE2BDecoder(StreamDecoder):
             yield buffer
 
 
-class MultiFormatDecoder(StreamDecoder):
+class GeneralDecoder(StreamDecoder):
     """Matches tag formats by opener priority — auto-sorted by length (longest first).
 
-    Each format has open/close search strings and a body parser.
-    Longer openers are checked first so e.g. ``<|tool_call|>``
-    beats ``<toolcall>`` which beats ``<``.
+    Handles Gemma ``<|tool_call|>``, standard ``<toolcall>``, HTML-escaped
+    ``&lt;toolcall&gt;``, and thought ``<|channel>thought`` in one decoder.
+    Longer openers are checked first so ``<|tool_call|>`` beats ``<toolcall>``.
     """
 
     def __init__(self, formats: list[dict] | None = None):
