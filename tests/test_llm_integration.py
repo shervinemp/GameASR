@@ -14,6 +14,7 @@ import unittest
 import pytest
 
 from voice_control.llm.model import Gemma4E4B
+from voice_control.llm.session import Session
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.tools import Tool, ToolCall
 
@@ -175,6 +176,61 @@ class TestModelBehavior(unittest.TestCase):
         print(f"  Native ToolCalls: {native}/5")
         self.assertGreaterEqual(native, 3,
                                 "Model didn't generate native tool calls in enough runs")
+
+
+class TestMultiTurn(unittest.TestCase):
+    """Cross-turn state with real model."""
+
+    _model = None
+
+    @classmethod
+    def setUpClass(cls):
+        t0 = time.monotonic()
+        cls._model = Gemma4E4B()
+        cls._model.logger = type("L", (), {"info": print, "warning": print})()
+        print(f"\nModel loaded in {time.monotonic()-t0:.1f}s")
+
+    def setUp(self):
+        self.conv = Conversation()
+        self.conv.set_system_message(
+            "You are a voice-controlled game assistant. "
+            "Respond conversationally and naturally."
+        )
+        self.sess = Session(llm=self._model, conversation=self.conv)
+
+    def tearDown(self):
+        self.sess.close()
+
+    def test_two_greetings_in_a_row(self):
+        """Two greetings must both produce text without error."""
+        r1 = "".join(self.sess("Hi there."))
+        r2 = "".join(self.sess("How are you?"))
+        self.assertTrue(len(r1) > 0, "first greeting produced no text")
+        self.assertTrue(len(r2) > 0, "second greeting produced no text")
+
+    def test_greeting_then_knowledge(self):
+        """Greeting then knowledge query, no cross-contamination."""
+        r1 = "".join(self.sess("Hello."))
+        self.assertTrue(len(r1) > 0)
+        r2 = "".join(self.sess("What is the Elden Ring?"))
+        # Should produce text (may or may not call retrieve tool)
+        self.assertTrue(len(r2) > 0,
+                        "knowledge query produced no text")
+
+    def test_conversation_history_grows(self):
+        """Messages accumulate across turns."""
+        list(self.sess("Hi."))
+        list(self.sess("What is Skyrim?"))
+        list(self.sess("Thanks."))
+        self.assertGreaterEqual(len(self.conv.messages), 5,
+                                "expected 5+ messages across 3 turns")
+
+    def test_context_pruning(self):
+        """Many turns should not exceed max_turns."""
+        for i in range(15):
+            list(self.sess(f"Message {i}."))
+        self.assertLessEqual(len(self.conv.messages), 45,
+                             "messages should be bounded")
 
 
 if __name__ == "__main__":
