@@ -250,6 +250,7 @@ class Pipeline:
         self._response_parts = []
         self._llm_busy = True
         interrupt = True
+        self._interrupt_event.clear()
         out = self.session(text)
         self.logger.debug("_callback: iterating stream_splitter")
         for sentence in stream_splitter(out, min_len=8):
