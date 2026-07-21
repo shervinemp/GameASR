@@ -188,6 +188,7 @@ class Pipeline:
 
     def _on_user_interrupt(self):
         """Called from VAD thread when new speech onset is detected."""
+        self.logger.debug("Interrupt: new speech onset detected")
         if self.tts and hasattr(self.tts, "audio_player"):
             self.tts.audio_player.stop_playback()
         self._interrupt_event.set()
@@ -250,13 +251,16 @@ class Pipeline:
         self._llm_busy = True
         interrupt = True
         out = self.session(text)
+        self.logger.debug("_callback: iterating stream_splitter")
         for sentence in stream_splitter(out, min_len=8):
             if self._interrupt_event.is_set():
+                self.logger.debug("_callback: interrupt break")
                 self._interrupt_event.clear()
                 self._interrupted_at = self._response_parts[-1] if self._response_parts else None
                 break
             if s := sentence.strip():
                 self._response_parts.append(s)
+                self.logger.debug("_callback: sentence=%s", s[:60])
                 self.events.emit("tts:start", s)
                 if self.tts:
                     self.tts(s, interrupt=interrupt)
@@ -264,6 +268,7 @@ class Pipeline:
                     self.logger.info("[TTS degraded] %s", s)
                 self.events.emit("tts:utterance", s)
                 interrupt = False
+        self.logger.debug("_callback: stream_splitter done")
         self._llm_busy = False
 
         # Store Q&A pair in conversation history bank

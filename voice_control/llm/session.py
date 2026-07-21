@@ -163,6 +163,7 @@ class Session:
         llm_stream = self.llm(
             self.conversation, session_state=self._session_state, **kwargs
         )
+        self.logger.debug("_generate_response: starting model stream")
         for chunk in llm_stream:
             if isinstance(chunk, ToolCall):
                 self.logger.info("ToolCall: %s args=%s", chunk.name, chunk.arguments)
@@ -222,7 +223,9 @@ class ToolCaller:
         while not self._futures.empty():
             tool_name, future = self._futures.get()
             try:
+                self.logger.debug("Gathering tool %s ...", tool_name)
                 responses[tool_name] = future.result(timeout=10.0)
+                self.logger.debug("Gathered tool %s: %s", tool_name, str(responses[tool_name])[:80])
             except TimeoutError:
                 future.cancel()
                 responses[tool_name] = f"Tool Error: {tool_name} timed out after 10s"

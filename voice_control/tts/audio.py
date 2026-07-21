@@ -39,6 +39,7 @@ class AudioPlayer:
             if gen != self._gen:
                 continue
 
+            self.logger.debug("AudioPlayer playing %d samples at %dHz (gen=%d)", len(audio_data), sample_rate, gen)
             with self._play_lock:
                 if gen != self._gen:
                     continue

@@ -42,6 +42,8 @@ class ModelBase(ConsumerProducer, ABC):
                 self.logger.warning("Audio status: %s", status)
             self._last_chunk_time = time.monotonic()
             self.audio_queue.append(in_data.copy())
+            if len(self.audio_queue) > 128:
+                self.audio_queue.popleft()
             self._audio_event.set()
 
         self._original_cb = sound_cb
@@ -92,7 +94,13 @@ class ModelBase(ConsumerProducer, ABC):
                 self._audio_event.clear()
                 continue
 
-            self.__call__(chunk)
+            try:
+                self.__call__(chunk)
+            except Exception:
+                self.logger.warning(
+                    "VAD worker exception processing chunk.", exc_info=True
+                )
+                self._audio_event.clear()
 
     def _reconnect_blocking(self):
         """Block until reconnected or max attempts reached. Called from _vad_worker."""

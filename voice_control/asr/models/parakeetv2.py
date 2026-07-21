@@ -72,6 +72,7 @@ class ParakeetV2(ModelBase):
                 r = self._model.recognize(
                     e, sample_rate=self._vad._model.SAMPLE_RATE
                 )
+            self.logger.debug("ASR recognize returned %r (len=%d)", r[:40] if r else r, len(r) if r else 0)
             yield r
 
     def _inputstream(self, sound_device: int, callback: Callable):
@@ -160,7 +161,9 @@ class Silero(ConsumerProducer):
                     buffer.append(c)
                 else:
                     if len(buffer) >= 10:
-                        yield np.concatenate(buffer)
+                        seg = np.concatenate(buffer)
+                        self.logger.debug("VAD yielded segment of %d samples", len(seg))
+                        yield seg
                         buffer.clear()
             except Empty:
                 pass
@@ -176,6 +179,7 @@ class Silero(ConsumerProducer):
 
         acquired = self._lock.acquire(blocking=False)
         if not acquired:
+            self.logger.debug("VAD lock contended, dropping chunk")
             return
 
         try:
@@ -215,6 +219,7 @@ class Silero(ConsumerProducer):
         if not self._is_speech_segment and is_loud:
             self._is_speech_segment = True
             self._segment_start_time = time.monotonic()
+            self.logger.debug("VAD speech onset (prob=%.3f)", speech_prob)
             if self.on_speech_onset:
                 self.on_speech_onset()
             if self._pre_speech_buffer:
@@ -234,6 +239,7 @@ class Silero(ConsumerProducer):
                     self._is_speech_segment = False
                     self._silence_counter = 0
                     self._gate_active = False
+                    self.logger.debug("VAD speech offset after %d silent chunks", self._trailing_silent_chunks)
                     self._queue.put(None)
 
         if not is_loud:
