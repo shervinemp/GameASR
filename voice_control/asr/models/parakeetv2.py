@@ -164,28 +164,30 @@ class Silero(ConsumerProducer):
             if c is None:
                 if len(buffer) >= 10:
                     try:
-                        seg = np.concatenate([
-                            np.mean(c, axis=1) if c.ndim > 1 and c.shape[1] > 1
-                            else (c[:, 0] if c.ndim > 1 else c)
-                            for c in buffer
-                        ], dtype=np.float32)
-                    except ValueError:
-                        self.logger.warning("VAD buffer shape mismatch, dropping segment")
+                        seg = self._to_mono(buffer)
+                    except (ValueError, Exception) as e:
+                        self.logger.warning("VAD buffer error, dropping segment: %s", e)
                         buffer.clear()
                         continue
                     yield seg
                     buffer.clear()
                 continue
 
-            # Run VAD ONNX inference (main thread, no concurrent access)
-            speech_prob = self._vad_encode(c)
+            try:
+                speech_prob = self._vad_encode(c)
+            except Exception as e:
+                self.logger.warning("VAD encode error: %s", e)
+                continue
+
             is_loud = speech_prob > self.vad_threshold
 
             if self.on_audio_level:
-                rms = float(np.sqrt(np.mean(np.asarray(c, dtype=np.float64) ** 2)))
-                self.on_audio_level(rms, float(speech_prob))
+                try:
+                    rms = float(np.sqrt(np.mean(np.asarray(c, dtype=np.float64) ** 2)))
+                    self.on_audio_level(rms, float(speech_prob))
+                except Exception:
+                    pass
 
-            # Before speech: maintain pre-speech buffer
             if not self._is_speech_segment:
                 self._pre_speech_buffer.append(c)
                 if is_loud:
@@ -199,11 +201,9 @@ class Silero(ConsumerProducer):
                     self._silence_counter = 0
                 continue
 
-            # During speech: accumulate, detect silence
             buffer.append(c)
             if is_loud:
                 self._silence_counter = 0
-                # Force-flush if segment exceeds max duration
                 if self.max_segment_duration > 0:
                     elapsed = time.monotonic() - self._segment_start_time
                     if elapsed > self.max_segment_duration:
@@ -219,6 +219,18 @@ class Silero(ConsumerProducer):
                     self._gate_active = False
                     self.logger.debug("VAD speech offset after %d silent chunks", self._trailing_silent_chunks)
                     self._queue.put(None)
+
+    @staticmethod
+    def _to_mono(buffer):
+        chunks = []
+        for c in buffer:
+            if c.ndim > 1 and c.shape[1] > 1:
+                chunks.append(np.mean(c, axis=1))
+            elif c.ndim > 1:
+                chunks.append(c[:, 0])
+            else:
+                chunks.append(c)
+        return np.concatenate(chunks, dtype=np.float32)
 
     def _vad_encode(self, chunk: np.ndarray) -> float:
         """Run Silero VAD model. Called from _produce (main thread)."""

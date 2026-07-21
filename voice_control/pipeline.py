@@ -363,7 +363,8 @@ class Pipeline:
 
             rules.extend([
                 "- If the user's message seems incomplete or cut off, ask what they meant before proceeding.",
-                "- If you're about to perform an important action, confirm briefly before doing it.",
+                "- Do not describe your actions, simulate pauses, or announce tool usage. Answer directly.",
+                "- Never say things like 'Let me check' or 'Just a moment'. Respond as if you already know the answer.",
             ])
 
             self.session.conversation.set_system_message(
@@ -479,25 +480,28 @@ def main():
             f"Skipping storage backend initialization: {e}"
         )
 
-    try:
-        pipe = Pipeline()
-        llm = pipe.session.llm
+    while True:
+        try:
+            pipe = Pipeline()
+            llm = pipe.session.llm
 
-        from .rag.embeddings import Embedder
-        from .rag.model import SPathRAG
-        embedder = Embedder()
-        rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
-        pipe.rag = rag
+            from .rag.embeddings import Embedder
+            from .rag.model import SPathRAG
+            embedder = Embedder()
+            rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
+            pipe.rag = rag
 
-        ptt = config.get("hotkeys.push_to_talk")
-        if ptt:
-            logger.info("Voice pipeline ready. Hold %s to speak.", ptt)
-        else:
-            logger.info("Voice pipeline ready. Always-on VAD mode.")
-        pipe.run()
-    except Exception as e:
-        logger.error(f"Error in main(): {e}", exc_info=True)
-        sys.exit(1)
+            ptt = config.get("hotkeys.push_to_talk")
+            if ptt:
+                logger.info("Voice pipeline ready. Hold %s to speak.", ptt)
+            else:
+                logger.info("Voice pipeline ready. Always-on VAD mode.")
+            pipe.run()
+        except Exception as e:
+            logger.error(f"Pipeline exited: {e}", exc_info=True)
+            logger.info("Restarting pipeline in 3 seconds...")
+            import time
+            time.sleep(3)
 
 
 if __name__ == "__main__":

@@ -73,26 +73,26 @@ class Kokoro:
         ensure_downloaded("Kokoro", local_dir=weights_dir)
 
     def _synthesize(self, text: str, voice: str, language: str, speed: float, interrupt: bool):
-        text = re.sub(r'[*_~`´<>]', '', text)
         try:
-            import emoji
-            text = emoji.demojize(text).strip()
-        except ImportError:
+            text = re.sub(r'[*_~`´<>]', '', text)
+            text = re.sub(r'[\U00002600-\U000027BF\U0001F300-\U0010FFFF]', '', text)
             text = text.strip()
-        if not text:
-            self.logger.warning("Empty text after sanitization. Skipping TTS.")
-            return np.array([], dtype=np.float32), 0
+            if not text:
+                return np.array([], dtype=np.float32), 0
 
-        phonemes = self.tokenizer.phonemize(text, lang=language)
-        if not phonemes.strip():
-            self.logger.warning("Empty phonemes. Skipping TTS.")
-            return np.array([], dtype=np.float32), 0
+            phonemes = self.tokenizer.phonemize(text, lang=language)
+            if not phonemes.strip():
+                self.logger.warning("Empty phonemes. Skipping TTS.")
+                return np.array([], dtype=np.float32), 0
 
-        self.logger.debug("TTS synthesizing %d chars -> %d phonemes", len(text), len(phonemes))
-        samples, sample_rate = self.kokoro.create(phonemes, voice=voice, speed=speed, is_phonemes=True)
-        self.logger.debug("TTS generated %d samples (%.1fs)", len(samples), len(samples) / sample_rate if sample_rate else 0)
-        self.audio_player(samples, sample_rate, interrupt)
-        return samples, sample_rate
+            self.logger.debug("TTS synthesizing %d chars -> %d phonemes", len(text), len(phonemes))
+            samples, sample_rate = self.kokoro.create(phonemes, voice=voice, speed=speed, is_phonemes=True)
+            self.logger.debug("TTS generated %d samples (%.1fs)", len(samples), len(samples) / sample_rate if sample_rate else 0)
+            self.audio_player(samples, sample_rate, interrupt)
+            return samples, sample_rate
+        except Exception as e:
+            self.logger.error(f"TTS synthesis failed: {e}", exc_info=True)
+            return np.array([], dtype=np.float32), 0
 
     def __call__(
         self,
