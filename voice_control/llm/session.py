@@ -12,7 +12,7 @@ from ..exceptions import LLMError, ToolError
 
 from .model import LLM
 from .conversation import Conversation
-from .tools import ToolCall, ToolResult
+from .tools import ToolCall, ToolResult, ToolChoice
 
 
 class Session:
@@ -35,6 +35,35 @@ class Session:
         self._lock = threading.Lock()
 
         self.tool_caller.start()
+        self._register_confirm()
+
+    def _register_confirm(self):
+        if not any(
+            getattr(t, "may_return_choice", False)
+            for t in self.conversation.tools.values()
+        ):
+            return
+        from .tools import Tool
+        self.conversation.tools["_confirm"] = Tool(
+            name="_confirm",
+            description="Call this with the user's resolved parameters to confirm a pending action.",
+            parameters=Tool.Parameter(
+                type="object",
+                properties={
+                    "action": Tool.Parameter(type="string", description="The tool to confirm"),
+                    "params": Tool.Parameter(type="object", description="The resolved parameters"),
+                },
+                required=["action", "params"],
+            ),
+            callback=self._on_confirm,
+            instruction="Call _confirm when the user has made their choice.",
+        )
+
+    def _on_confirm(self, action: str, params: dict) -> ToolResult:
+        tool = self.conversation.tools.get(action)
+        if tool is None:
+            raise ToolError(f"Unknown tool '{action}' for _confirm")
+        return tool(**params)
 
     def reset(self, conversation: Optional[Conversation] = None):
         """Reset conversation and provider state without replacing the session."""
@@ -146,12 +175,17 @@ class Session:
                         break
                     any_error = False
                     for name, result in results.items():
-                        if isinstance(result, ToolResult):
+                        if isinstance(result, ToolChoice):
+                            self.conversation.add_tool_message(f"{name}: {result.result}")
+                            self.conversation.add_assistant_message("Ask the user, then call _confirm.")
+                            if result.speech:
+                                yield result.speech
+                        elif isinstance(result, ToolResult):
                             self.conversation.add_tool_message(f"{name}: {result.result}")
                             if result.speech:
                                 self.conversation.add_assistant_message(result.speech)
                                 yield result.speech
-                            elif result.choices is None and result.speech is None:
+                            else:
                                 self.conversation.add_tool_message(
                                     "Now, generate an answer based only on the returned responses."
                                 )

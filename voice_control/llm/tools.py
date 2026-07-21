@@ -6,6 +6,20 @@ from typing import Callable, ClassVar, List, Dict, Optional, Any, Type, Union, L
 from ..exceptions import ToolError
 
 
+def _returns_choice(annotation) -> bool:
+    if annotation is None:
+        return False
+    origin = get_origin(annotation)
+    if origin is Union:
+        return any(_returns_choice(a) for a in get_args(annotation))
+    if origin is type(None) or origin is None:
+        return False
+    try:
+        return issubclass(annotation, ToolChoice)
+    except TypeError:
+        return False
+
+
 @dataclass
 class ToolCall:
     """Represents a requested tool call from the LLM."""
@@ -28,6 +42,17 @@ class ToolResult:
     def result(self) -> str:
         r = self._result
         return r if isinstance(r, str) else str(r)
+
+
+@dataclass(init=False)
+class ToolChoice(ToolResult):
+    def __init__(self, result: str | list | dict, speech: str | None = None):
+        super().__init__(result=result, speech=speech)
+
+    @property
+    def result(self) -> str:
+        data = super().result
+        return f"Available options: {data}"
 
 
 @dataclass
@@ -117,6 +142,7 @@ class Tool:
     parameters: Optional[Parameter] = field(default=None)
     callback: Optional[Callable] = None
     instruction: Optional[str] = None
+    may_return_choice: Optional[bool] = None
 
     def __call__(self, **kwargs) -> ToolResult:
         if self.callback is None:
@@ -179,7 +205,7 @@ class Tool:
         return casted_args
 
     @staticmethod
-    def from_callable(name: str, fn: Callable) -> "Tool":
+    def from_callable(name: str, fn: Callable, *, may_return_choice: Optional[bool] = None) -> "Tool":
         """
         Transforms a callable into a Tool instance.
         """
@@ -223,12 +249,17 @@ class Tool:
                 ),
             )
 
+        if may_return_choice is None:
+            ret_hint = inspect.get_annotations(fn, globals=fn.__globals__).get('return', None)
+            may_return_choice = _returns_choice(ret_hint)
+
         tool = Tool(
             name=name,
             description=description,
             parameters=tool_parameters_obj,
             callback=fn,
             instruction=instruction,
+            may_return_choice=may_return_choice,
         )
 
         return tool
