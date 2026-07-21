@@ -211,8 +211,7 @@ class Pipeline:
             return
         self._last_interrupt = now
         self.logger.debug("Interrupt: new speech onset detected")
-        # Store what was spoken so far before stopping
-        if self._response_parts:
+        if self._llm_busy and self._response_parts:
             self._interrupted_at = self._response_parts[-1]
         self._interrupt_event.set()
         if self.tts and hasattr(self.tts, "audio_player"):
