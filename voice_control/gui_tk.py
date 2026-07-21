@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class MicButton:
-    """Always-on-top overlay — state text + audio level meter."""
+    """Always-on-top overlay ΓÇö state text + audio level meter."""
 
     _WIN_SIZE = 120
     _TRANS = "#0d0d0d"
