@@ -81,19 +81,10 @@ class LegacyXMLDecoder(StreamDecoder):
 
 
 class GemmaE2BDecoder(StreamDecoder):
-    """Sliding-window parser for Gemma 4's tool call format.
-
-    Gemma 4 uses ``<|tool_call|>`` for both opening *and* closing:
-    ``<|tool_call|>call:func(args)<|tool_call|>`` — the first occurrence
-    opens tool mode, the second closes it and yields a ``ToolCall``.
-    """
-
-    _TAG = "<|tool_call|>"
-
+    """Clean, chunk-based sliding window parser for Gemma 4's unique custom syntax."""
     def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]:
         buffer = ""
-        in_tool = False
-        in_thought = False
+        in_tool, in_thought = False, False
 
         for chunk in stream:
             if isinstance(chunk, (dict, ToolCall)):
@@ -103,25 +94,24 @@ class GemmaE2BDecoder(StreamDecoder):
             buffer += chunk
 
             while buffer:
-                # 1. Tool mode — looking for the *closing* <|tool_call|>
+                # 1. Handle Tool Execution
                 if in_tool:
-                    idx = buffer.find(self._TAG)
-                    if idx != -1:
-                        body = buffer[:idx].strip()
+                    if "<tool_call|>" in buffer:
+                        body = buffer.split("<tool_call|>")[0].replace("<|tool_call>", "").strip()
                         if body.startswith("call:"):
                             match = re.match(r"call:([a-zA-Z0-9_]+)(.*)", body, re.DOTALL)
                             if match:
-                                name = match.group(1).strip()
-                                args = match.group(2).strip()
+                                name, args = match.group(1).strip(), match.group(2).strip()
                                 args = args.replace('<|"|>', '"')
                                 args = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)(\s*:)', r'\1"\2"\3', args)
                                 try:
                                     yield ToolCall(name=name, arguments=json.loads(args))
                                 except json.JSONDecodeError:
-                                    _log.warning("Failed to parse gemma toolcall args: %s", args[:200])
+                                    _log.warning(
+                                        "Failed to parse gemma toolcall args: %s", args[:200]
+                                    )
                                     yield ToolCall(name="_parse_error", arguments={"raw": args})
-                        # CRITICAL: halt so the pipeline dispatches the tool
-                        return
+                        return  # CRITICAL: Halt stream to allow RAG pipeline to trigger
                     break  # Wait for more chunks
 
                 # 2. Filter Thoughts
@@ -129,18 +119,17 @@ class GemmaE2BDecoder(StreamDecoder):
                     if "<channel|>" in buffer:
                         in_thought = False
                         buffer = buffer.split("<channel|>", 1)[1]
-                        continue
-                    break
+                        continue  # Re-evaluate buffer
+                    break  # Wait for more chunks
 
-                # 3. Detect openers — first <|tool_call|> = open tool mode
-                idx = buffer.find(self._TAG)
-                if idx != -1:
+                # 3. Detect Openers
+                if "<|tool_call>" in buffer:
                     in_tool = True
-                    pre = buffer[:idx]
+                    pre = buffer.split("<|tool_call>")[0]
                     if pre:
                         yield pre
-                    buffer = buffer[idx + len(self._TAG):]
-                    continue
+                    buffer = buffer.split("<|tool_call>", 1)[1]
+                    continue  # Re-evaluate buffer
 
                 if "<|channel>thought" in buffer:
                     in_thought = True
@@ -148,23 +137,20 @@ class GemmaE2BDecoder(StreamDecoder):
                     if pre:
                         yield pre
                     buffer = buffer.split("<|channel>thought", 1)[1]
-                    continue
+                    continue  # Re-evaluate buffer
 
-                # 4. Safe Yield — hold back partial tags
+                # 4. Safe Yield (Wait for partial tags to resolve)
                 safe_idx = max(buffer.rfind("<"), buffer.rfind("&"))
                 if safe_idx != -1 and (len(buffer) - safe_idx) < 15:
                     if safe_idx > 0:
                         yield buffer[:safe_idx]
                         buffer = buffer[safe_idx:]
-                    break
+                    break  # Wait for more chunks
                 else:
                     if buffer:
                         yield buffer
                     buffer = ""
-                    break
+                    break  # Finished processing this chunk
 
-        # Flush — yield leftover text even when a tool / thought was unclosed
-        if buffer:
-            if in_tool:
-                _log.warning("Gemma tool call was opened but never closed — yielding as text")
+        if buffer and not in_tool and not in_thought:
             yield buffer
