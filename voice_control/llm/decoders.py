@@ -64,7 +64,7 @@ class LegacyXMLDecoder(StreamDecoder):
                         buffer = buffer.split("<toolcall>", 1)[1]
                         continue  # Re-evaluate buffer
                     else:
-                        match = re.search(r'<t(?:o(?:o(?:l(?:c(?:a(?:l(?:l)?)?)?)?)?)?)?)?$', buffer)
+                        match = re.search(r'<t(?:o(?:o(?:l(?:c(?:a(?:l(?:l)?)?)?)?)?)?)?$', buffer)
                         if match:
                             safe_idx = match.start()
                             if safe_idx > 0:

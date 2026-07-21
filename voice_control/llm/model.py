@@ -172,7 +172,7 @@ class GGUFLLM(LLM):
                     yield delta["content"]
 
         elapsed = _time.monotonic() - _infer_start
-        if _token_count:
+        if _token_count and elapsed:
             self.logger.info("Generated %d tokens in %.1fs (%.0f tok/s)", _token_count, elapsed, _token_count / elapsed)
 
 
