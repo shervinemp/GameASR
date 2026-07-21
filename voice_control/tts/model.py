@@ -63,7 +63,8 @@ class Kokoro:
         )
         self.tokenizer = Tokenizer()
         self.audio_player = AudioPlayer()
-        self._executor = None
+        from concurrent.futures import ThreadPoolExecutor
+        self._executor = ThreadPoolExecutor(max_workers=1)
 
     @classmethod
     def download(cls):
@@ -99,13 +100,9 @@ class Kokoro:
         speed: float = 1.0,
         interrupt: bool = False,
     ):
-        if self._executor is None:
-            return self._synthesize(text, voice, language, speed, interrupt)
         self._executor.submit(self._synthesize, text, voice, language, speed, interrupt)
 
     def start(self):
-        from concurrent.futures import ThreadPoolExecutor
-        self._executor = ThreadPoolExecutor(max_workers=1)
         self.audio_player.start()
 
     def stop(self):

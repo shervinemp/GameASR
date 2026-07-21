@@ -150,7 +150,7 @@ class GGUFLLM(LLM):
 
             kwargs = dict(kwargs)
             tools = [t.to_dict() for t in conversation.tools.values()]
-            if tools:
+            if tools and tool_choice != "none":
                 kwargs["tools"] = tools
                 kwargs.setdefault("tool_choice", tool_choice)
             else:

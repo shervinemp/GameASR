@@ -22,7 +22,7 @@ class TestASR(unittest.TestCase):
             tts_cls = getattr(TTSProviders, config.get("tts.provider"))
             tts_cls.download()
             tts = tts_cls()
-            samples, sr = tts(original, interrupt=False)
+            samples, sr = tts._synthesize(original, voice="af_heart", language="en-us", speed=1.0, interrupt=False)
 
         # ONNX ASR expects mono
         if samples.ndim > 1 and samples.shape[1] > 1:

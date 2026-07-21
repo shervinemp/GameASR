@@ -127,7 +127,7 @@ class TestTTSASRLoop(unittest.TestCase):
         for sentence in sentences:
             with self.subTest(sentence=sentence[:30]):
                 # TTS: text → audio
-                samples, sr = tts(sentence, interrupt=False)
+                samples, sr = tts._synthesize(sentence, voice="af_heart", language="en-us", speed=1.0, interrupt=False)
                 # ASR: audio → text
                 transcript = asr._model.recognize(samples, sample_rate=sr)
                 transcript = transcript or ""
@@ -160,7 +160,7 @@ class TestASRConsistency(unittest.TestCase):
         tts = tts_cls()
 
         text = "the quick brown fox jumps over the lazy dog"
-        samples, sr = tts(text, interrupt=False)
+        samples, sr = tts._synthesize(text, voice="af_heart", language="en-us", speed=1.0, interrupt=False)
 
         asr = ParakeetV2()
         t1 = _normalize(asr._model.recognize(samples, sample_rate=sr) or "")
@@ -180,7 +180,7 @@ class TestASRConsistency(unittest.TestCase):
         tts = tts_cls()
 
         for text in SIMPLE:
-            samples, sr = tts(text, interrupt=False)
+            samples, sr = tts._synthesize(text, voice="af_heart", language="en-us", speed=1.0, interrupt=False)
             asr = ParakeetV2()
             result = asr._model.recognize(samples, sample_rate=sr)
             self.assertIsNotNone(result, f"ASR returned None for '{text}'")
@@ -200,8 +200,8 @@ class TestTTSAudioQuality(unittest.TestCase):
         short = "hello"
         long_ = "the quick brown fox jumps over the lazy dog near the riverbank"
 
-        s_short, sr = tts(short, interrupt=False)
-        s_long, _ = tts(long_, interrupt=False)
+        s_short, sr = tts._synthesize(short, voice="af_heart", language="en-us", speed=1.0, interrupt=False)
+        s_long, _ = tts._synthesize(long_, voice="af_heart", language="en-us", speed=1.0, interrupt=False)
 
         d_short = len(s_short) / sr
         d_long = len(s_long) / sr
