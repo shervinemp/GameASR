@@ -25,7 +25,6 @@ class AudioPlayer:
         self._queue_lock = threading.Lock()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
-        self._play_lock = threading.Lock()
         self._gen = 0
         atexit.register(self.stop)
 
@@ -40,10 +39,12 @@ class AudioPlayer:
                 continue
 
             self.logger.debug("AudioPlayer playing %d samples at %dHz (gen=%d)", len(audio_data), sample_rate, gen)
-            with self._play_lock:
-                if gen != self._gen:
-                    continue
-                self.play(audio_data, sample_rate)
+            sd.play(audio_data, samplerate=sample_rate, device=self.output_device, blocking=False)
+            while sd.get_stream() is not None and sd.get_stream().active:
+                if self._gen != gen:
+                    sd.stop()
+                    break
+                time.sleep(0.05)
 
     def __call__(
         self,
@@ -53,7 +54,6 @@ class AudioPlayer:
     ):
         if interrupt:
             with self._queue_lock:
-                sd.stop()
                 while not self._queue.empty():
                     try:
                         self._queue.get_nowait()
@@ -68,7 +68,6 @@ class AudioPlayer:
     def stop_playback(self):
         with self._queue_lock:
             self._gen += 1
-            sd.stop()
 
     def play(
         self,
@@ -106,8 +105,7 @@ class AudioPlayer:
                         break
             self._running = False
             self._thread.join(timeout=5)
-            with self._play_lock:
-                sd.stop()
+            sd.stop()
 
 
 def main():

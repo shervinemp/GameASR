@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import faulthandler
 import sys
 import threading
+import time
 from typing import Callable, Optional
 from dotenv import load_dotenv
 
@@ -205,6 +206,10 @@ class Pipeline:
 
     def _on_user_interrupt(self):
         """Called from VAD thread when new speech onset is detected."""
+        now = time.monotonic()
+        if now - getattr(self, "_last_interrupt", 0) < 0.2:
+            return
+        self._last_interrupt = now
         self.logger.debug("Interrupt: new speech onset detected")
         if self.tts and hasattr(self.tts, "audio_player"):
             self.tts.audio_player.stop_playback()
