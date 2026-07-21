@@ -839,3 +839,355 @@ class TestSessionIntegration(unittest.TestCase):
         result = list(d(iter([tc])))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].name, "direct")
+
+
+class TestConversation(unittest.TestCase):
+    """Conversation state machine, serialization, and edge cases."""
+
+    def test_messages_includes_system(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.set_system_message("You are a bot.")
+        msgs = conv.messages
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0]["role"], "system")
+        self.assertEqual(msgs[0]["content"], "You are a bot.")
+
+    def test_messages_ordering(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.set_system_message("sys")
+        conv.add_user_message("user1")
+        conv.add_assistant_message("assistant1")
+        conv.add_tool_message("tool1")
+        roles = [m["role"] for m in conv.messages]
+        self.assertEqual(roles, ["system", "user", "assistant", "tool"])
+
+    def test_system_empty_by_default(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        self.assertEqual(conv.messages, [])
+
+    def test_cutoff_idx_excludes_old_messages(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("a")
+        conv.add_assistant_message("b")
+        conv.add_user_message("c")
+        conv.cutoff_idx = 2
+        roles = [m["role"] for m in conv.messages]
+        contents = [m["content"] for m in conv.messages]
+        self.assertEqual(roles, ["user"])
+        self.assertEqual(contents, ["c"])
+
+    def test_cutoff_idx_zero(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("a")
+        conv.cutoff_idx = 0
+        self.assertEqual(len(conv.messages), 1)
+
+    def test_to_dict_round_trip(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.set_system_message("sys")
+        conv.add_user_message("hello")
+        conv.add_assistant_message("hi")
+        data = conv.to_dict()
+        conv2 = Conversation.from_dict(data)
+        self.assertEqual(conv2._system, "sys")
+        self.assertEqual(len(conv2._messages), 2)
+        self.assertEqual(conv2.messages[1]["content"], "hello")
+
+    def test_save_load_json(self):
+        import tempfile, json
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.set_system_message("sys")
+        conv.add_user_message("hello")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            path = f.name
+            conv.save(path)
+        conv2 = Conversation.load(path)
+        os.unlink(path)
+        self.assertEqual(conv2._system, "sys")
+        self.assertEqual(len(conv2._messages), 1)
+
+    def test_clear(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("a")
+        conv.add_assistant_message("b")
+        conv.clear()
+        self.assertEqual(conv.messages, [])
+
+    def test_visible_count(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("a")
+        conv.add_assistant_message("b")
+        conv.add_user_message("c")
+        self.assertEqual(conv.visible_count(), 3)
+        conv.cutoff_idx = 2
+        self.assertEqual(conv.visible_count(), 1)
+
+    def test_trim_oldest(self):
+        from voice_control.llm.conversation import Conversation
+        from unittest.mock import MagicMock
+        llm = MagicMock()
+        llm.count_tokens.return_value = 10
+        conv = Conversation()
+        conv.set_system_message("sys")
+        conv.add_user_message("a")
+        conv.add_assistant_message("b")
+        conv.add_user_message("c")
+        conv.add_assistant_message("d")
+        # Trim 2 oldest visible messages
+        trimmed = conv.trim_oldest(2, llm)
+        self.assertEqual(trimmed, 28)  # (10+4) * 2
+        self.assertEqual(len(conv._messages), 2)
+        # After trim, cutoff is reset
+        self.assertEqual(conv.cutoff_idx, 0)
+
+    def test_trim_oldest_clamps_to_visible(self):
+        from voice_control.llm.conversation import Conversation
+        from unittest.mock import MagicMock
+        llm = MagicMock()
+        llm.count_tokens.return_value = 5
+        conv = Conversation()
+        conv.add_user_message("a")
+        trimmed = conv.trim_oldest(100, llm)
+        self.assertEqual(trimmed, 9)  # (5+4) * 1
+        self.assertEqual(len(conv._messages), 0)
+
+    def test_set_token_count(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("hello")
+        conv.set_token_count(0, 42)
+        self.assertEqual(conv.get_token_count(0), 42)
+
+    def test_get_message_content(self):
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("hello world")
+        self.assertEqual(conv.get_message_content(0), "hello world")
+
+    def test_tools_setter_from_iterable(self):
+        from voice_control.llm.conversation import Conversation
+        from voice_control.llm.tools import Tool
+        t = Tool(name="t1", description="")
+        conv = Conversation()
+        conv.tools = [t]
+        self.assertIn("t1", conv.tools)
+
+    def test_tools_setter_from_dict(self):
+        from voice_control.llm.conversation import Conversation
+        from voice_control.llm.tools import Tool
+        t = Tool(name="t1", description="")
+        conv = Conversation()
+        conv.tools = {"t1": t}
+        self.assertIn("t1", conv.tools)
+
+
+class TestSessionMethods(unittest.TestCase):
+    """Session methods not covered by integration tests."""
+
+    def _make_mock_llm(self, tokens):
+        from voice_control.llm.model import LLM
+        from voice_control.llm.decoders import GeneralDecoder
+        from voice_control.llm.context import DropOldestStrategy
+        _decoder = GeneralDecoder()
+        class M(LLM):
+            decoder = _decoder
+            def _infer(self, conversation, *, session_state, **kwargs):
+                yield from tokens
+            def create_context_strategy(self, max_turns=20):
+                return DropOldestStrategy(max_turns)
+            def count_tokens(self, text):
+                return max(1, len(text) // 2)
+        llm = M()
+        llm.logger = MagicMock()
+        return llm
+
+    def test_complete_once_returns_string(self):
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm(["hello world"])
+        sess = Session(llm=llm)
+        result = sess.complete_once("test", system="sys")
+        self.assertEqual(result, "hello world")
+        sess.close()
+
+    def test_complete_once_empty_query_raises(self):
+        from voice_control.llm.session import Session, LLMError
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm)
+        with self.assertRaises(LLMError):
+            sess.complete_once("")
+        with self.assertRaises(LLMError):
+            sess.complete_once("   ")
+        sess.close()
+
+    def test_complete_once_does_not_mutate_conversation(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("persistent")
+        llm = self._make_mock_llm(["result"])
+        sess = Session(llm=llm, conversation=conv)
+        sess.complete_once("isolated")
+        self.assertEqual(len(conv._messages), 1)
+        self.assertEqual(conv.messages[-1]["content"], "persistent")
+        sess.close()
+
+    def test_complete_once_with_system(self):
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm(["answer"])
+        sess = Session(llm=llm)
+        result = sess.complete_once("q", system="You are helpful.")
+        self.assertEqual(result, "answer")
+        sess.close()
+
+    def test_reset_clears_conversation_and_state(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.add_user_message("old")
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm, conversation=conv)
+        sess._session_state["k"] = "v"
+        sess.reset()
+        self.assertEqual(len(sess.conversation._messages), 0)
+        self.assertEqual(sess._session_state, {})
+        sess.close()
+
+    def test_reset_with_new_conversation(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.conversation import Conversation
+        new_conv = Conversation()
+        new_conv.add_user_message("new")
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm)
+        sess.reset(new_conv)
+        self.assertEqual(len(sess.conversation._messages), 1)
+        self.assertEqual(sess.conversation.messages[-1]["content"], "new")
+        sess.close()
+
+    def test_save_load_round_trip(self):
+        import tempfile, os, json
+        from voice_control.llm.session import Session
+        from pathlib import Path
+
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm)
+        sess.conversation.add_user_message("hello")
+        sess._session_state["note"] = "test"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sess.save(tmp)
+            self.assertTrue(os.path.exists(os.path.join(tmp, "conversation.json")))
+            self.assertTrue(os.path.exists(os.path.join(tmp, "state.json")))
+
+            sess2 = Session.load(tmp, llm=llm)
+            self.assertEqual(len(sess2.conversation._messages), 1)
+            self.assertEqual(sess2.conversation.messages[-1]["content"], "hello")
+            self.assertEqual(sess2._session_state.get("note"), "test")
+        sess.close()
+        sess2.close()
+
+    def test_save_kv_cache(self):
+        import tempfile, os
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm)
+        sess._session_state["model_state"] = b"\x00\x01\x02"
+        with tempfile.TemporaryDirectory() as tmp:
+            sess.save(tmp, save_kv_cache=True)
+            self.assertTrue(os.path.exists(os.path.join(tmp, "kv_cache.bin")))
+        sess.close()
+
+    def test_close_stops_tool_caller(self):
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm)
+        t = sess.tool_caller._loop_thread
+        self.assertTrue(t.is_alive())
+        sess.close()
+        t.join(timeout=2)
+        self.assertFalse(t.is_alive())
+
+    def test_gather_empty_queue(self):
+        from voice_control.llm.session import Session
+        llm = self._make_mock_llm([])
+        sess = Session(llm=llm)
+        result = sess.tool_caller.gather()
+        self.assertEqual(result, {})
+        sess.close()
+
+
+class TestToolSerialization(unittest.TestCase):
+    """Tool schema generation, from_callable, to_dict."""
+
+    def test_from_callable_no_params(self):
+        from voice_control.llm.tools import Tool
+        def fn():
+            return 42
+        t = Tool.from_callable("my_tool", fn)
+        self.assertEqual(t.name, "my_tool")
+        self.assertIsNotNone(t.description)
+
+    def test_from_callable_with_params(self):
+        from voice_control.llm.tools import Tool
+        def greet(name: str, age: int = 0):
+            """Say hello.
+
+            Args:
+                name: The person's name.
+                age: Their age.
+            """
+            return f"Hello {name}"
+        t = Tool.from_callable("greet", greet)
+        d = t.to_dict()
+        self.assertEqual(d["function"]["name"], "greet")
+        props = d["function"]["parameters"]["properties"]
+        self.assertIn("name", props)
+        self.assertIn("age", props)
+        self.assertEqual(props["name"]["type"], "string")
+        self.assertEqual(props["age"]["type"], "integer")
+
+    def test_to_dict_round_trip(self):
+        from voice_control.llm.tools import Tool
+        t1 = Tool(name="test", description="desc",
+                   parameters=Tool.Parameter(type="object"))
+        d = t1.to_dict()
+        t2 = Tool.from_dict(d)
+        self.assertEqual(t2.name, "test")
+        self.assertEqual(t2.description, "desc")
+
+    def test_call_calls_backend(self):
+        from voice_control.llm.tools import Tool
+        captured = {}
+        def fn(x: int):
+            captured["x"] = x
+            return x * 2
+        t = Tool.from_callable("double", fn)
+        result = t(x=5)
+        self.assertEqual(captured["x"], 5)
+        self.assertEqual(result, 10)
+
+    def test_parameter_from_dict_to_dict(self):
+        from voice_control.llm.tools import Tool
+        p = Tool.Parameter(type="object", properties={
+            "name": Tool.Parameter(type="string", description="The name"),
+        }, required=["name"])
+        d = p.to_dict()
+        p2 = Tool.Parameter.from_dict(d)
+        self.assertEqual(p2.type, "object")
+        self.assertIn("name", p2.properties)
+
+    def test_parameter_no_description(self):
+        from voice_control.llm.tools import Tool
+        p = Tool.Parameter(type="string")
+        d = p.to_dict()
+        self.assertEqual(d["type"], "string")
+        self.assertNotIn("description", d)
