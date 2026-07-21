@@ -9,7 +9,6 @@ from .llm.conversation import Conversation
 
 from .asr.model import ASRProviders
 from .tts.model import TTSProviders
-from .rag.model import SPathRAG
 from .hotkey_dispatcher import HotkeyDispatcher
 from .llm import Session, LLMProviders
 from .llm.tools import Tool
@@ -460,6 +459,7 @@ def main():
         llm = pipe.session.llm
 
         from .rag.embeddings import Embedder
+        from .rag.model import SPathRAG
         embedder = Embedder()
         rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
         pipe.rag = rag
