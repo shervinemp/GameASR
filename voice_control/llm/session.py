@@ -134,27 +134,40 @@ class Session:
             self._context_strategy.trim(self.conversation, self.llm)
             self.logger.info("Starting LLM call...")
 
-            for iteration in range(self.max_tool_iterations + 1):
-                is_final = (iteration == self.max_tool_iterations)
-                tc = "none" if is_final else kwargs.get("tool_choice", "auto")
-                yield from self._generate_response(tool_choice=tc)
-
-                tool_responses = self.tool_caller.gather()
-                if not tool_responses:
-                    break
-
-                self.logger.info("Iteration %d tool responses: %s", iteration, tool_responses)
-                has_error = any(
-                    isinstance(v, str) and v.startswith("Tool Error:")
-                    for v in tool_responses.values()
-                )
-                for k, v in tool_responses.items():
-                    self.conversation.add_tool_message(f"{k}: {v}")
-                if has_error:
-                    self.conversation.add_tool_message(
-                        "One or more tools failed to execute. Please inform the user of the error and suggest an alternative action."
+            if self.max_tool_iterations == 0:
+                yield from self._generate_response(tool_choice="none")
+            elif self.max_tool_iterations > 0:
+                for iteration in range(self.max_tool_iterations + 1):
+                    is_final = (iteration == self.max_tool_iterations)
+                    tc = "none" if is_final else "auto"
+                    yield from self._generate_response(tool_choice=tc)
+                    tool_responses = self.tool_caller.gather()
+                    if not tool_responses:
+                        break
+                    self.logger.info("Iteration %d tool responses: %s", iteration, tool_responses)
+                    has_error = any(
+                        isinstance(v, str) and v.startswith("Tool Error:")
+                        for v in tool_responses.values()
                     )
-                else:
+                    for k, v in tool_responses.items():
+                        self.conversation.add_tool_message(f"{k}: {v}")
+                    if has_error:
+                        self.conversation.add_tool_message(
+                            "One or more tools failed to execute. Please inform the user of the error and suggest an alternative action."
+                        )
+                    else:
+                        self.conversation.add_tool_message(
+                            "Now, generate an answer based only on the returned responses."
+                        )
+            else:
+                for _ in range(100):
+                    yield from self._generate_response(tool_choice="auto")
+                    tool_responses = self.tool_caller.gather()
+                    if not tool_responses:
+                        break
+                    self.logger.debug("Chain iteration tool responses: %s", tool_responses)
+                    for k, v in tool_responses.items():
+                        self.conversation.add_tool_message(f"{k}: {v}")
                     self.conversation.add_tool_message(
                         "Now, generate an answer based only on the returned responses."
                     )
