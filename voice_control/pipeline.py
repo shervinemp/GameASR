@@ -273,6 +273,7 @@ class Pipeline:
 
         self._response_parts = []
         self._llm_busy = True
+        self.events.emit("pipeline:state", "think")
         interrupt = True
         self._interrupt_event.clear()
         out = self.session(text)
@@ -287,6 +288,7 @@ class Pipeline:
                 break
             if s := sentence.strip():
                 self._response_parts.append(s)
+                self.events.emit("pipeline:state", "speak")
                 self.logger.debug("_callback: sentence=%s", s[:60])
                 self.events.emit("tts:start", s)
                 if self.tts:
@@ -296,6 +298,7 @@ class Pipeline:
                 self.events.emit("tts:utterance", s)
                 interrupt = False
         self.logger.debug("_callback: stream_splitter done")
+        self.events.emit("pipeline:state", "idle")
         self._llm_busy = False
 
         # Store Q&A pair in conversation history bank
@@ -471,6 +474,12 @@ class Pipeline:
 
 def main():
     """Main function to run the pipeline."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Run the voice-control pipeline.")
+    parser.add_argument("--gui", action="store_true", default=False,
+                        help="Show the transparent mic overlay button.")
+    args = parser.parse_args()
+
     faulthandler.enable()
     setup_logging(log_level="INFO")
     logger = get_logger(__name__)
@@ -497,6 +506,15 @@ def main():
             embedder = Embedder()
             rag = SPathRAG(llm=llm, backend=backend, embedder=embedder, web_search=True)
             pipe.rag = rag
+
+            if args.gui:
+                try:
+                    from .gui import MicButton
+                    import threading
+                    gui = MicButton(pipe)
+                    threading.Thread(target=gui.run, daemon=True).start()
+                except Exception as e:
+                    logger.warning("Failed to start GUI overlay: %s", e)
 
             ptt = config.get("hotkeys.push_to_talk")
             if ptt:

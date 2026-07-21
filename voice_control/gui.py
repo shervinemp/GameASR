@@ -8,36 +8,40 @@ if TYPE_CHECKING:
 
 
 class MicButton:
-    """Always-on-top transparent overlay with an animated mic indicator."""
+    """Transparent overlay — glass orb + ring audio indicator."""
 
-    _WIN_SIZE = 120
+    _WIN_SIZE = 96
     _TRANS = "#1e1e1e"
-    _IDLE = "#555555"
-    _LISTEN = "#22c55e"
-    _THINK = "#f59e0b"
-    _SPEAK = "#3b82f6"
-    _MUTED = "#ef4444"
-    _UNAVAIL = "#333333"
+    _COLORS = {
+        "idle":      "#6b7280",
+        "listening": "#22c55e",
+        "think":     "#eab308",
+        "speak":     "#3b82f6",
+        "muted":     "#ef4444",
+        "error":     "#ef4444",
+        "unavail":   "#374151",
+    }
 
     def __init__(self, pipeline: "Pipeline"):
         self._pipeline = pipeline
         self._queue: Queue = Queue()
         self._rms = 0.0
+        self._target_rms = 0.0
         self._state = "idle"
         self._muted = False
         self._running = False
         self._drag_start = None
-        self._radius = 14.0
-        self._pulse = 0.0
-        self._target_rms = 0.0
-        self._hover = False
+        self._radius = 10.0
+        self._anim = 0.0
 
         pipeline.events.on("vad:level", self._on_level, async_=True)
         pipeline.events.on("pipeline:error", lambda e: self._queue.put(("state", "error")))
+        pipeline.events.on("pipeline:state", lambda s: self._queue.put(("state", s)))
 
     def _on_level(self, rms: float, prob: float):
         self._queue.put(("rms", rms))
-        self._queue.put(("state", "listening" if prob > 0.3 else "idle"))
+        if prob > 0.3:
+            self._queue.put(("state", "listening"))
 
     def _toggle_mute(self):
         if self._pipeline.asr and hasattr(self._pipeline.asr, "_is_muted"):
@@ -73,28 +77,20 @@ class MicButton:
 
         cx = cy = self._WIN_SIZE // 2
 
-        # Glow layers (outer → inner)
-        self._glow_layers = []
-        for i in range(4):
-            layer = self._canvas.create_oval(0, 0, 0, 0, fill="", outline="", width=0)
-            self._glow_layers.append(layer)
-
-        # Main dot
-        self._dot = self._canvas.create_oval(0, 0, 0, 0, fill=self._IDLE, outline="")
-
-        # Mic icon (drawn with canvas primitives)
-        self._mic = self._canvas.create_text(
-            cx, cy, text="🎤", font=("Segoe UI", 14),
-            fill="#ffffff", anchor="center",
+        # Glass orb layers
+        self._glow = self._canvas.create_oval(0, 0, 0, 0, fill="", outline="", width=0)
+        self._ring = self._canvas.create_oval(0, 0, 0, 0, fill="", outline="", width=0)
+        self._orb = self._canvas.create_oval(0, 0, 0, 0, fill="", outline="", width=0)
+        self._highlight = self._canvas.create_oval(0, 0, 0, 0, fill="", outline="", width=0)
+        self._status = self._canvas.create_text(
+            cx, cy + 22, text="", font=("Segoe UI", 6, "bold"),
+            fill="#ffffffaa", anchor="center",
         )
 
-        # Drag + click
-        for tag in (self._dot, *self._glow_layers, self._mic):
+        for tag in (self._glow, self._ring, self._orb, self._highlight, self._status):
             self._canvas.tag_bind(tag, "<Button-1>", self._on_drag_start)
             self._canvas.tag_bind(tag, "<B1-Motion>", self._on_drag_move)
             self._canvas.tag_bind(tag, "<ButtonRelease-1>", self._on_drag_end)
-            self._canvas.tag_bind(tag, "<Enter>", lambda e: setattr(self, "_hover", True))
-            self._canvas.tag_bind(tag, "<Leave>", lambda e: setattr(self, "_hover", False))
 
         self._poll()
         self._root.mainloop()
@@ -131,75 +127,113 @@ class MicButton:
         except Empty:
             pass
 
-        # Smooth RMS
         self._rms += (self._target_rms - self._rms) * 0.3
-
+        self._anim += 1
         self._redraw()
         if self._running:
-            self._root.after(33, self._poll)  # ~30 fps
-
-    def _redraw(self):
-        t = time.monotonic()
-        cx = cy = self._WIN_SIZE // 2
-
-        color = self._IDLE
-        target_r = 14.0
-        glow_intensity = 0.0
-        mic_color = "#ffffffcc"
-
-        if self._state == "error":
-            color = self._MUTED
-            target_r = 14
-            glow_intensity = 0.3 + 0.2 * math.sin(t * 4)
-        elif self._state == "unavail" or self._pipeline.status["asr"] == "unavailable":
-            color = self._UNAVAIL
-            target_r = 14
-        elif self._muted or self._pipeline.status["asr"] == "muted":
-            color = self._MUTED
-            target_r = 16
-            glow_intensity = 0.3
-            mic_color = "#ffffff88"
-        elif self._state == "think":
-            color = self._THINK
-            target_r = 18 + 3 * math.sin(t * 2)
-            glow_intensity = 0.5 + 0.3 * math.sin(t * 3)
-        elif self._state == "speak":
-            color = self._SPEAK
-            target_r = 18 + 22 * self._rms
-            glow_intensity = 0.4 + 0.5 * self._rms
-        elif self._state == "listening":
-            color = self._LISTEN
-            target_r = 14 + 25 * self._rms
-            glow_intensity = 0.2 + 0.6 * self._rms
-        else:
-            target_r = 14
-            glow_intensity = 0.15 + 0.08 * math.sin(t * 1.5)
-
-        # Smooth radius
-        self._radius += (target_r - self._radius) * 0.2
-        r = int(self._radius)
-
-        # Main dot
-        self._canvas.coords(self._dot, cx - r, cy - r, cx + r, cy + r)
-        self._canvas.itemconfig(self._dot, fill=color)
-
-        # Glow layers (decresing opacity outward)
-        for i, layer in enumerate(self._glow_layers):
-            spread = 3 + i * 5
-            alpha = glow_intensity * (0.5 / (i + 1))
-            gr, gg, gb = self._hex_to_rgb(color)
-            gr = min(255, int(gr * alpha + 255 * (1 - alpha) * 0.05))
-            gg = min(255, int(gg * alpha + 255 * (1 - alpha) * 0.05))
-            gb = min(255, int(gb * alpha + 255 * (1 - alpha) * 0.05))
-            fill = f"#{gr:02x}{gg:02x}{gb:02x}"
-            gr2 = int(r + spread)
-            self._canvas.coords(layer, cx - gr2, cy - gr2, cx + gr2, cy + gr2)
-            self._canvas.itemconfig(layer, fill=fill)
-
-        # Mic icon
-        self._canvas.itemconfig(self._mic, fill=mic_color)
+            self._root.after(33, self._poll)
 
     @staticmethod
-    def _hex_to_rgb(hex_color: str) -> tuple:
+    def _lerp(a, b, t):
+        return a + (b - a) * t
+
+    def _draw_mic(self, cx, cy, r):
+        pass
+
+    def _redraw(self):
+        t = self._anim * 0.033
+        cx = cy = self._WIN_SIZE // 2
+
+        state = self._state
+        asr_status = self._pipeline.status["asr"]
+        if self._muted or asr_status == "muted":
+            state = "muted"
+        elif state == "unavail" or asr_status == "unavailable":
+            state = "unavail"
+
+        color = self._COLORS.get(state, self._COLORS["idle"])
+        r_, g_, b_ = self._hex_to_rgb(color)
+
+        target_r = 10.0
+        ring_w = 0
+        ring_alpha = 0.0
+        glow_alpha = 0.0
+        label_text = ""
+        hl_alpha = 0.0
+
+        if state == "error":
+            target_r = 10
+            ring_w = 2
+            ring_alpha = 0.5 + 0.3 * math.sin(t * 4)
+            glow_alpha = ring_alpha * 0.5
+            label_text = "ERR"
+        elif state == "unavail":
+            target_r = 10
+            label_text = "OFF"
+        elif state == "muted":
+            target_r = 12
+            ring_w = 2
+            ring_alpha = 0.3
+            label_text = "MUTED"
+        elif state == "think":
+            target_r = 14 + 3 * math.sin(t * 2.5)
+            ring_w = 3
+            ring_alpha = 0.4 + 0.3 * math.sin(t * 3)
+            glow_alpha = ring_alpha * 0.6
+            hl_alpha = 0.3
+            label_text = "THINK"
+        elif state == "speak":
+            target_r = 14 + 20 * self._rms
+            ring_w = 3
+            ring_alpha = 0.3 + 0.5 * self._rms
+            glow_alpha = ring_alpha * 0.7
+            hl_alpha = 0.4
+            label_text = "SPEAK"
+        elif state == "listening":
+            target_r = 10 + 24 * self._rms
+            ring_w = 3
+            ring_alpha = 0.2 + 0.6 * self._rms
+            glow_alpha = ring_alpha * 0.6
+            hl_alpha = 0.2 + 0.3 * self._rms
+            label_text = "LISTEN"
+        else:
+            target_r = 10
+            ring_w = 2
+            ring_alpha = 0.12 + 0.05 * math.sin(t * 1.2)
+            glow_alpha = 0.04 + 0.02 * math.sin(t * 1.2)
+
+        self._radius = self._lerp(self._radius, target_r, 0.2)
+        r = int(self._radius)
+
+        def _alpha_color(alpha):
+            return f"#{int(r_*alpha):02x}{int(g_*alpha):02x}{int(b_*alpha):02x}"
+
+        # Glow
+        gr = r + 10 + int(10 * ring_alpha)
+        self._canvas.coords(self._glow, cx - gr, cy - gr, cx + gr, cy + gr)
+        self._canvas.itemconfig(self._glow, fill=_alpha_color(glow_alpha))
+
+        # Ring
+        rr = r + 2 + ring_w
+        self._canvas.coords(self._ring, cx - rr, cy - rr, cx + rr, cy + rr)
+        self._canvas.itemconfig(self._ring, fill=_alpha_color(ring_alpha * 0.3),
+                                outline=_alpha_color(ring_alpha), width=ring_w)
+
+        # Orb
+        self._canvas.coords(self._orb, cx - r, cy - r, cx + r, cy + r)
+        self._canvas.itemconfig(self._orb, fill=color)
+
+        # Highlight (glass reflection)
+        hlr = int(r * 0.6)
+        hx = cx - int(r * 0.25)
+        hy = cy - int(r * 0.25)
+        self._canvas.coords(self._highlight, hx - hlr, hy - hlr, hx + hlr, hy + hlr)
+        self._canvas.itemconfig(self._highlight, fill=_alpha_color(hl_alpha * 0.4))
+
+        # Status text
+        self._canvas.itemconfig(self._status, text=label_text)
+
+    @staticmethod
+    def _hex_to_rgb(hex_color):
         h = hex_color.lstrip("#")
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
