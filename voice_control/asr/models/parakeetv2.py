@@ -10,6 +10,7 @@ from ...common.base import ConsumerProducer
 from ...common.utils import get_logger
 from ...exceptions import ASRError
 
+_asr_lock = threading.Lock()
 _vad_lock = threading.Lock()
 
 
@@ -48,7 +49,7 @@ class ParakeetV2(ModelBase):
             leading_silence_duration=leading_ms / 1000.0,
             max_segment_duration=max_segment,
         )
-        self._lock = _vad_lock
+        self._lock = _asr_lock
 
         super().__init__(sound_device)
 

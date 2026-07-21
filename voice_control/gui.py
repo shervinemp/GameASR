@@ -8,13 +8,13 @@ if TYPE_CHECKING:
 
 
 class MicButton:
-    """Always-on-top transparent overlay with a ballooning mic indicator."""
+    """Always-on-top transparent overlay with an animated mic indicator."""
 
-    _WIN_SIZE = 100
-    _TRANS = "#1e1e1e"  # transparent color (invisible pixels)
+    _WIN_SIZE = 120
+    _TRANS = "#1e1e1e"
     _IDLE = "#555555"
     _LISTEN = "#22c55e"
-    _THINK = "#eab308"
+    _THINK = "#f59e0b"
     _SPEAK = "#3b82f6"
     _MUTED = "#ef4444"
     _UNAVAIL = "#333333"
@@ -27,7 +27,10 @@ class MicButton:
         self._muted = False
         self._running = False
         self._drag_start = None
-        self._radius = 14  # current visual radius
+        self._radius = 14.0
+        self._pulse = 0.0
+        self._target_rms = 0.0
+        self._hover = False
 
         pipeline.events.on("vad:level", self._on_level, async_=True)
         pipeline.events.on("pipeline:error", lambda e: self._queue.put(("state", "error")))
@@ -69,24 +72,29 @@ class MicButton:
         self._canvas.pack()
 
         cx = cy = self._WIN_SIZE // 2
-        r = self._radius
-        self._ring = self._canvas.create_oval(
-            cx - r - 4, cy - r - 4, cx + r + 4, cy + r + 4,
-            outline="", width=0,
-        )
-        self._dot = self._canvas.create_oval(
-            cx - r, cy - r, cx + r, cy + r,
-            fill=self._IDLE, outline="",
+
+        # Glow layers (outer → inner)
+        self._glow_layers = []
+        for i in range(4):
+            layer = self._canvas.create_oval(0, 0, 0, 0, fill="", outline="", width=0)
+            self._glow_layers.append(layer)
+
+        # Main dot
+        self._dot = self._canvas.create_oval(0, 0, 0, 0, fill=self._IDLE, outline="")
+
+        # Mic icon (drawn with canvas primitives)
+        self._mic = self._canvas.create_text(
+            cx, cy, text="🎤", font=("Segoe UI", 14),
+            fill="#ffffff", anchor="center",
         )
 
-        # Drag support
-        self._canvas.tag_bind(self._dot, "<Button-1>", self._on_drag_start)
-        self._canvas.tag_bind(self._dot, "<B1-Motion>", self._on_drag_move)
-        self._canvas.tag_bind(self._dot, "<ButtonRelease-1>", self._on_drag_end)
-        # Also allow drag on ring (outer glow area)
-        self._canvas.tag_bind(self._ring, "<Button-1>", self._on_drag_start)
-        self._canvas.tag_bind(self._ring, "<B1-Motion>", self._on_drag_move)
-        self._canvas.tag_bind(self._ring, "<ButtonRelease-1>", self._on_drag_end)
+        # Drag + click
+        for tag in (self._dot, *self._glow_layers, self._mic):
+            self._canvas.tag_bind(tag, "<Button-1>", self._on_drag_start)
+            self._canvas.tag_bind(tag, "<B1-Motion>", self._on_drag_move)
+            self._canvas.tag_bind(tag, "<ButtonRelease-1>", self._on_drag_end)
+            self._canvas.tag_bind(tag, "<Enter>", lambda e: setattr(self, "_hover", True))
+            self._canvas.tag_bind(tag, "<Leave>", lambda e: setattr(self, "_hover", False))
 
         self._poll()
         self._root.mainloop()
@@ -106,7 +114,6 @@ class MicButton:
     def _on_drag_end(self, event):
         if self._drag_start is None:
             return
-        # Only toggle mute if mouse barely moved (click, not drag)
         dx = abs(event.x_root - self._drag_start[0])
         dy = abs(event.y_root - self._drag_start[1])
         if dx < 5 and dy < 5:
@@ -118,68 +125,79 @@ class MicButton:
             while True:
                 kind, value = self._queue.get_nowait()
                 if kind == "rms":
-                    self._rms = min(1.0, value * 10)
+                    self._target_rms = min(1.0, value * 10)
                 elif kind == "state":
                     self._state = value
         except Empty:
             pass
 
+        # Smooth RMS
+        self._rms += (self._target_rms - self._rms) * 0.3
+
         self._redraw()
         if self._running:
-            self._root.after(50, self._poll)
+            self._root.after(33, self._poll)  # ~30 fps
 
     def _redraw(self):
+        t = time.monotonic()
+        cx = cy = self._WIN_SIZE // 2
+
         color = self._IDLE
-        intensity = 0.3
-        target_r = 14  # base radius
+        target_r = 14.0
+        glow_intensity = 0.0
+        mic_color = "#ffffffcc"
 
         if self._state == "error":
             color = self._MUTED
             target_r = 14
-            intensity = 0.3 + 0.3 * math.sin(time.monotonic() * 4)
+            glow_intensity = 0.3 + 0.2 * math.sin(t * 4)
         elif self._state == "unavail" or self._pipeline.status["asr"] == "unavailable":
             color = self._UNAVAIL
             target_r = 14
         elif self._muted or self._pipeline.status["asr"] == "muted":
             color = self._MUTED
-            intensity = 0.5
             target_r = 16
+            glow_intensity = 0.3
+            mic_color = "#ffffff88"
         elif self._state == "think":
             color = self._THINK
-            intensity = 0.6 + 0.3 * math.sin(time.monotonic() * 3)
-            target_r = 18 + 4 * math.sin(time.monotonic() * 2)
+            target_r = 18 + 3 * math.sin(t * 2)
+            glow_intensity = 0.5 + 0.3 * math.sin(t * 3)
         elif self._state == "speak":
             color = self._SPEAK
-            intensity = 0.5 + 0.4 * self._rms
             target_r = 18 + 22 * self._rms
+            glow_intensity = 0.4 + 0.5 * self._rms
         elif self._state == "listening":
             color = self._LISTEN
-            intensity = 0.4 + 0.5 * self._rms
             target_r = 14 + 25 * self._rms
+            glow_intensity = 0.2 + 0.6 * self._rms
+        else:
+            target_r = 14
+            glow_intensity = 0.15 + 0.08 * math.sin(t * 1.5)
 
-        # Smooth radius interpolation
-        self._radius = self._radius * 0.8 + target_r * 0.2
+        # Smooth radius
+        self._radius += (target_r - self._radius) * 0.2
         r = int(self._radius)
-        cx = cy = self._WIN_SIZE // 2
 
-        r_, g_, b_ = self._hex_to_rgb(color)
-        r_ = int(r_ * intensity)
-        g_ = int(g_ * intensity)
-        b_ = int(b_ * intensity)
-        fill = f"#{r_:02x}{g_:02x}{b_:02x}"
-
+        # Main dot
         self._canvas.coords(self._dot, cx - r, cy - r, cx + r, cy + r)
-        self._canvas.itemconfig(self._dot, fill=fill)
+        self._canvas.itemconfig(self._dot, fill=color)
 
-        # Glow ring (balloons with audio)
-        glow_r = r + 4 + int(8 * self._rms)
-        self._canvas.coords(self._ring, cx - glow_r, cy - glow_r, cx + glow_r, cy + glow_r)
-        glow_alpha = 0.15 + 0.3 * self._rms
-        gr, gg, gb = self._hex_to_rgb(color)
-        gr = int(gr * glow_alpha)
-        gg = int(gg * glow_alpha)
-        gb = int(gb * glow_alpha)
-        self._canvas.itemconfig(self._ring, fill=f"#{gr:02x}{gg:02x}{gb:02x}")
+        # Glow layers (decresing opacity outward)
+        for i, layer in enumerate(self._glow_layers):
+            spread = 3 + i * 5
+            alpha = glow_intensity * (0.5 / (i + 1))
+            gr, gg, gb = self._hex_to_rgb(color)
+            gr = min(255, int(gr * alpha + 255 * (1 - alpha) * 0.05))
+            gg = min(255, int(gg * alpha + 255 * (1 - alpha) * 0.05))
+            gb = min(255, int(gb * alpha + 255 * (1 - alpha) * 0.05))
+            fill = f"#{gr:02x}{gg:02x}{gb:02x}"
+            gr2 = int(r + spread)
+            self._canvas.coords(layer, cx - gr2, cy - gr2, cx + gr2, cy + gr2)
+            self._canvas.itemconfig(layer, fill=fill)
+
+        # Mic icon
+        self._canvas.itemconfig(self._mic, fill=mic_color)
 
     @staticmethod
     def _hex_to_rgb(hex_color: str) -> tuple:

@@ -135,6 +135,21 @@ class Pipeline:
         from .rag.embeddings import Embedder
         self._embedder = Embedder()
 
+        self._watchdog = None
+
+    def _start_watchdog(self):
+        """Background thread that logs a warning if the main loop stalls."""
+        import threading
+        def _watch():
+            while self._running:
+                time.sleep(30)
+                if self._llm_busy:
+                    self.logger.warning(
+                        "Pipeline watchdog: LLM busy for >30s — possible stall."
+                    )
+        self._watchdog = threading.Thread(target=_watch, daemon=True)
+        self._watchdog.start()
+
     def register_command(self, pattern: str, handler: Callable, mode: str = "exact"):
         self._commands[pattern] = (handler, mode)
 
@@ -259,6 +274,8 @@ class Pipeline:
                 self.logger.debug("_callback: interrupt break")
                 self._interrupt_event.clear()
                 self._interrupted_at = self._response_parts[-1] if self._response_parts else None
+                if hasattr(out, "close"):
+                    out.close()
                 break
             if s := sentence.strip():
                 self._response_parts.append(s)
@@ -293,6 +310,7 @@ class Pipeline:
         if self.llm_server:
             self.llm_server.start()
         self._running = True
+        self._start_watchdog()
         try:
             for transcript in self.asr:
                 self.logger.debug(f"{transcript=}")

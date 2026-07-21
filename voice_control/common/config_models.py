@@ -109,16 +109,7 @@ class RAGConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    def model_post_init(self, __context):
-        extra_keys = set(self.__pydantic_extra__ or {})
-        if extra_keys:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Unknown config keys ignored: {extra_keys}. "
-                "Check for typos in your config.yaml."
-            )
+    model_config = ConfigDict(extra="forbid")
 
     database: DatabaseConfig
     llm: LLMConfig
