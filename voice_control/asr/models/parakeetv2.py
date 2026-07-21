@@ -4,7 +4,6 @@ from queue import Empty, Queue
 from typing import Any, Callable, Generator, Iterable
 from collections import deque
 import numpy as np
-import onnxruntime as ort
 
 from .base import ModelBase
 from ...common.base import ConsumerProducer
@@ -12,10 +11,6 @@ from ...common.utils import get_logger
 from ...exceptions import ASRError
 
 _asr_lock = threading.Lock()
-_vad_lock = threading.Lock()
-_onnx_opts = ort.SessionOptions()
-_onnx_opts.intra_op_num_threads = 1
-_onnx_opts.inter_op_num_threads = 1
 
 
 class ParakeetV2(ModelBase):
@@ -38,8 +33,7 @@ class ParakeetV2(ModelBase):
                 sound_device = 0
 
         self._model = load_model(
-            "nemo-parakeet-tdt-0.6b-v2", quantization="int8",
-            sess_options=_onnx_opts,
+            "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
         )
 
         # Read VAD settings from config before initializing Silero
@@ -102,6 +96,12 @@ class ParakeetV2(ModelBase):
 
 
 class Silero(ConsumerProducer):
+    """Voice Activity Detection using Silero VAD.
+
+    All ONNX inference runs in _produce (main thread). _consume (VAD worker
+    thread) only pushes raw audio chunks — no ONNX calls, no lock contention.
+    """
+
     def __init__(
         self,
         vad_threshold: float = 0.4,
@@ -116,10 +116,8 @@ class Silero(ConsumerProducer):
 
         self.logger = get_logger(__name__)
 
-        self._model = load_vad("silero", sess_options=_onnx_opts)
+        self._model = load_vad("silero")
         self._queue = Queue(maxsize=1000)
-
-        self._lock = _vad_lock
 
         self.vad_threshold = vad_threshold
         self.pre_speech_dur = leading_silence_duration
@@ -139,113 +137,82 @@ class Silero(ConsumerProducer):
         self._segment_start_time = time.monotonic()
 
         coeff_ = self._model.SAMPLE_RATE / self._model.HOP_SIZE
-
         pre_speech_chunks = int(self.pre_speech_dur * coeff_)
         self._pre_speech_buffer = deque(maxlen=pre_speech_chunks)
-
         self._trailing_silent_chunks = int(self.post_speech_dur * coeff_ + 1)
-
         self._trailing_buffer_chunks = int(self.post_speech_keep * coeff_ + 1)
-
         self._model_input_frame = np.zeros(
             self._model.CONTEXT_SIZE + self._model.HOP_SIZE, dtype=np.float32
         )
 
     def flush(self):
-        with self._lock:
+        with _asr_lock:
             if self._is_speech_segment:
                 self._is_speech_segment = False
                 self._silence_counter = 0
                 self._queue.put(None)
 
     def _produce(self) -> Generator[np.ndarray, None, None]:
+        """Main thread: run VAD ONNX, accumulate speech, yield segments."""
         buffer = deque()
         while True:
             try:
                 c = self._queue.get(timeout=1)
-                if c is not None:
-                    buffer.append(c)
-                else:
-                    if len(buffer) >= 10:
-                        try:
-                            seg = np.concatenate(buffer)
-                        except ValueError:
-                            self.logger.warning("VAD buffer shape mismatch, dropping segment")
-                            buffer.clear()
-                            continue
-                        self.logger.debug("VAD yielded segment of %d samples", len(seg))
-                        yield seg
-                        buffer.clear()
             except Empty:
-                pass
+                continue
 
-    def _consume(self, chunk: Iterable[np.ndarray]):
-        # Audio gate (outside VAD lock — independent of VAD model)
-        if self._gate and not self._gate_active:
-            state = self._gate.process(np.asarray(chunk))
-            if state == "active":
-                self._gate_active = True
-                self.reset()
-            return
+            if c is None:
+                if len(buffer) >= 10:
+                    try:
+                        seg = np.concatenate([
+                            np.mean(c, axis=1) if c.ndim > 1 and c.shape[1] > 1
+                            else (c[:, 0] if c.ndim > 1 else c)
+                            for c in buffer
+                        ], dtype=np.float32)
+                    except ValueError:
+                        self.logger.warning("VAD buffer shape mismatch, dropping segment")
+                        buffer.clear()
+                        continue
+                    yield seg
+                    buffer.clear()
+                continue
 
-        if not self._lock.acquire(timeout=0.01):
-            self.logger.warning("ONNX lock contested (10ms), waiting...")
-            self._lock.acquire()
+            # Run VAD ONNX inference (main thread, no concurrent access)
+            speech_prob = self._vad_encode(c)
+            is_loud = speech_prob > self.vad_threshold
 
+            if self.on_audio_level:
+                rms = float(np.sqrt(np.mean(np.asarray(c, dtype=np.float64) ** 2)))
+                self.on_audio_level(rms, float(speech_prob))
 
-        try:
-            # Force-flush if segment exceeds max duration (safety net for
-            # sustained noise that keeps speech probability above threshold).
-            if self._is_speech_segment and self.max_segment_duration > 0:
-                elapsed = time.monotonic() - self._segment_start_time
-                if elapsed > self.max_segment_duration:
-                    self._is_speech_segment = False
-                    self._silence_counter = 0
+            # Before speech: maintain pre-speech buffer
+            if not self._is_speech_segment:
+                self._pre_speech_buffer.append(c)
+                if is_loud:
+                    self._is_speech_segment = True
                     self._segment_start_time = time.monotonic()
-                    self._queue.put(None)
-                    return
+                    self.logger.debug("VAD speech onset (prob=%.3f)", speech_prob)
+                    if self.on_speech_onset:
+                        self.on_speech_onset()
+                    buffer.extend(self._pre_speech_buffer)
+                    buffer.append(c)
+                    self._silence_counter = 0
+                continue
 
-            if len(chunk.shape) > 1 and chunk.shape[1] > 1:
-                chunk = np.mean(chunk, axis=1)
-            elif len(chunk.shape) > 1:
-                chunk = chunk[:, 0]
-
-            self._model_input_frame = np.concatenate(
-                [self._model_input_frame[-self._model.CONTEXT_SIZE :], chunk]
-            )
-
-            speech_prob, *_ = self._model._encode(
-                self._model_input_frame[np.newaxis, :]
-            )
-            speech_prob = speech_prob[0]
-        finally:
-            self._lock.release()
-
-        if self.on_audio_level:
-            rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
-            self.on_audio_level(rms, float(speech_prob))
-
-        is_loud = speech_prob > self.vad_threshold
-
-        if not self._is_speech_segment and is_loud:
-            self._is_speech_segment = True
-            self._segment_start_time = time.monotonic()
-            self.logger.debug("VAD speech onset (prob=%.3f)", speech_prob)
-            if self.on_speech_onset:
-                self.on_speech_onset()
-            if self._pre_speech_buffer:
-                r = np.concatenate(self._pre_speech_buffer, dtype=np.float32)
-                self._queue.put(r)
-                self._pre_speech_buffer.clear()
-
-        if self._is_speech_segment:
+            # During speech: accumulate, detect silence
+            buffer.append(c)
             if is_loud:
-                self._queue.put(chunk)
                 self._silence_counter = 0
+                # Force-flush if segment exceeds max duration
+                if self.max_segment_duration > 0:
+                    elapsed = time.monotonic() - self._segment_start_time
+                    if elapsed > self.max_segment_duration:
+                        self._is_speech_segment = False
+                        self._silence_counter = 0
+                        self._segment_start_time = time.monotonic()
+                        self._queue.put(None)
             else:
                 self._silence_counter += 1
-                if self._silence_counter <= self._trailing_buffer_chunks:
-                    self._queue.put(chunk)
                 if self._silence_counter >= self._trailing_silent_chunks:
                     self._is_speech_segment = False
                     self._silence_counter = 0
@@ -253,5 +220,26 @@ class Silero(ConsumerProducer):
                     self.logger.debug("VAD speech offset after %d silent chunks", self._trailing_silent_chunks)
                     self._queue.put(None)
 
-        if not is_loud:
-            self._pre_speech_buffer.append(chunk)
+    def _vad_encode(self, chunk: np.ndarray) -> float:
+        """Run Silero VAD model. Called from _produce (main thread)."""
+        if len(chunk.shape) > 1 and chunk.shape[1] > 1:
+            chunk = np.mean(chunk, axis=1)
+        elif len(chunk.shape) > 1:
+            chunk = chunk[:, 0]
+        self._model_input_frame = np.concatenate(
+            [self._model_input_frame[-self._model.CONTEXT_SIZE:], chunk]
+        )
+        speech_prob, *_ = self._model._encode(
+            self._model_input_frame[np.newaxis, :]
+        )
+        return speech_prob[0]
+
+    def _consume(self, chunk: Iterable[np.ndarray]):
+        """VAD worker thread: push raw audio to queue. No ONNX calls."""
+        if self._gate and not self._gate_active:
+            state = self._gate.process(np.asarray(chunk))
+            if state == "active":
+                self._gate_active = True
+                self.reset()
+            return
+        self._queue.put(chunk)
