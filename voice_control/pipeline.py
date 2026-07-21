@@ -329,6 +329,17 @@ class Pipeline:
             )
             self.session.conversation.tools = {**self.session.conversation.tools, name: rag_tool}
 
+            # The model may be biased to always call a tool when tools are
+            # available. A no-op `pass` tool gives it a legitimate way to
+            # return control without triggering retrieval — call this for
+            # greetings, acknowledgments, and purely conversational turns.
+            pass_tool = Tool(
+                name="pass",
+                description="No retrieval needed — respond conversationally.",
+                callback=lambda **_: "",
+            )
+            self.session.conversation.tools["pass"] = pass_tool
+
         if not self.session.conversation._system:
             rules = []
 

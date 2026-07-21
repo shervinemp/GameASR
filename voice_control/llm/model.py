@@ -135,6 +135,9 @@ class GGUFLLM(LLM):
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
     ) -> Generator[str | ToolCall, None, None]:
+        import time as _time
+        _infer_start = _time.monotonic()
+        _token_count = 0
         with self._lock:
             if self._last_state and id(self._last_state) != id(session_state):
                 k_ = "model_state"
@@ -145,10 +148,16 @@ class GGUFLLM(LLM):
 
             self._last_state = session_state
 
+            kwargs = dict(kwargs)
+            tools = [t.to_dict() for t in conversation.tools.values()]
+            if tools:
+                kwargs["tools"] = tools
+                kwargs.setdefault("tool_choice", tool_choice)
+            else:
+                kwargs["tool_choice"] = "none"
+
             stream = self.model.create_chat_completion(
                 messages=conversation.messages,
-                tools=[t.to_dict() for t in conversation.tools.values()],
-                tool_choice=tool_choice,
                 max_tokens=self.max_tokens,
                 stream=True,
                 **kwargs,
@@ -159,23 +168,12 @@ class GGUFLLM(LLM):
 
                 # Handle standard text content
                 if "content" in delta and delta["content"]:
+                    _token_count += 1
                     yield delta["content"]
 
-                # Handle native tool calls from llama.cpp
-                elif "tool_calls" in delta:
-                    for tool_call in delta["tool_calls"]:
-                        if tool_call.get("type") == "function":
-                            func_info = tool_call["function"]
-                            try:
-                                args_dict = json.loads(func_info.get("arguments", "{}"))
-                            except json.JSONDecodeError:
-                                args_dict = {}
-
-                            yield ToolCall(
-                                name=func_info["name"],
-                                arguments=args_dict
-                            )
-                            return
+        elapsed = _time.monotonic() - _infer_start
+        if _token_count:
+            self.logger.info("Generated %d tokens in %.1fs (%.0f tok/s)", _token_count, elapsed, _token_count / elapsed)
 
 
 class LiteLLMProvider(LLM):
