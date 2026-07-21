@@ -172,6 +172,38 @@ class TestDecoders(unittest.TestCase):
             self.assertEqual(r1[0].name, r2[0].name)
             self.assertEqual(r1[0].arguments, r2[0].arguments)
 
+    def test_all_decoders_handle_own_format(self):
+        """Each decoder must parse its own tag format correctly."""
+        from voice_control.llm.decoders import (
+            GeneralDecoder, GemmaE2BDecoder, LegacyXMLDecoder, NativeDecoder
+        )
+
+        cases = [
+            (GeneralDecoder(), [
+                "<|tool_call>",
+                'call:retrieve{query:<|"|>test<|"|>}',
+                "<tool_call|>",
+            ], [("retrieve", {"query": "test"})]),
+            (GemmaE2BDecoder(), [
+                "<|tool_call>",
+                'call:retrieve{query:<|"|>test<|"|>}',
+                "<tool_call|>",
+            ], [("retrieve", {"query": "test"})]),
+            (LegacyXMLDecoder(), [
+                "<toolcall>",
+                '{"name": "retrieve", "arguments": {"q": "test"}}',
+                "</toolcall>",
+            ], [("retrieve", {"q": "test"})]),
+            (NativeDecoder(), [
+                "plain text only",
+            ], []),
+        ]
+
+        for decoder, chunks, expected in cases:
+            with self.subTest(decoder=type(decoder).__name__):
+                calls, _ = self._collect(decoder, chunks)
+                self.assertEqual(calls, expected)
+
 
 class TestStreamDecoders(unittest.TestCase):
     """Comprehensive edge-case tests for all decoders."""
