@@ -136,17 +136,11 @@ class Session:
 
             tool_responses = self.tool_caller.gather()
             self.logger.info("Tool responses: %s", tool_responses)
-
-            real_tools = {k for k in tool_responses if k != "pass" and not (
-                isinstance(v, str) and v.startswith("Tool Error:")
-            )}
-            if real_tools:
+            if tool_responses:
+                has_error = False
                 for k, v in tool_responses.items():
-                    if k == "pass":
-                        continue
-                    has_error = isinstance(v, str) and v.startswith("Tool Error:")
-                    if has_error:
-                        self.logger.error("Tool %s failed: %s", k, v)
+                    if isinstance(v, str) and v.startswith("Tool Error:"):
+                        has_error = True
                     self.conversation.add_tool_message(f"{k}: {v}")
 
                 if has_error:
