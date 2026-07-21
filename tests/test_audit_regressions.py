@@ -13,7 +13,7 @@ from voice_control.exceptions import StorageError, ToolError, VoiceControlError
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.model import LLM, LiteLLMProvider
 from voice_control.llm.session import Session
-from voice_control.llm.tools import Tool
+from voice_control.llm.tools import Tool, ToolResult
 from voice_control.rag.validation import normalize_triplets, queue_triplets
 from voice_control.rag.data import CodexDataLoader
 
@@ -75,8 +75,10 @@ class TestAuditRegressions(unittest.TestCase):
                 }
             }
         )
-        tool.callback = lambda active: active
-        self.assertFalse(tool(active="false"))
+        tool.callback = lambda active: {"active": active}
+        result = tool(active="false")
+        self.assertIsInstance(result, ToolResult)
+        self.assertIn("'active': False", result.result)
         with self.assertRaises((TypeError, ToolError)):
             tool(extra=True)
 

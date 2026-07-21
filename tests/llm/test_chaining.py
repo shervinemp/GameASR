@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from voice_control.llm.tools import ToolCall, Tool
+from voice_control.llm.tools import ToolCall, Tool, ToolResult
 
 
 def _make_mock_llm(tokens_per_call, decoder=None):
@@ -64,9 +64,9 @@ class TestToolChaining(unittest.TestCase):
         from voice_control.llm.conversation import Conversation
 
         tool_results = []
-        def my_tool(query: str) -> str:
+        def my_tool(query: str) -> ToolResult:
             tool_results.append(query)
-            return f"result for {query}"
+            return ToolResult(result={"result": f"result for {query}"})
 
         # First pass: tool call. Second pass: answer.
         tokens = [
@@ -92,9 +92,9 @@ class TestToolChaining(unittest.TestCase):
         from voice_control.llm.conversation import Conversation
 
         tool_results = []
-        def my_tool(query: str) -> str:
+        def my_tool(query: str) -> ToolResult:
             tool_results.append(query)
-            return f"result for {query}"
+            return ToolResult(result={"result": f"result for {query}"})
 
         tokens = [["Direct answer."]]
         llm = _make_mock_llm(tokens)
@@ -115,9 +115,9 @@ class TestToolChaining(unittest.TestCase):
         from voice_control.llm.conversation import Conversation
 
         calls = []
-        def chain_tool(query: str) -> str:
+        def chain_tool(query: str) -> ToolResult:
             calls.append(query)
-            return f"chain({query})"
+            return ToolResult(result={"result": f"chain({query})"})
 
         # Pass 0: first tool call. Pass 1: second tool call. Pass 2: final answer.
         tokens = [
@@ -144,9 +144,9 @@ class TestToolChaining(unittest.TestCase):
         from voice_control.llm.conversation import Conversation
 
         calls = []
-        def my_tool(query: str) -> str:
+        def my_tool(query: str) -> ToolResult:
             calls.append(query)
-            return f"r({query})"
+            return ToolResult(result={"result": f"r({query})"})
 
         # Only the first pass produces a tool call.
         tokens = [
@@ -196,7 +196,7 @@ class TestRAGToolIntegration(unittest.TestCase):
     def _make_rag_conv(self):
         from voice_control.llm.conversation import Conversation
         conv = Conversation()
-        rag_tool = Tool.from_callable("retrieve", lambda q: "[graph] test evidence")
+        rag_tool = Tool.from_callable("retrieve", lambda q: ToolResult(result={"evidence": "[graph] test evidence"}))
         rag_tool.instruction = "Call when the user asks about entities."
         conv.tools["retrieve"] = rag_tool
         conv.set_system_message(
@@ -210,9 +210,9 @@ class TestRAGToolIntegration(unittest.TestCase):
         from voice_control.llm.session import Session
 
         tool_results = []
-        def retrieve(query):
+        def retrieve(query) -> ToolResult:
             tool_results.append(query)
-            return "[graph] Elden Ring is a game"
+            return ToolResult(result={"evidence": "[graph] Elden Ring is a game"})
 
         tokens = [
             ["<|tool_call>", 'call:retrieve{query:<|"|>Elden Ring<|"|>}', "<tool_call|>"],
@@ -280,7 +280,7 @@ class TestConversationState(unittest.TestCase):
         llm = _make_mock_llm(tokens)
         conv = Conversation()
         conv.set_system_message("You are helpful.")
-        conv.tools["test_tool"] = Tool.from_callable("test_tool", lambda q: "42")
+        conv.tools["test_tool"] = Tool.from_callable("test_tool", lambda q: ToolResult(result={"answer": "42"}))
         conv.add_user_message("what is the answer")
         sess = Session(llm=llm, conversation=conv)
 

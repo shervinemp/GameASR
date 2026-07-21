@@ -41,15 +41,18 @@ class TestToolSerialization(unittest.TestCase):
         self.assertEqual(t2.description, "desc")
 
     def test_call_calls_backend(self):
-        from voice_control.llm.tools import Tool
+        from voice_control.llm.tools import Tool, ToolResult
         captured = {}
-        def fn(x: int):
+        def fn(x: int) -> dict:
             captured["x"] = x
-            return x * 2
+            return {"doubled": x * 2}
         t = Tool.from_callable("double", fn)
         result = t(x=5)
         self.assertEqual(captured["x"], 5)
-        self.assertEqual(result, 10)
+        self.assertIsInstance(result, ToolResult)
+        self.assertEqual(result.speech, None)
+        self.assertIn("doubled", result.result)
+        self.assertIn("10", result.result)
 
     def test_parameter_from_dict_to_dict(self):
         from voice_control.llm.tools import Tool

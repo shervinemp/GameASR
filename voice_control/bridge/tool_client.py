@@ -2,7 +2,7 @@ from functools import partial
 from typing import List
 import zmq.asyncio
 
-from ..llm.tools import Tool
+from ..llm.tools import Tool, ToolResult
 
 
 class ToolClient:
@@ -27,7 +27,7 @@ class ToolClient:
             tools.append(t_)
         return tools
 
-    async def call_tool_async(self, tool_name: str, max_retries: int = 3, **kwargs):
+    async def call_tool_async(self, tool_name: str, max_retries: int = 3, **kwargs) -> ToolResult:
         """The generic handler for all RPC calls."""
         last_error = None
         for attempt in range(max_retries):
@@ -37,7 +37,7 @@ class ToolClient:
             try:
                 await self.socket.send_json(request)
                 if await self.socket.poll(3000 * (attempt + 1)) != 0:
-                    return await self.socket.recv_json()
+                    return ToolResult(result=await self.socket.recv_json())
                 else:
                     raise TimeoutError(f"Timeout on attempt {attempt + 1}")
             except Exception as e:
@@ -47,7 +47,7 @@ class ToolClient:
                 self.socket = self.context.socket(zmq.REQ)
                 self.socket.connect(self.endpoint)
 
-        return {"error": f"Game engine RPC failed after {max_retries} attempts: {last_error}"}
+        return ToolResult(result={"error": f"Game engine RPC failed after {max_retries} attempts: {last_error}"})
 
     def close(self):
         """Release ZMQ resources."""

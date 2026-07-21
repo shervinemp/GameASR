@@ -13,6 +13,23 @@ class ToolCall:
     arguments: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(init=False)
+class ToolResult:
+    _result: str | list | dict
+    speech: str | None = None
+    choices: dict | None = None
+
+    def __init__(self, result: str | list | dict, speech: str | None = None, choices: dict | None = None):
+        self._result = result
+        self.speech = speech
+        self.choices = choices
+
+    @property
+    def result(self) -> str:
+        r = self._result
+        return r if isinstance(r, str) else str(r)
+
+
 @dataclass
 class Tool:
     """
@@ -101,12 +118,23 @@ class Tool:
     callback: Optional[Callable] = None
     instruction: Optional[str] = None
 
-    def __call__(self, **kwargs) -> Any:
+    def __call__(self, **kwargs) -> ToolResult:
         if self.callback is None:
             raise ToolError(
                 f"Tool '{self.name}' has no callback registered."
             )
-        return self.callback(**self._parse_args(**kwargs))
+        result = self.callback(**self._parse_args(**kwargs))
+        if isinstance(result, ToolResult):
+            return result
+        if isinstance(result, dict):
+            return ToolResult(result=result)
+        if isinstance(result, str):
+            return ToolResult(result={"result": result})
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], str):
+            return ToolResult(result=result[0], speech=result[1])
+        raise TypeError(
+            f"Tool '{self.name}' callback returned {type(result).__name__}, must return a dict, str, ToolResult, or (dict, str)"
+        )
 
     def _parse_args(self, **kwargs) -> Dict[str, Any]:
         if not self.parameters or not hasattr(self.parameters, "properties"):

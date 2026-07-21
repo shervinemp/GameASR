@@ -12,7 +12,7 @@ from ..exceptions import LLMError, ToolError
 
 from .model import LLM
 from .conversation import Conversation
-from .tools import ToolCall
+from .tools import ToolCall, ToolResult
 
 
 class Session:
@@ -141,23 +141,30 @@ class Session:
                     is_final = (iteration == self.max_tool_iterations)
                     tc = "none" if is_final else "auto"
                     yield from self._generate_response(tool_choice=tc)
-                    tool_responses = self.tool_caller.gather()
-                    if not tool_responses:
+                    results = self.tool_caller.gather()
+                    if not results:
                         break
-                    self.logger.info("Iteration %d tool responses: %s", iteration, tool_responses)
-                    has_error = any(
-                        isinstance(v, str) and v.startswith("Tool Error:")
-                        for v in tool_responses.values()
-                    )
-                    for k, v in tool_responses.items():
-                        self.conversation.add_tool_message(f"{k}: {v}")
-                    if has_error:
+                    any_error = False
+                    for name, result in results.items():
+                        if isinstance(result, ToolResult):
+                            self.conversation.add_tool_message(f"{name}: {result.result}")
+                            if result.speech:
+                                self.conversation.add_assistant_message(result.speech)
+                                yield result.speech
+                            elif result.choices is None and result.speech is None:
+                                self.conversation.add_tool_message(
+                                    "Now, generate an answer based only on the returned responses."
+                                )
+                        elif isinstance(result, str) and result.startswith("Tool Error:"):
+                            any_error = True
+                            self.conversation.add_tool_message(f"{name}: {result}")
+                        else:
+                            raise TypeError(
+                                f"Tool '{name}' returned {type(result).__name__}, expected ToolResult"
+                            )
+                    if any_error:
                         self.conversation.add_tool_message(
                             "One or more tools failed to execute. Please inform the user of the error and suggest an alternative action."
-                        )
-                    else:
-                        self.conversation.add_tool_message(
-                            "Now, generate an answer based only on the returned responses."
                         )
 
             self.tool_caller.drain()

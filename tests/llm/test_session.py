@@ -46,12 +46,12 @@ class TestSessionIntegration(unittest.TestCase):
 
     def test_session_with_tool_call(self):
         from voice_control.llm.session import Session
-        from voice_control.llm.tools import Tool
+        from voice_control.llm.tools import Tool, ToolResult
         from voice_control.llm.conversation import Conversation
         tool_results = []
-        def my_tool(query: str) -> str:
+        def my_tool(query: str) -> ToolResult:
             tool_results.append(query)
-            return f"result for {query}"
+            return ToolResult(result={"result": f"result for {query}"})
         tokens = [
             "Let me check...",
             "<|tool_call>", 'call:my_tool{query:<|"|>hello<|"|>}', "<tool_call|>",
@@ -72,7 +72,7 @@ class TestSessionIntegration(unittest.TestCase):
 
     def test_session_second_pass_uses_tool_results(self):
         from voice_control.llm.session import Session
-        from voice_control.llm.tools import Tool
+        from voice_control.llm.tools import Tool, ToolResult
         from voice_control.llm.conversation import Conversation
         from voice_control.llm.decoders import GeneralDecoder
 
@@ -92,8 +92,8 @@ class TestSessionIntegration(unittest.TestCase):
                     tokens = ["Based on retrieval, the answer is 42."]
                 yield from self.decoder(iter(tokens))
 
-        def retrieve(query: str) -> str:
-            return "42"
+        def retrieve(query: str) -> ToolResult:
+            return ToolResult(result={"answer": "42"})
         conv = Conversation()
         conv.set_system_message("You are a helpful assistant.")
         conv.tools["retrieve"] = Tool.from_callable("retrieve", retrieve)
