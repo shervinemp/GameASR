@@ -395,3 +395,142 @@ class TestSessionMethods(unittest.TestCase):
         self.assertIn("done", results)
         self.assertFalse(sess._lock.locked(), "Lock still held after threaded consumption")
         sess.close()
+
+
+class TestSessionConfirm(unittest.TestCase):
+    """_confirm registration and ToolChoice handling."""
+
+    def test_register_confirm_adds_tool(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.tools import Tool, ToolChoice
+        from voice_control.llm.conversation import Conversation
+        def fn(x: int) -> ToolChoice:
+            return ToolChoice(result=str(x))
+        conv = Conversation()
+        conv.tools["test"] = Tool.from_callable("test", fn)
+        llm = MagicMock()
+        llm.create_context_strategy = MagicMock(return_value=MagicMock())
+        llm.count_tokens = MagicMock(return_value=1)
+        sess = Session(llm=llm, conversation=conv)
+        try:
+            list(sess("go"))
+            self.assertIn("_confirm", sess.conversation.tools)
+            confirm = sess.conversation.tools["_confirm"]
+            self.assertEqual(confirm.name, "_confirm")
+            self.assertIsNotNone(confirm.callback)
+        finally:
+            sess.close()
+
+    def test_no_register_when_no_choice(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.tools import Tool, ToolResult
+        from voice_control.llm.conversation import Conversation
+        def fn(x: int) -> ToolResult:
+            return ToolResult(result=str(x))
+        conv = Conversation()
+        conv.tools["test"] = Tool.from_callable("test", fn)
+        llm = MagicMock()
+        llm.create_context_strategy = MagicMock(return_value=MagicMock())
+        llm.count_tokens = MagicMock(return_value=1)
+        sess = Session(llm=llm, conversation=conv)
+        try:
+            list(sess("go"))
+            self.assertNotIn("_confirm", sess.conversation.tools)
+        finally:
+            sess.close()
+
+    def test_register_idempotent(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.tools import Tool, ToolChoice
+        from voice_control.llm.conversation import Conversation
+        conv = Conversation()
+        conv.tools["_confirm"] = Tool(name="_confirm", description="existing")
+        conv.tools["test"] = Tool.from_callable("test", lambda x: ToolChoice(result=str(x)))
+        llm = MagicMock()
+        llm.create_context_strategy = MagicMock(return_value=MagicMock())
+        llm.count_tokens = MagicMock(return_value=1)
+        sess = Session(llm=llm, conversation=conv)
+        try:
+            list(sess("go"))
+            self.assertIn("_confirm", sess.conversation.tools)
+            self.assertEqual(sess.conversation.tools["_confirm"].description, "existing")
+        finally:
+            sess.close()
+
+    def test_on_confirm_dispatches_to_tool(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.tools import Tool, ToolResult
+        from voice_control.llm.conversation import Conversation
+        captured = []
+        def fn(x: int) -> ToolResult:
+            captured.append(x)
+            return ToolResult(result={"x": x})
+        conv = Conversation()
+        conv.tools["test"] = Tool.from_callable("test", fn)
+        llm = MagicMock()
+        llm.create_context_strategy = MagicMock(return_value=MagicMock())
+        llm.count_tokens = MagicMock(return_value=1)
+        sess = Session(llm=llm, conversation=conv)
+        try:
+            result = sess._on_confirm(action="test", params={"x": 42})
+            self.assertIsInstance(result, ToolResult)
+            self.assertEqual(captured, [42])
+            self.assertIn("42", result.result)
+        finally:
+            sess.close()
+
+    def test_on_confirm_unknown_tool_raises(self):
+        from voice_control.llm.session import Session
+        from voice_control.exceptions import ToolError
+        llm = MagicMock()
+        llm.create_context_strategy = MagicMock(return_value=MagicMock())
+        llm.count_tokens = MagicMock(return_value=1)
+        sess = Session(llm=llm)
+        try:
+            with self.assertRaises(ToolError):
+                sess._on_confirm(action="nonexistent", params={})
+        finally:
+            sess.close()
+
+    def test_tool_choice_injects_assistant_message(self):
+        from voice_control.llm.session import Session
+        from voice_control.llm.tools import Tool, ToolChoice
+        from voice_control.llm.conversation import Conversation
+        from voice_control.llm.decoders import GeneralDecoder
+
+        class ChoiceLLM:
+            decoder = GeneralDecoder()
+            called = False
+            def create_context_strategy(self, max_turns=20):
+                from voice_control.llm.context import DropOldestStrategy
+                return DropOldestStrategy(max_turns)
+            def count_tokens(self, text):
+                return max(1, len(text) // 2)
+            def __call__(self, conversation, session_state=None, **kwargs):
+                if not self.called:
+                    self.called = True
+                    from voice_control.llm.tools import ToolCall
+                    yield ToolCall(name="test", arguments={"x": 5})
+                else:
+                    yield "Got it."
+
+        captured = []
+        def fn(x: int) -> ToolChoice:
+            captured.append(x)
+            return ToolChoice(result={"slot": ["1", "2", "3"]}, speech="Which slot?")
+        conv = Conversation()
+        conv.set_system_message("You are helpful.")
+        conv.tools["test"] = Tool.from_callable("test", fn)
+        llm = ChoiceLLM()
+        llm.logger = MagicMock()
+        sess = Session(llm=llm, conversation=conv)
+        try:
+            text = list(sess("choose"))
+            roles = [m["role"] for m in conv.messages]
+            self.assertIn("tool", roles)
+            assistant_msgs = [m for m in conv.messages if m["role"] == "assistant"]
+            self.assertTrue(any("_confirm" in m["content"] for m in assistant_msgs),
+                            "assistant message should mention _confirm")
+            self.assertIn("Which slot?", "".join(text), "speech should be yielded")
+        finally:
+            sess.close()

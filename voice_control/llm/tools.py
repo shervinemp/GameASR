@@ -249,7 +249,8 @@ class Tool:
 
         if may_return_choice is None:
             ret_hint = inspect.get_annotations(fn, globals=fn.__globals__).get('return', None)
-            may_return_choice = _returns_choice(ret_hint)
+            if _returns_choice(ret_hint):
+                may_return_choice = True
 
         tool = Tool(
             name=name,

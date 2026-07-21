@@ -1,6 +1,112 @@
 import unittest
 
 
+class TestToolResultChoice(unittest.TestCase):
+    """ToolChoice and ToolResult behavior."""
+
+    def test_tool_choice_result_prefix(self):
+        from voice_control.llm.tools import ToolChoice
+        c = ToolChoice(result={"slot": ["1", "2"]})
+        self.assertIn("Available options:", c.result)
+        self.assertIn("slot", c.result)
+        self.assertIn("1", c.result)
+
+    def test_tool_choice_inherits_speech(self):
+        from voice_control.llm.tools import ToolChoice
+        c = ToolChoice(result="test", speech="Which one?")
+        self.assertEqual(c.speech, "Which one?")
+
+    def test_tool_choice_no_speech(self):
+        from voice_control.llm.tools import ToolChoice
+        c = ToolChoice(result=["a", "b"])
+        self.assertIsNone(c.speech)
+
+    def test_tool_choice_is_tool_result(self):
+        from voice_control.llm.tools import ToolChoice, ToolResult
+        self.assertTrue(issubclass(ToolChoice, ToolResult))
+
+
+class TestReturnsChoice(unittest.TestCase):
+    """_returns_choice annotation inspection."""
+
+    def test_bare_tool_choice(self):
+        from voice_control.llm.tools import _returns_choice, ToolChoice
+        self.assertTrue(_returns_choice(ToolChoice))
+
+    def test_optional_tool_choice(self):
+        from typing import Optional
+        from voice_control.llm.tools import _returns_choice, ToolChoice
+        self.assertTrue(_returns_choice(Optional[ToolChoice]))
+
+    def test_union_tool_choice(self):
+        from typing import Union
+        from voice_control.llm.tools import _returns_choice, ToolChoice, ToolResult
+        self.assertTrue(_returns_choice(Union[ToolChoice, ToolResult]))
+
+    def test_bare_str(self):
+        from voice_control.llm.tools import _returns_choice
+        self.assertFalse(_returns_choice(str))
+
+    def test_none_type(self):
+        from voice_control.llm.tools import _returns_choice
+        self.assertFalse(_returns_choice(type(None)))
+
+    def test_none_value(self):
+        from voice_control.llm.tools import _returns_choice
+        self.assertFalse(_returns_choice(None))
+
+    def test_list_of_str(self):
+        from voice_control.llm.tools import _returns_choice
+        self.assertFalse(_returns_choice(list[str]))
+
+
+class TestMayReturnChoice(unittest.TestCase):
+    """Tool.may_return_choice from_callable behavior."""
+
+    def test_inferred_from_annotation(self):
+        from voice_control.llm.tools import Tool, ToolChoice, ToolResult
+        def fn(x: int) -> ToolChoice:
+            return ToolChoice(result=str(x))
+        t = Tool.from_callable("test", fn)
+        self.assertTrue(t.may_return_choice)
+
+    def test_inferred_from_optional_annotation(self):
+        from typing import Optional
+        from voice_control.llm.tools import Tool, ToolChoice, ToolResult
+        def fn(x: int) -> Optional[ToolChoice]:
+            return ToolChoice(result=str(x))
+        t = Tool.from_callable("test", fn)
+        self.assertTrue(t.may_return_choice)
+
+    def test_not_inferred_when_tool_result(self):
+        from voice_control.llm.tools import Tool, ToolResult
+        def fn(x: int) -> ToolResult:
+            return ToolResult(result=str(x))
+        t = Tool.from_callable("test", fn)
+        self.assertIsNone(t.may_return_choice)
+
+    def test_not_inferred_when_str(self):
+        from voice_control.llm.tools import Tool
+        def fn(x: int) -> str:
+            return str(x)
+        t = Tool.from_callable("test", fn)
+        self.assertIsNone(t.may_return_choice)
+
+    def test_manual_true(self):
+        from voice_control.llm.tools import Tool, ToolResult
+        def fn(x: int) -> ToolResult:
+            return ToolResult(result=str(x))
+        t = Tool.from_callable("test", fn, may_return_choice=True)
+        self.assertTrue(t.may_return_choice)
+
+    def test_manual_false(self):
+        from voice_control.llm.tools import Tool, ToolChoice
+        def fn(x: int) -> ToolChoice:
+            return ToolChoice(result=str(x))
+        t = Tool.from_callable("test", fn, may_return_choice=False)
+        self.assertFalse(t.may_return_choice)
+
+
 class TestToolSerialization(unittest.TestCase):
     """Tool schema generation, from_callable, to_dict."""
 
