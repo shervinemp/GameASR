@@ -11,7 +11,7 @@ from ...common.utils import get_logger
 from ...exceptions import ASRError
 
 _asr_lock = threading.Lock()
-_vad_lock = threading.Lock()
+_vad_lock = _asr_lock  # ONNX Runtime is not thread-safe — single lock for all ONNX sessions
 
 
 class ParakeetV2(ModelBase):
@@ -162,7 +162,12 @@ class Silero(ConsumerProducer):
                     buffer.append(c)
                 else:
                     if len(buffer) >= 10:
-                        seg = np.concatenate(buffer)
+                        try:
+                            seg = np.concatenate(buffer)
+                        except ValueError:
+                            self.logger.warning("VAD buffer shape mismatch, dropping segment")
+                            buffer.clear()
+                            continue
                         self.logger.debug("VAD yielded segment of %d samples", len(seg))
                         yield seg
                         buffer.clear()

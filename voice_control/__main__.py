@@ -1,5 +1,8 @@
 import argparse
+import faulthandler
 import sys
+
+faulthandler.enable()
 
 from .pipeline import Pipeline
 

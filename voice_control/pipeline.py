@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import faulthandler
 import sys
 import threading
 from typing import Callable, Optional
@@ -139,7 +140,7 @@ class Pipeline:
 
     def _start_watchdog(self):
         """Background thread that logs a warning if the main loop stalls."""
-        import threading
+        import threading, time
         def _watch():
             while self._running:
                 time.sleep(30)
@@ -461,10 +462,9 @@ class Pipeline:
 
 
 def main():
-    """
-    Main function to run the pipeline.
-    """
-    setup_logging(log_level="DEBUG")
+    """Main function to run the pipeline."""
+    faulthandler.enable()
+    setup_logging(log_level="INFO")
     logger = get_logger(__name__)
 
     load_dotenv()
