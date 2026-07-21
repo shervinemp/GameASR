@@ -152,6 +152,7 @@ class Session:
                         "Now, generate an answer based only on the returned responses."
                     )
                 yield from self._generate_response(tool_choice="none")
+                self.tool_caller.drain()
 
     def _generate_response(self, _retry_count: int = 0, **kwargs) -> Generator[str, None, None]:
         if _retry_count > 2:
@@ -160,6 +161,7 @@ class Session:
             return
 
         response_chunks = []
+        tool_dispatched = False
         llm_stream = self.llm(
             self.conversation, session_state=self._session_state, **kwargs
         )
@@ -185,15 +187,21 @@ class Session:
                     )
                     yield from self._generate_response(_retry_count=_retry_count + 1, tool_choice="none")
                     return
-                self.tool_caller(tool, **tool_args)
+                tool_dispatched = True
+                response_chunks.clear()
+                if kwargs.get("tool_choice") != "none":
+                    self.tool_caller(tool, **tool_args)
+                else:
+                    self.logger.warning("Spurious tool call in final pass, ignoring %s", tool_name)
             else:
                 response_chunks.append(chunk)
-                yield chunk
 
-        final_response = "".join(response_chunks)
-        if final_response:
-            self.conversation.add_assistant_message(final_response)
-            self.logger.info(f"response={final_response}")
+        if not tool_dispatched:
+            final_response = "".join(response_chunks)
+            if final_response:
+                self.conversation.add_assistant_message(final_response)
+                self.logger.info(f"response={final_response}")
+                yield final_response
 
 
 class ToolCaller:
@@ -237,6 +245,16 @@ class ToolCaller:
                 )
 
         return responses
+
+    def drain(self):
+        """Cancel any leftover tool futures (spurious second-pass calls)."""
+        drained = 0
+        while not self._futures.empty():
+            _, future = self._futures.get()
+            future.cancel()
+            drained += 1
+        if drained:
+            self.logger.debug("Drained %d stale tool future(s)", drained)
 
     def start(self):
         """Starts the background asyncio event loop for tool execution."""

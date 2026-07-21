@@ -21,7 +21,7 @@ class AudioPlayer:
             f"AudioPlayer initialized. Using device: '{device_name}' (ID: {output_device})"
         )
 
-        self._queue = Queue(maxsize=5)
+        self._queue = Queue(maxsize=32)
         self._queue_lock = threading.Lock()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._running = False
