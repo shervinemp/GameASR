@@ -53,8 +53,12 @@ class ParakeetV2(ModelBase):
         super().__init__(sound_device)
 
         # Warm up ONNX model to avoid cold start latency on first utterance
-        dummy = np.zeros(self._vad._model.SAMPLE_RATE, dtype=np.float32)
-        self._model.recognize(dummy, sample_rate=self._vad._model.SAMPLE_RATE)
+        try:
+            sr = self._vad._model.SAMPLE_RATE
+            dummy = np.zeros(sr, dtype=np.float32)
+            self._model.recognize(dummy, sample_rate=sr)
+        except Exception:
+            self.logger.warning("ONNX warmup failed (may affect first-utterance latency)")
 
     def _consume(self, chunk: Iterable[float]):
         if self._is_muted.is_set():

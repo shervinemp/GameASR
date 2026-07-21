@@ -73,8 +73,11 @@ class Kokoro:
 
     def _synthesize(self, text: str, voice: str, language: str, speed: float, interrupt: bool):
         text = re.sub(r'[*_~`´<>]', '', text)
-        import emoji
-        text = emoji.demojize(text).strip()
+        try:
+            import emoji
+            text = emoji.demojize(text).strip()
+        except ImportError:
+            text = text.strip()
         if not text:
             self.logger.warning("Empty text after sanitization. Skipping TTS.")
             return np.array([], dtype=np.float32), 0
