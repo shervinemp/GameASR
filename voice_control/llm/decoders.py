@@ -154,3 +154,116 @@ class GemmaE2BDecoder(StreamDecoder):
 
         if buffer and not in_tool and not in_thought:
             yield buffer
+
+
+class MultiFormatDecoder(StreamDecoder):
+    """Matches tag formats by opener priority — auto-sorted by length (longest first).
+
+    Each format has open/close search strings and a body parser.
+    Longer openers are checked first so e.g. ``<|tool_call|>``
+    beats ``<toolcall>`` which beats ``<``.
+    """
+
+    def __init__(self, formats: list[dict] | None = None):
+        raw = formats or [
+            {"open": "<|tool_call>", "close": "<tool_call|>", "parse": "call:"},
+            {"open": "<toolcall>", "close": "</toolcall>", "parse": "json"},
+            {"open": "&lt;toolcall&gt;", "close": "&lt;/toolcall&gt;", "parse": "json"},
+            {"open": "<|channel>thought", "close": "<channel|>", "parse": "thought"},
+        ]
+        self.formats = sorted(raw, key=lambda f: -len(f["open"]))
+
+    def __call__(self, stream: Iterator[str | dict | ToolCall]) -> Generator[str | dict | ToolCall, None, None]:
+        buffer = ""
+        active = None
+        body = ""
+
+        for chunk in stream:
+            if isinstance(chunk, (dict, ToolCall)):
+                yield chunk
+                return
+
+            buffer += chunk
+
+            while buffer:
+                # If we're inside a tag, look for the closing marker
+                if active is not None:
+                    if active["parse"] == "thought":
+                        idx = buffer.find(active["close"])
+                        if idx != -1:
+                            buffer = buffer[idx + len(active["close"]):]
+                            active = None
+                            continue
+                        break
+
+                    idx = buffer.find(active["close"])
+                    if idx != -1:
+                        body += buffer[:idx]
+                        yield from self._emit(body.strip(), active["parse"])
+                        return
+                    # Body accumulates until close arrives
+                    body += buffer
+                    buffer = ""
+                    break
+
+                # Not in a tag — search for any opener (priority order)
+                matched = None
+                for fmt in self.formats:
+                    idx = buffer.find(fmt["open"])
+                    if idx != -1:
+                        matched = fmt
+                        pre = buffer[:idx]
+                        if pre:
+                            yield pre
+                        buffer = buffer[idx + len(fmt["open"]):]
+                        if fmt["parse"] == "thought":
+                            active = fmt  # enter thought, drop body
+                            body = ""
+                        else:
+                            active = fmt
+                            body = ""
+                        break
+
+                if matched:
+                    continue
+
+                # Safety: hold back text ending with partial tag characters
+                safe = max(buffer.rfind("<"), buffer.rfind("&"))
+                if safe != -1 and len(buffer) - safe < 15:
+                    if safe > 0:
+                        yield buffer[:safe]
+                        buffer = buffer[safe:]
+                    break
+                yield buffer
+                buffer = ""
+
+        if buffer and active is None:
+            yield buffer
+
+    def _emit(self, body: str, fmt: str):
+        if fmt == "call:":
+            if body.startswith("call:"):
+                m = re.match(r"call:([a-zA-Z0-9_]+)(.*)", body, re.DOTALL)
+                if m:
+                    name = m.group(1).strip()
+                    args = m.group(2).strip()
+                    args = args.replace('<|"|>', '"')
+                    args = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)(\s*:)', r'\1"\2"\3', args)
+                    try:
+                        yield ToolCall(name=name, arguments=json.loads(args))
+                        return
+                    except json.JSONDecodeError:
+                        _log.warning("Failed to parse call-format args: %s", args[:200])
+                yield ToolCall(name="_parse_error", arguments={"raw": body})
+            return
+        if fmt == "json":
+            try:
+                d = json.loads(body)
+                yield ToolCall(
+                    name=d.get("name") or d.get("function"),
+                    arguments=d.get("arguments", {}),
+                )
+            except Exception as e:
+                _log.warning("Failed to parse tool call: %s — %s", body[:200], e)
+                yield ToolCall(name="_parse_error", arguments={"raw": body})
+            return
