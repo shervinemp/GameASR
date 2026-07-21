@@ -337,7 +337,6 @@ class Pipeline:
                     rules.append(f"- {' '.join(tool.instruction.split())}")
 
             rules.extend([
-                "- To call a tool, output: <toolcall>{\"name\": \"tool_name\", \"arguments\": {}}</toolcall>",
                 "- If the user's message seems incomplete or cut off, ask what they meant before proceeding.",
                 "- If you're about to perform an important action, confirm briefly before doing it.",
             ])

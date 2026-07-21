@@ -135,9 +135,7 @@ class GGUFLLM(LLM):
         tool_choice: str | Dict[str, Any] = "auto",
         **kwargs,
     ) -> Generator[str | ToolCall, None, None]:
-        print(f"[LOCK] GGUFLLM._infer waiting for model lock", flush=True)
         with self._lock:
-            print(f"[LOCK] GGUFLLM._infer acquired model lock", flush=True)
             if self._last_state and id(self._last_state) != id(session_state):
                 k_ = "model_state"
                 self._last_state[k_] = self.model.save_state()
@@ -147,9 +145,6 @@ class GGUFLLM(LLM):
 
             self._last_state = session_state
 
-            import time as _time
-            _t0 = _time.monotonic()
-            print(f"[GGUF_INFER] starting create_chat_completion at {_t0:.3f}", flush=True)
             stream = self.model.create_chat_completion(
                 messages=conversation.messages,
                 tools=[t.to_dict() for t in conversation.tools.values()],
@@ -159,17 +154,12 @@ class GGUFLLM(LLM):
                 **kwargs,
             )
 
-            _chunk_count = 0
             for chunk in stream:
-                _chunk_count += 1
-                _now = _time.monotonic()
                 delta = chunk["choices"][0]["delta"]
 
                 # Handle standard text content
                 if "content" in delta and delta["content"]:
-                    c = delta["content"]
-                    print(f"[GGUF_INFER] [{_now-_t0:.3f}s] chunk#{_chunk_count} len={len(c)} first={ord(c[0]) if c else 0}", flush=True)
-                    yield c
+                    yield delta["content"]
 
                 # Handle native tool calls from llama.cpp
                 elif "tool_calls" in delta:
@@ -177,17 +167,15 @@ class GGUFLLM(LLM):
                         if tool_call.get("type") == "function":
                             func_info = tool_call["function"]
                             try:
-                                # Parse the JSON string arguments into a dictionary
                                 args_dict = json.loads(func_info.get("arguments", "{}"))
                             except json.JSONDecodeError:
                                 args_dict = {}
 
-                            # Yield the ToolCall format expected by Session._generate_response
                             yield ToolCall(
                                 name=func_info["name"],
                                 arguments=args_dict
                             )
-                            return # Halt stream!
+                            return
 
 
 class LiteLLMProvider(LLM):

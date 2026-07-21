@@ -124,9 +124,7 @@ class Session:
     def __call__(
         self, query: str | None = None, **kwargs
     ) -> Generator[str, None, None]:
-        print(f"[LOCK] Session.__call__ waiting for lock (thread={threading.current_thread().name})", flush=True)
         with self._lock:
-            print(f"[LOCK] Session.__call__ acquired lock", flush=True)
             if query:
                 self.conversation.add_user_message(query)
                 self.logger.info(f"{query=}")
