@@ -35,9 +35,10 @@ class Session:
         self._lock = threading.Lock()
 
         self.tool_caller.start()
-        self._register_confirm()
 
     def _register_confirm(self):
+        if "_confirm" in self.conversation.tools:
+            return
         if not any(
             getattr(t, "may_return_choice", False)
             for t in self.conversation.tools.values()
@@ -156,6 +157,7 @@ class Session:
         self, query: str | None = None, **kwargs
     ) -> Generator[str, None, None]:
         with self._lock:
+            self._register_confirm()
             if query:
                 self.conversation.add_user_message(query)
                 self.logger.info(f"{query=}")

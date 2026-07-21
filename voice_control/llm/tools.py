@@ -12,8 +12,6 @@ def _returns_choice(annotation) -> bool:
     origin = get_origin(annotation)
     if origin is Union:
         return any(_returns_choice(a) for a in get_args(annotation))
-    if origin is type(None) or origin is None:
-        return False
     try:
         return issubclass(annotation, ToolChoice)
     except TypeError:
