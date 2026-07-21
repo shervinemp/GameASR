@@ -1,9 +1,10 @@
-from queue import Empty, Queue
 import threading
 import time
+from queue import Empty, Queue
 from typing import Any, Callable, Generator, Iterable
 from collections import deque
 import numpy as np
+import onnxruntime as ort
 
 from .base import ModelBase
 from ...common.base import ConsumerProducer
@@ -11,7 +12,10 @@ from ...common.utils import get_logger
 from ...exceptions import ASRError
 
 _asr_lock = threading.Lock()
-_vad_lock = _asr_lock  # ONNX Runtime is not thread-safe — single lock for all ONNX sessions
+_vad_lock = threading.Lock()
+_onnx_opts = ort.SessionOptions()
+_onnx_opts.intra_op_num_threads = 1
+_onnx_opts.inter_op_num_threads = 1
 
 
 class ParakeetV2(ModelBase):
@@ -34,7 +38,8 @@ class ParakeetV2(ModelBase):
                 sound_device = 0
 
         self._model = load_model(
-            "nemo-parakeet-tdt-0.6b-v2", quantization="int8"
+            "nemo-parakeet-tdt-0.6b-v2", quantization="int8",
+            sess_options=_onnx_opts,
         )
 
         # Read VAD settings from config before initializing Silero
@@ -111,7 +116,7 @@ class Silero(ConsumerProducer):
 
         self.logger = get_logger(__name__)
 
-        self._model = load_vad("silero")
+        self._model = load_vad("silero", sess_options=_onnx_opts)
         self._queue = Queue(maxsize=1000)
 
         self._lock = _vad_lock
@@ -183,10 +188,10 @@ class Silero(ConsumerProducer):
                 self.reset()
             return
 
-        acquired = self._lock.acquire(blocking=False)
-        if not acquired:
-            self.logger.debug("VAD lock contended, dropping chunk")
-            return
+        if not self._lock.acquire(timeout=0.01):
+            self.logger.warning("ONNX lock contested (10ms), waiting...")
+            self._lock.acquire()
+
 
         try:
             # Force-flush if segment exceeds max duration (safety net for
