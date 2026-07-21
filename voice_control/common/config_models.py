@@ -24,6 +24,7 @@ class LLMConfig(BaseModel):
     provider: str
     models: LLMModelsConfig
     providers: dict
+    max_tool_iterations: int = Field(default=1, ge=0, description="0 = tools disabled, 1 = single call, N = N+1 max passes")
 
 
 class TTSConfig(BaseModel):
