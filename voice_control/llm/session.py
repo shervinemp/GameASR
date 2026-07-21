@@ -235,8 +235,7 @@ class ToolCaller:
                 responses[tool_name] = future.result(timeout=10.0)
                 self.logger.debug("Gathered tool %s: %s", tool_name, str(responses[tool_name])[:80])
             except TimeoutError:
-                future.cancel()
-                responses[tool_name] = f"Tool Error: {tool_name} timed out after 10s"
+                responses[tool_name] = f"Tool Error: {tool_name} timed out"
                 self.logger.error(f"Tool {tool_name} timed out")
             except Exception as e:
                 responses[tool_name] = f"Tool Error: {e}"
