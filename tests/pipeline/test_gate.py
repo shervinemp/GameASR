@@ -22,11 +22,10 @@ class TestTranscriptGate(unittest.TestCase):
         text, ann = self._gate("yes")
         self.assertEqual(text, "yes")
 
-    def test_annotation_for_hanging_word(self):
+    def test_complete_sentence_passes(self):
         text, ann = self._gate("I think that")
-        self.assertIsNotNone(text)
-        self.assertIsNotNone(ann)
-        self.assertIn("partial", ann)
+        self.assertEqual(text, "I think that")
+        self.assertIsNone(ann)
 
     def test_no_annotation_for_complete_sentence(self):
         text, ann = self._gate("I think that is correct.")
