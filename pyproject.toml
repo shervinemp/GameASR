@@ -7,7 +7,7 @@ license = "MIT"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "emoji>=2.14,<3",
-    "numpy~=2.3.0",
+    "numpy>=2.4,<3",
     "pydantic>=2.10,<3",
     "pynput~=1.7.6",
     "python-dotenv~=1.1.1",
@@ -35,11 +35,11 @@ asr = [
     "onnxruntime~=1.22.1",
 ]
 tts = [
-    "huggingface-hub~=0.32.4",
+    "huggingface-hub~=0.32.6",
     "kokoro-onnx~=0.4.9",
 ]
 gguf = [
-    "huggingface-hub~=0.32.4",
+    "huggingface-hub~=0.32.6",
     "llama-cpp-python>=0.3.16",
     "tiktoken>=0.7,<1",
 ]
@@ -47,17 +47,17 @@ litellm = [
     "litellm~=1.92.0",
 ]
 rag = [
-    "ddgs~=9.0.0",
-    "neo4j~=5.28.1",
-    "neo4j-graphrag~=1.9.0",
+    "ddgs~=9.0.2",
+    "neo4j~=5.28.3",
+    "neo4j-graphrag~=1.9.1",
     "pandas>=2.2,<3",
-    "sentence-transformers~=5.0.0",
+    "sentence-transformers>=5.0,<6",
 ]
 sqlite = [
     "sqlite-vec>=0.1.0",
 ]
 hf = [
-    "huggingface-hub~=0.32.4",
+    "huggingface-hub~=0.32.6",
 ]
 all = [
     "voice-control[asr,tts,gguf,litellm,rag,sqlite,hf]",
