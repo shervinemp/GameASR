@@ -40,12 +40,7 @@ class AudioPlayer:
                 continue
 
             self.logger.debug("AudioPlayer playing %d samples at %dHz (gen=%d)", len(audio_data), sample_rate, gen)
-            sd.play(audio_data, samplerate=sample_rate, device=self.output_device, blocking=False)
-            while sd.get_stream() is not None and sd.get_stream().active:
-                if self._gen != gen:
-                    sd.stop()
-                    break
-                time.sleep(0.05)
+            sd.play(audio_data, samplerate=sample_rate, device=self.output_device, blocking=True)
 
     def __call__(
         self,
