@@ -22,12 +22,14 @@ class Session:
         llm: LLM,
         conversation: Optional[Conversation] = None,
         max_turns: int = 20,
+        max_tool_iterations: int = 1,
     ):
         self.logger = get_logger(__name__)
         self.llm = llm
         self.conversation = conversation or Conversation()
         self.tool_caller = ToolCaller()
         self._context_strategy = llm.create_context_strategy(max_turns)
+        self.max_tool_iterations = max_tool_iterations
 
         self._session_state = dict()
         self._lock = threading.Lock()
@@ -131,18 +133,23 @@ class Session:
 
             self._context_strategy.trim(self.conversation, self.llm)
             self.logger.info("Starting LLM call...")
-            yield from self._generate_response()
-            self.logger.info("First LLM call complete, gathering tools...")
 
-            tool_responses = self.tool_caller.gather()
-            self.logger.info("Tool responses: %s", tool_responses)
-            if tool_responses:
-                has_error = False
+            for iteration in range(self.max_tool_iterations + 1):
+                is_final = (iteration == self.max_tool_iterations)
+                tc = "none" if is_final else kwargs.get("tool_choice", "auto")
+                yield from self._generate_response(tool_choice=tc)
+
+                tool_responses = self.tool_caller.gather()
+                if not tool_responses:
+                    break
+
+                self.logger.info("Iteration %d tool responses: %s", iteration, tool_responses)
+                has_error = any(
+                    isinstance(v, str) and v.startswith("Tool Error:")
+                    for v in tool_responses.values()
+                )
                 for k, v in tool_responses.items():
-                    if isinstance(v, str) and v.startswith("Tool Error:"):
-                        has_error = True
                     self.conversation.add_tool_message(f"{k}: {v}")
-
                 if has_error:
                     self.conversation.add_tool_message(
                         "One or more tools failed to execute. Please inform the user of the error and suggest an alternative action."
@@ -151,8 +158,8 @@ class Session:
                     self.conversation.add_tool_message(
                         "Now, generate an answer based only on the returned responses."
                     )
-                yield from self._generate_response(tool_choice="none")
-                self.tool_caller.drain()
+
+            self.tool_caller.drain()
 
     def _generate_response(self, _retry_count: int = 0, **kwargs) -> Generator[str, None, None]:
         if _retry_count > 2:

@@ -16,6 +16,9 @@ database:
 llm:
   # Provider: one of Qwen3, Gemma4E2B, Gemma4_12B (GGUF/local), or LiteLLM (remote).
   provider: "Gemma4_12B"
+  # Maximum tool-calling iterations per utterance.
+  # 1 = single tool call (current behavior). 2+ = chaining (tool can call another).
+  max_tool_iterations: 1
 
   # --- Model specifications ---
   models:
