@@ -128,7 +128,7 @@ class Silero(ConsumerProducer):
         self.on_audio_level: Callable | None = None
         self._gate = audio_gate
         self._gate_active = False
-        self._onset_min_chunks = 7  # 7 × 32ms = 224ms sustained speech before firing on_speech_onset
+        self._min_speech_chunks = 5  # 5 × 32ms = 160ms — unified: onset gate + ASR yield
 
         self.reset()
 
@@ -163,7 +163,7 @@ class Silero(ConsumerProducer):
                 continue
 
             if c is None:
-                if len(buffer) >= 10:
+                if len(buffer) >= self._min_speech_chunks:
                     try:
                         seg = self._to_mono(buffer)
                     except (ValueError, Exception) as e:
@@ -193,7 +193,7 @@ class Silero(ConsumerProducer):
                 self._pre_speech_buffer.append(c)
                 if is_loud:
                     self._onset_counter = getattr(self, "_onset_counter", 0) + 1
-                    if self._onset_counter >= self._onset_min_chunks:
+                    if self._onset_counter >= self._min_speech_chunks:
                         self._is_speech_segment = True
                         self._segment_start_time = time.monotonic()
                         self.logger.debug("VAD speech onset (prob=%.3f)", speech_prob)
