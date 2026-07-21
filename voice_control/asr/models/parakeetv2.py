@@ -128,6 +128,7 @@ class Silero(ConsumerProducer):
         self.on_audio_level: Callable | None = None
         self._gate = audio_gate
         self._gate_active = False
+        self._onset_min_chunks = 7  # 7 × 32ms = 224ms sustained speech before firing on_speech_onset
 
         self.reset()
 
@@ -191,14 +192,18 @@ class Silero(ConsumerProducer):
             if not self._is_speech_segment:
                 self._pre_speech_buffer.append(c)
                 if is_loud:
-                    self._is_speech_segment = True
-                    self._segment_start_time = time.monotonic()
-                    self.logger.debug("VAD speech onset (prob=%.3f)", speech_prob)
-                    if self.on_speech_onset:
-                        self.on_speech_onset()
-                    buffer.extend(self._pre_speech_buffer)
-                    buffer.append(c)
-                    self._silence_counter = 0
+                    self._onset_counter = getattr(self, "_onset_counter", 0) + 1
+                    if self._onset_counter >= self._onset_min_chunks:
+                        self._is_speech_segment = True
+                        self._segment_start_time = time.monotonic()
+                        self.logger.debug("VAD speech onset (prob=%.3f)", speech_prob)
+                        if self.on_speech_onset:
+                            self.on_speech_onset()
+                        buffer.extend(self._pre_speech_buffer)
+                        buffer.append(c)
+                        self._silence_counter = 0
+                else:
+                    self._onset_counter = 0
                 continue
 
             buffer.append(c)
@@ -209,6 +214,7 @@ class Silero(ConsumerProducer):
                     if elapsed > self.max_segment_duration:
                         self._is_speech_segment = False
                         self._silence_counter = 0
+                        self._onset_counter = 0
                         self._segment_start_time = time.monotonic()
                         self._queue.put(None)
             else:
@@ -216,6 +222,7 @@ class Silero(ConsumerProducer):
                 if self._silence_counter >= self._trailing_silent_chunks:
                     self._is_speech_segment = False
                     self._silence_counter = 0
+                    self._onset_counter = 0
                     self._gate_active = False
                     self.logger.debug("VAD speech offset after %d silent chunks", self._trailing_silent_chunks)
                     self._queue.put(None)
