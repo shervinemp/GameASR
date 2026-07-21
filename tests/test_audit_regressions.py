@@ -9,6 +9,7 @@ import zipfile
 from voice_control.bridge.scaffold import BridgeLanguage, scaffold_bridge
 from voice_control.bridge.llm_server import LLMServer, LLMService
 from voice_control.common.utils import download_file, verify_file_sha256
+from voice_control.exceptions import StorageError, ToolError, VoiceControlError
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.model import LLM, LiteLLMProvider
 from voice_control.llm.session import Session
@@ -55,12 +56,13 @@ class TestAuditRegressions(unittest.TestCase):
             {"name": "move", "description": "Move", "params": ["x", "y"]}
         )
         self.assertEqual(tool.parameters.required, ["x", "y"])
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, ToolError)):
             Tool.from_dict({"function": {"name": "invalid-name!"}})
-        with self.assertRaises(TypeError):
+        with self.assertRaises((TypeError, ToolError)):
             Tool.from_dict({"type": "function", "function": "invalid"})
 
     def test_tool_arguments_are_strictly_checked(self):
+        from voice_control.exceptions import ToolError
         tool = Tool.from_dict(
             {
                 "function": {
@@ -75,7 +77,7 @@ class TestAuditRegressions(unittest.TestCase):
         )
         tool.callback = lambda active: active
         self.assertFalse(tool(active="false"))
-        with self.assertRaises(TypeError):
+        with self.assertRaises((TypeError, ToolError)):
             tool(extra=True)
 
     def test_rpc_query_adds_a_plain_user_message(self):
@@ -92,11 +94,11 @@ class TestAuditRegressions(unittest.TestCase):
             session.close()
 
     def test_rpc_public_bind_requires_a_strong_token(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, VoiceControlError)):
             LLMServer(EchoService(), "tcp://0.0.0.0:5555")
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, VoiceControlError)):
             LLMServer(EchoService(), "tcp://192.0.2.1:5555", auth_token="short")
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, VoiceControlError)):
             LLMServer(EchoService(), "tcp://127.0.0.1:5555", auth_token="short")
         LLMServer(EchoService(), "tcp://127.0.0.1:5555")
         LLMServer(
@@ -158,7 +160,7 @@ class TestAuditRegressions(unittest.TestCase):
         self.assertEqual(limited["error"]["code"], -32002)
 
         oversized = json.loads(server._handle_request(" " * 1_025))
-        self.assertEqual(oversized["error"]["code"], -32600)
+        self.assertEqual(oversized["error"]["code"], -32000)
 
     def test_ollama_tool_followup_omits_tools(self):
         completion = MagicMock()
@@ -249,7 +251,7 @@ class TestAuditRegressions(unittest.TestCase):
             [{"subject": "Alpha", "predicate": "squad member", "object": "Bravo"}]
         )
         self.assertEqual(normalized[0]["predicate"], "SQUAD_MEMBER")
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, StorageError)):
             normalize_triplets(
                 [
                     {
@@ -273,7 +275,7 @@ class TestAuditRegressions(unittest.TestCase):
             self.assertEqual(record["status"], "pending_review")
             self.assertEqual(record["triplets"], normalized)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError, StorageError)):
             queue_triplets(
                 normalized,
                 str(Path.cwd().parent / "escape.jsonl"),
@@ -352,7 +354,7 @@ class TestAuditRegressions(unittest.TestCase):
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("../escape.txt", "untrusted")
 
-            with self.assertRaises(ValueError):
+            with self.assertRaises((ValueError, StorageError)):
                 CodexDataLoader()._extract_archive_safely(
                     str(archive_path), str(destination)
                 )

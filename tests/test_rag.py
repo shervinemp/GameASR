@@ -341,6 +341,7 @@ class TestParetoRetrieval(unittest.TestCase):
             return_value=("[graph] evidence", "approved answer")
         )
         rag.composer = MagicMock()
+        rag._backend = None
         rag._graph = None
         rag._web_search_enabled = False
 
@@ -455,7 +456,8 @@ class TestKnowledgeGraphQueries(unittest.TestCase):
     def test_remote_plaintext_neo4j_uri_is_rejected(self):
         from voice_control.rag.knowledge import KnowledgeGraph
 
-        with self.assertRaises(ValueError):
+        from voice_control.exceptions import StorageError
+        with self.assertRaises(StorageError):
             KnowledgeGraph._validate_uri("bolt://192.0.2.10:7687")
         KnowledgeGraph._validate_uri("bolt://127.0.0.1:7687")
         KnowledgeGraph._validate_uri("neo4j+s://db.example.com:7687")

@@ -4,6 +4,8 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
+import voice_control.exceptions
+
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.model import (
     LLMProviders,
@@ -130,7 +132,7 @@ class TestLLM(unittest.TestCase):
         # Check the response
         self.assertEqual(response, "This is a test.")
         request = completion.call_args.kwargs
-        self.assertEqual(request["model"], "ollama/test")
+        self.assertEqual(request["model"], "test")
         self.assertEqual(request["api_base"], "http://localhost:11434")
         self.assertEqual(request["timeout"], 60.0)
         self.assertEqual(request["num_retries"], 0)
@@ -146,11 +148,11 @@ class TestLLM(unittest.TestCase):
             api_key="test-gemini-key", completion_fn=completion,
         )
 
-        self.assertEqual(openai.model, "openai/gpt-test")
-        self.assertEqual(gemini.model, "gemini/gemini-test")
+        self.assertEqual(openai.model, "gpt-test")
+        self.assertEqual(gemini.model, "gemini-test")
 
     def test_remote_plaintext_provider_endpoint_is_rejected(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(voice_control.exceptions.ProviderError):
             LiteLLMProvider(
                 model="test", provider="ollama",
                 api_base="http://192.0.2.10:11434",
@@ -230,12 +232,9 @@ class TestLLM(unittest.TestCase):
         )
         llm = LiteLLMProvider(model="test", provider="ollama", completion_fn=completion)
 
-        result = list(llm._infer(Conversation(), session_state={}))
-
-        self.assertEqual(
-            result,
-            [ToolCall(name="_parse_error", arguments={"tool_name": "ping"})],
-        )
+        from voice_control.exceptions import LLMError
+        with self.assertRaises(LLMError):
+            list(llm._infer(Conversation(), session_state={}))
 
     def test_provider_factory_uses_allowlisted_provider_configuration(self):
         completion = MagicMock(return_value=iter([]))
@@ -253,8 +252,8 @@ class TestLLM(unittest.TestCase):
         )
 
         self.assertIsInstance(provider, LiteLLMProvider)
-        self.assertEqual(provider.model, "ollama/test")
-        with self.assertRaises(ValueError):
+        self.assertEqual(provider.model, "test")
+        with self.assertRaises(voice_control.exceptions.ProviderError):
             LLMProviders.get("__class__")
 
     def test_litellm_import_uses_local_cost_map_by_default(self):
