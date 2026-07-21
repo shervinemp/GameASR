@@ -86,7 +86,7 @@ class Kokoro:
                 return np.array([], dtype=np.float32), 0
 
             self.logger.debug("TTS synthesizing %d chars -> %d phonemes", len(text), len(phonemes))
-            samples, sample_rate = self.kokoro.create(phonemes, voice=voice, speed=speed, is_phonemes=True)
+            samples, sample_rate = self.kokoro.create(phonemes, voice=voice, speed=speed, is_phonemes=True, trim=False)
             self.logger.debug("TTS generated %d samples (%.1fs)", len(samples), len(samples) / sample_rate if sample_rate else 0)
             self.audio_player(samples, sample_rate, interrupt)
             return samples, sample_rate
