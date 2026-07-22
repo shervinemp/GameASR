@@ -1,5 +1,9 @@
 # GameASR — Voice-Controlled Game Agent
 
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)]()
+[![CI](https://github.com/shervinemp/GameASR/actions/workflows/ci.yml/badge.svg)](https://github.com/shervinemp/GameASR/actions/workflows/ci.yml)
+
 A modular voice control pipeline with graph-based RAG. ASR captures speech,
 LLM parses intent, TTS responds, and a knowledge graph enriches answers with
 structured facts via S-Path-RAG.

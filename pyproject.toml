@@ -1,7 +1,7 @@
 [project]
 name = "voice-control"
 version = "0.1.0"
-description = "A voice control system for applications."
+description = "Voice-controlled game agent with ASR, LLM tool calling, TTS, and graph-based RAG"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<3.14"
@@ -18,12 +18,21 @@ dependencies = [
     "soundfile~=0.13.1",
 ]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[project.urls]
+Repository = "https://github.com/shervinemp/GameASR"
+Issues = "https://github.com/shervinemp/GameASR/issues"
 
 [project.scripts]
 voice-control = "voice_control.__main__:main"
@@ -63,8 +72,7 @@ all = [
     "voice-control[asr,tts,gguf,litellm,rag,sqlite,hf]",
 ]
 dev = [
-    "flake8>=7,<8",
-    "mypy>=1.10,<2",
+    "pytest>=8,<9",
 ]
 
 [build-system]
@@ -80,5 +88,7 @@ voice_control = [
     "bridge/clients/*/*",
 ]
 
-[tool.black]
-line-length = 79
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
