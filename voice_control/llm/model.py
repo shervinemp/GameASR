@@ -95,7 +95,7 @@ class GGUFLLM(LLM):
             model_path = entry.model_path
         else:
             from ..common.model_manager import ensure_downloaded
-            paths = ensure_downloaded(model_key, local_dir="model_files/llm")
+            paths = ensure_downloaded(model_key)
             model_path = paths["model"]
 
         self.logger.info("Loading model...")
@@ -140,7 +140,7 @@ class GGUFLLM(LLM):
     @staticmethod
     def _download(model_key: str):
         from ..common.model_manager import ensure_downloaded
-        ensure_downloaded(model_key, local_dir="model_files/llm")
+        ensure_downloaded(model_key)
 
     def count_tokens(self, text: str) -> int:
         return len(self.model.tokenize(text.encode("utf-8")))
