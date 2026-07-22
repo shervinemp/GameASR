@@ -1,0 +1,38 @@
+# GameASR — minimal configuration example
+# Copy this to config.yaml and edit.
+# Full defaults in voice_control/config.defaults.yaml
+
+llm:
+  # Backend: "local" (GGUF) or "litellm" (remote APIs)
+  backend: "local"
+  # Model name — key into llm.local or a LiteLLM sub-provider
+  model: "Gemma4_12B"
+  max_tool_iterations: 1
+
+  # Local GGUF models — each key matches a model_manifest.yaml entry
+  local:
+    Gemma4_12B:
+      n_ctx: 8192
+      decoder: "legacy_xml"
+      type_k: "q4_0"
+      type_v: "q4_0"
+
+  # LiteLLM settings — used when backend is "litellm"
+  # litellm:
+  #   provider: "ollama"
+  #   model: "qwen3:latest"
+  #   api_base: "http://localhost:11434"
+
+models:
+  default: "llama3"
+  extraction_heavy: "gemini-1.5-pro"
+  embedding: "avsolatorio/GIST-small-Embedding-v0"
+
+hotkeys:
+  enable: true
+  push_to_talk: null
+  press_to_reset: null
+
+# Environment variables (or .env file) also work for secrets:
+#   NEO4J_PASSWORD, OPENAI_API_KEY, GEMINI_API_KEY,
+#   RPC_AUTH_TOKEN, TOOLS_AUTH_TOKEN

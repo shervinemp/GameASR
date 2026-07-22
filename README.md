@@ -1,6 +1,8 @@
 # GameASR — Voice-Controlled Game Agent
 
-A modular voice control pipeline with graph-based RAG. ASR captures speech, LLM parses intent, TTS responds, and a Neo4j knowledge graph enriches answers with structured facts via S-Path-RAG.
+A modular voice control pipeline with graph-based RAG. ASR captures speech,
+LLM parses intent, TTS responds, and a knowledge graph enriches answers with
+structured facts via S-Path-RAG.
 
 ## Architecture
 
@@ -34,7 +36,7 @@ flowchart LR
 ## Features
 
 - **ASR** — Speech-to-text (ParakeetV2, configurable) with push-to-talk
-- **LLM** — Unified LiteLLM access for Ollama/OpenAI/Gemini plus direct local GGUF inference
+- **LLM** — Local GGUF models or LiteLLM remote backends (Ollama, OpenAI, Gemini)
 - **TTS** — Voice feedback (Kokoro) with interrupt on new input
 - **RAG** — S-Path-RAG over Neo4j with entity linking, anchor dedup, adaptive expansion, and Socratic correction loop
 - **Bridge** — ZMQ/TCP/IPC bridge to game engines (Lua, C++, C#, JS, GDScript, Python)
@@ -56,19 +58,11 @@ flowchart LR
 uv sync
 
 # 2. Configure
-cp voice_control/config.defaults.yaml config.yaml
+cp config.example.yaml config.yaml
+cp .env.example .env
 
-# 3. Set required environment variables
-export NEO4J_PASSWORD="your_neo4j_password"
-# LLM (pick one):
-export OPENAI_API_KEY="sk-..."
-# or
-export GEMINI_API_KEY="..."
-# (Ollama needs no key — just ensure the service is running)
-
-# Required only when deliberately binding RPC to a non-loopback interface:
-export RPC_AUTH_TOKEN="a-random-secret-with-at-least-32-characters"
-export TOOLS_AUTH_TOKEN="a-second-secret-with-at-least-32-characters"
+# 3. Edit .env with your secrets
+#    NEO4J_PASSWORD is required; API keys if using remote LLM backends
 
 # 4. Import knowledge graph data (optional)
 uv run python -m voice_control.rag.data
@@ -82,60 +76,84 @@ uv run python -m voice_control.pipeline
 
 ## Configuration
 
-All defaults in `voice_control/config.defaults.yaml`. Override by creating `config.yaml` at the project root:
+**Which file does what:**
+
+| File | Purpose |
+|------|---------|
+| `voice_control/config.defaults.yaml` | All defaults — ships with the project |
+| `config.yaml` | User overrides — copy from `config.example.yaml` |
+| `.env` | Secrets (gitignored) — copy from `.env.example` |
+| `voice_control/common/model_manifest.yaml` | Download provenance for GGUF/TTS models |
+| `voice_control/config.example.yaml` | Minimal config template |
+| `.env.example` | Env var template |
+
+### LLM backend selection
 
 ```yaml
 llm:
-  provider: "Gemma4E2B"          # openai | gemini | ollama | LiteLLM | Gemma4E2B
-  providers:
-    ollama:
-      model: "qwen3:latest"
-      host: "http://localhost:11434"
-    openai:
-      model: "gpt-4o"
+  backend: "local"       # "local" (GGUF) or "litellm" (remote APIs)
+  model: "Gemma4_12B"    # key into llm.local, or litellm sub-provider
+  max_tool_iterations: 1
 
-database:
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    database: "neo4j"
-    query_timeout_seconds: 5
-    # Password from NEO4J_PASSWORD env var
+  # Local GGUF models — each key matches model_manifest.yaml
+  local:
+    Gemma4_12B:
+      n_ctx: 8192
+      decoder: "legacy_xml"
+      type_k: "q4_0"
+      type_v: "q4_0"
+    # Local file (no manifest entry needed):
+    # my_model:
+    #   model_path: "model_files/llm/my_model.gguf"
+    #   n_ctx: 4096
 
-rpc_server:
-  env:
-    auth_token: "RPC_AUTH_TOKEN"  # environment variable name
-  max_request_bytes: 65536
-  requests_per_minute: 60
-
-rag:
-  runtime:
-    top_k: 5
-    reranker_input_limit: 20
-    max_direct_context_tokens: 2048
-    retrieval_deadline_seconds: 8
-    web_timeout_seconds: 4
-    cache_ttl_seconds: 300
-    cache_size: 128
-    max_iterations: 3
-  active_learning:
-    enabled: false
-    allow_web_context: false
-    review_required: true
-    review_queue_path: "data/pending_triplets.jsonl"
+  # LiteLLM remote backends — used when backend is "litellm"
+  litellm:
+    provider: "ollama"
+    model: "qwen3:latest"
+    api_base: "http://localhost:11434"
 ```
 
-RPC binds to `127.0.0.1` by default. A non-loopback `--host` is rejected unless
-`RPC_AUTH_TOKEN` is set to a secret of at least 32 characters. Put any remotely
-accessible TCP bridge behind an encrypted transport such as a VPN or TLS tunnel.
+### Adding a new GGUF model
 
-Secrets in `.env` file:
+1. Add download info to `model_manifest.yaml` (HuggingFace repo, file, sha256)
+2. Add runtime settings to `llm.local` in `config.yaml` (n_ctx, decoder, etc.)
+
+### Adding a local model file
+
+Just add it to `llm.local` with a `model_path` — no manifest entry needed:
+
+```yaml
+llm:
+  local:
+    my_model:
+      model_path: "/absolute/path/to/model.gguf"
+      n_ctx: 4096
+      decoder: "general"
+```
+
+### Role assignments (used by RAG)
+
+```yaml
+models:
+  default: "llama3"
+  extraction_heavy: "gemini-1.5-pro"
+  embedding: "avsolatorio/GIST-small-Embedding-v0"
+```
+
+### Environment variables
+
+Secrets are declared in `config.defaults.yaml` via `env:` blocks and resolved
+at config load time. Set them in `.env`:
 
 ```bash
 NEO4J_PASSWORD="password"
 OPENAI_API_KEY="sk-..."
-GEMINI_API_KEY="..."
 ```
+
+RPC binds to `127.0.0.1` by default. A non-loopback `--host` is rejected unless
+`RPC_AUTH_TOKEN` is set to at least 32 characters. Put any remotely accessible
+TCP bridge behind an encrypted transport such as a VPN or TLS tunnel.
 
 ## RAG Pipeline
 
@@ -213,30 +231,31 @@ uv run python -m voice_control.rag.data
 | Python | `voice_control/bridge/clients/python/` |
 | GDScript | `voice_control/bridge/clients/gdscript/` |
 
-The bridge uses ZeroMQ (TCP or IPC). Game clients connect to the pipeline's RPC server and expose functions via `rpc_api.lua`. Public/wildcard binds require authentication; loopback is the secure default.
+The bridge uses ZeroMQ (TCP or IPC). Game clients connect to the pipeline's
+RPC server and expose functions via `rpc_api.lua`. Public/wildcard binds
+require authentication; loopback is the secure default.
 
-Bundled GGUF and TTS assets are downloaded only from allowlisted HTTPS origins,
-at pinned revisions where applicable, and verified against committed SHA-256
-digests before loading.
+Bundled GGUF and TTS assets are downloaded only from allowlisted HTTPS
+origins, at pinned revisions where applicable, and verified against committed
+SHA-256 digests before loading.
 
 ### LLM provider routing
 
-`openai`, `gemini`, and `ollama` use the in-process LiteLLM SDK and share the
-same streaming, tool-call, timeout, and error-handling path. The `LiteLLM`
-provider can also be selected directly with an explicit `provider` and `model`.
-No LiteLLM proxy process is started by this project.
+`litellm` backend routes through the in-process LiteLLM SDK and shares the same
+streaming, tool-call, timeout, and error-handling path for OpenAI, Gemini, and
+Ollama. No LiteLLM proxy process is started by this project.
 
 Provider requests have a bounded timeout and automatic retries are disabled for
 streaming calls, avoiding duplicate tool effects after a partial response. API
 keys are resolved from environment variables and the project does not enable
-LiteLLM debug logging, callbacks, or telemetry hooks. The bundled model-cost map
-is used offline by default; set `LITELLM_LOCAL_MODEL_COST_MAP=False` before
+LiteLLM debug logging, callbacks, or telemetry hooks. The bundled model-cost
+map is used offline by default; set `LITELLM_LOCAL_MODEL_COST_MAP=False` before
 startup to opt into LiteLLM's online cost-map refresh.
 
-Embedded `Gemma4E2B`, `Gemma4_12B`, `Qwen3`, and `NemotronMini` providers keep
-using `llama-cpp-python` directly so their local model state and custom stream
-decoders remain available. Custom remote `api_base` URLs must use HTTPS;
-plaintext HTTP is accepted only for loopback services such as local Ollama.
+The `local` backend keeps using `llama-cpp-python` directly so local GGUF
+model state and custom stream decoders remain available. Custom remote
+`api_base` URLs must use HTTPS; plaintext HTTP is accepted only for loopback
+services such as local Ollama.
 
 ## Push-to-Talk
 
@@ -262,8 +281,13 @@ voice_control/
 ## Testing
 
 ```bash
-uv run python -m unittest discover -s tests -v
+pytest tests/
 ```
+
+## Contributing
+
+PRs welcome. The codebase is under active development — open an issue first for
+significant changes. No formal style guide yet; match the surrounding code.
 
 ## License
 
