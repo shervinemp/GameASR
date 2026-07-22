@@ -8,12 +8,12 @@ import zipfile
 
 from voice_control.bridge.scaffold import BridgeLanguage, scaffold_bridge
 from voice_control.bridge.llm_server import LLMServer, LLMService
-from voice_control.common.utils import download_file, verify_file_sha256
-from voice_control.exceptions import StorageError, ToolError, VoiceControlError
-from voice_control.llm.conversation import Conversation
-from voice_control.llm.model import LLM, LiteLLMProvider
-from voice_control.llm.session import Session
-from voice_control.llm.tools import Tool, ToolResult
+from voxpipe.core.utils import download_file, verify_file_sha256
+from voxpipe.core.exceptions import StorageError, ToolError, VoiceControlError
+from voxpipe.llm.conversation import Conversation
+from voxpipe.llm.model import LLM, LiteLLMProvider
+from voxpipe.llm.session import Session
+from voxpipe.llm.tools import Tool, ToolResult
 from voice_control.rag.validation import normalize_triplets, queue_triplets
 from voice_control.rag.data import CodexDataLoader
 
@@ -62,7 +62,7 @@ class TestAuditRegressions(unittest.TestCase):
             Tool.from_dict({"type": "function", "function": "invalid"})
 
     def test_tool_arguments_are_strictly_checked(self):
-        from voice_control.exceptions import ToolError
+        from voxpipe.core.exceptions import ToolError
         tool = Tool.from_dict(
             {
                 "function": {

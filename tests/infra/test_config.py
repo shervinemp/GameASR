@@ -9,7 +9,7 @@ class TestConfigModels(unittest.TestCase):
 
     def test_llm_config(self):
         from voice_control.common.config import config
-        self.assertIsInstance(config.get("llm.provider"), str)
+        self.assertIsInstance(config.get("llm.model"), str)
 
     def test_tts_config(self):
         from voice_control.common.config import config
@@ -33,11 +33,9 @@ class TestConfigModelsAdvanced(unittest.TestCase):
         self.assertEqual(cfg.provider, "test")
 
     def test_llm_config_fields(self):
-        from voice_control.common.config_models import LLMConfig, LLMModelsConfig
-        cfg = LLMConfig(provider="test",
-                        models=LLMModelsConfig(default="", extraction_heavy="", embedding=""),
-                        providers={})
-        self.assertEqual(cfg.provider, "test")
+        from voice_control.common.config_models import LLMConfig
+        cfg = LLMConfig(model="test")
+        self.assertEqual(cfg.model, "test")
 
     def test_tts_config_fields(self):
         from voice_control.common.config_models import TTSConfig

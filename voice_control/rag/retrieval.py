@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..common.config import config
 from ..common.utils import get_logger
 from ..exceptions import StorageError
-from ..llm.session import Session
+from voxpipe.llm.session import Session
 from .backends.base import StorageBackend
 from .embeddings import Embedder
 
@@ -285,7 +285,7 @@ class SmartGraphRetriever(Retriever):
         self._cache_lock = threading.Lock()
 
     def _ask(self, prompt: str) -> str:
-        from ..llm.conversation import Conversation as _Conv
+        from voxpipe.llm.conversation import Conversation as _Conv
         conv = _Conv()
         conv.add_user_message(prompt)
         chunks = []

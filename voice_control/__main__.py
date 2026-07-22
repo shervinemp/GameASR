@@ -5,7 +5,7 @@ from .pipeline import Pipeline
 
 from .bridge.tool_client import ToolClient
 
-from .common.utils import load_specs, setup_logging, get_logger
+from voxpipe.core.utils import load_specs, setup_logging, get_logger
 from .common.config import config
 
 

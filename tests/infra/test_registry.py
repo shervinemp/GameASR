@@ -5,21 +5,21 @@ import unittest
 
 class TestLLMProvidersRegistry(unittest.TestCase):
     def test_get_known(self):
-        from voice_control.llm.model import LLMProviders
+        from voxpipe.llm.model import LLMProviders
         self.assertIsNotNone(LLMProviders.get("Qwen3"))
 
     def test_get_unknown_raises(self):
-        from voice_control.llm.model import LLMProviders, ProviderError
+        from voxpipe.llm.model import LLMProviders, ProviderError
         with self.assertRaises(ProviderError):
             LLMProviders.get("nonexistent")
 
     def test_get_empty_raises(self):
-        from voice_control.llm.model import LLMProviders, ProviderError
+        from voxpipe.llm.model import LLMProviders, ProviderError
         with self.assertRaises(ProviderError):
             LLMProviders.get("")
 
     def test_registry_contains_expected(self):
-        from voice_control.llm.model import LLMProviders
+        from voxpipe.llm.model import LLMProviders
         for name in ["Qwen3", "Gemma4E2B", "Gemma4_12B", "Gemma4E4B", "LiteLLM"]:
             self.assertIsNotNone(LLMProviders.get(name), f"Missing: {name}")
 
@@ -27,7 +27,7 @@ class TestLLMProvidersRegistry(unittest.TestCase):
 class TestModelManager(unittest.TestCase):
     def test_ensure_downloaded_unknown(self):
         from voice_control.common.model_manager import ensure_downloaded
-        from voice_control.exceptions import ModelError
+        from voxpipe.core.exceptions import ModelError
         with self.assertRaises(ModelError):
             ensure_downloaded("nonexistent")
 

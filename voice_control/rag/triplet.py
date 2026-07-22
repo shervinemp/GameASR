@@ -2,8 +2,8 @@ import json
 import sys
 from typing import Dict, Any, List, Optional
 
-from ..llm.model import LLM
-from ..llm.session import Session
+from voxpipe.llm.model import LLM
+from voxpipe.llm.session import Session
 
 from ..common.utils import setup_logging
 

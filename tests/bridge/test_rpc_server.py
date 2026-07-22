@@ -3,9 +3,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from voice_control.bridge.llm_server import LLMService, LLMServer
-from voice_control.llm.session import Session
-from voice_control.llm.conversation import Conversation
-from voice_control.llm.tools import ToolCall
+from voxpipe.llm.session import Session
+from voxpipe.llm.conversation import Conversation
+from voxpipe.llm.tools import ToolCall
 
 
 class _FakeLLM:
@@ -20,7 +20,7 @@ class _FakeLLM:
         yield from self.tokens
 
     def create_context_strategy(self, max_turns=20):
-        from voice_control.llm.context import DropOldestStrategy
+        from voxpipe.llm.context import DropOldestStrategy
         return DropOldestStrategy(max_turns)
 
     def count_tokens(self, text):

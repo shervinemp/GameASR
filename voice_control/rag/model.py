@@ -7,8 +7,8 @@ from typing import List
 from ..common.config import config
 from ..common.utils import get_logger
 from ..exceptions import StorageError
-from ..llm.model import LLM
-from ..llm.session import Session
+from voxpipe.llm.model import LLM
+from voxpipe.llm.session import Session
 from .backends.base import StorageBackend
 from .embeddings import Embedder
 from .generation import Composer

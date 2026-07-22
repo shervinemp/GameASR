@@ -2,7 +2,7 @@ from functools import partial
 from typing import List
 import zmq.asyncio
 
-from ..llm.tools import Tool, ToolResult
+from voxpipe.llm.tools import Tool, ToolResult
 
 
 class ToolClient:

@@ -6,23 +6,22 @@ import time
 from typing import Callable, Optional
 from dotenv import load_dotenv
 
-from .llm.conversation import Conversation
+from voxpipe.llm.conversation import Conversation
+from voxpipe.asr.model import ASRProviders
+from voxpipe.tts.model import TTSProviders
+from voxpipe.pipeline.hotkeys import HotkeyDispatcher
+from voxpipe.llm import Session, LLMProviders
+from voxpipe.llm.tools import Tool
+from voxpipe.streaming.splitter import stream_splitter
+from voxpipe.core.utils import setup_logging, get_logger
+from voxpipe.core.exceptions import VoiceControlError, ASRError, LLMError, TTSError, ConfigError
+from voxpipe.pipeline.gate import qualify_transcript
 
-from .asr.model import ASRProviders
-from .tts.model import TTSProviders
-from .hotkey_dispatcher import HotkeyDispatcher
-from .llm import Session, LLMProviders
-from .llm.tools import Tool
 from .rag import BaseRAG
 from .rag.backends import create_backend
 from .bridge.llm_server import LLMServer, LLMService
-
-from .common.base import stream_splitter
-from .common.utils import setup_logging, get_logger
 from .common.config import config
-from .events import EventEmitter
-from .exceptions import VoiceControlError, ASRError, LLMError, TTSError, ConfigError
-from .transcript_gate import qualify_transcript
+from voxpipe.pipeline.events import EventEmitter
 
 
 class Pipeline:

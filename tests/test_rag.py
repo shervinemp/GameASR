@@ -313,7 +313,7 @@ class TestParetoRetrieval(unittest.TestCase):
         rag.web_retriever.assert_called_once()
 
     def test_pipeline_registers_evidence_callback_not_answer_callback(self):
-        from voice_control.llm.conversation import Conversation
+        from voxpipe.llm.conversation import Conversation
         from voice_control.pipeline import Pipeline
 
         class FakeRAG:
@@ -456,7 +456,7 @@ class TestKnowledgeGraphQueries(unittest.TestCase):
     def test_remote_plaintext_neo4j_uri_is_rejected(self):
         from voice_control.rag.knowledge import KnowledgeGraph
 
-        from voice_control.exceptions import StorageError
+        from voxpipe.core.exceptions import StorageError
         with self.assertRaises(StorageError):
             KnowledgeGraph._validate_uri("bolt://192.0.2.10:7687")
         KnowledgeGraph._validate_uri("bolt://127.0.0.1:7687")

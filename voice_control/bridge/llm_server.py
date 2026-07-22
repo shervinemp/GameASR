@@ -7,7 +7,7 @@ import time
 
 from ..common.utils import get_logger
 from ..exceptions import VoiceControlError
-from ..llm import LLMProviders, Session
+from voxpipe.llm import LLMProviders, Session
 from ..common.config import config
 
 

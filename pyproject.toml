@@ -16,6 +16,7 @@ dependencies = [
     "requests>=2.32,<3",
     "sounddevice~=0.5.2",
     "soundfile~=0.13.1",
+    "voxpipe @ git+https://github.com/shervinemp/voxpipe.git@v0.1.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

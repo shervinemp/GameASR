@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 from ..common.config import config
 from ..common.utils import get_logger, safe_json_loads
 from ..exceptions import VoiceControlError, StorageError
-from ..llm.session import Session
+from voxpipe.llm.session import Session
 
 
 @cache
