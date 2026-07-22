@@ -13,7 +13,7 @@ import unittest
 
 import pytest
 
-from voice_control.llm.model import Gemma4E4B
+from voice_control.llm.model import GGUFLLM
 from voice_control.llm.session import Session
 from voice_control.llm.conversation import Conversation
 from voice_control.llm.tools import Tool, ToolCall
@@ -45,7 +45,7 @@ class TestModelBehavior(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         t0 = time.monotonic()
-        cls._model = Gemma4E4B()
+        cls._model = GGUFLLM("Gemma4E4B")
         cls._model.logger = type("L", (), {"info": print, "warning": print})()
         print(f"\nModel loaded in {time.monotonic()-t0:.1f}s")
 
@@ -186,7 +186,7 @@ class TestMultiTurn(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         t0 = time.monotonic()
-        cls._model = Gemma4E4B()
+        cls._model = GGUFLLM("Gemma4E4B")
         cls._model.logger = type("L", (), {"info": print, "warning": print})()
         print(f"\nModel loaded in {time.monotonic()-t0:.1f}s")
 

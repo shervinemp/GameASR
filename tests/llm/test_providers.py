@@ -10,7 +10,7 @@ from voice_control.llm.conversation import Conversation
 from voice_control.llm.model import (
     LLMProviders,
     LiteLLMProvider,
-    Qwen3,
+    GGUFLLM,
 )
 from voice_control.llm.tools import ToolCall
 
@@ -31,7 +31,7 @@ class TestLLM(unittest.TestCase):
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
-        llm = Qwen3()
+        llm = GGUFLLM("Qwen3")
         llm.model = mock_model
         llm.max_tokens = 128
         llm._last_state = None
@@ -82,7 +82,7 @@ class TestLLM(unittest.TestCase):
         mock_llama.return_value = mock_model
 
         # Initialize the LLM
-        llm = Qwen3()
+        llm = GGUFLLM("Qwen3")
         llm.model = mock_model
         llm.max_tokens = 128
         llm._last_state = None
@@ -239,17 +239,16 @@ class TestLLM(unittest.TestCase):
     def test_provider_factory_uses_allowlisted_provider_configuration(self):
         completion = MagicMock(return_value=iter([]))
 
-        provider = LLMProviders.create(
-            "LiteLLM",
-            {
-                "litellm": {
+        with patch("voice_control.llm.model.config.get") as mock_config:
+            mock_config.side_effect = lambda key, default=None: {
+                "llm.litellm": {
                     "provider": "ollama",
                     "model": "test",
                     "api_base": "http://127.0.0.1:11434",
                     "completion_fn": completion,
-                }
-            },
-        )
+                },
+            }.get(key, default)
+            provider = LLMProviders.create("litellm", "test")
 
         self.assertIsInstance(provider, LiteLLMProvider)
         self.assertEqual(provider.model, "test")

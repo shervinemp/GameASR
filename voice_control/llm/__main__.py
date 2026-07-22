@@ -66,8 +66,9 @@ def main():
     )
     tools[0].callback = lambda **kwargs: "Rainy"
     tools[1].callback = lambda **kwargs: 100
-    provider = config.get("llm.provider")
-    llm = LLMProviders.create(provider, config.get("llm.providers"))
+    backend = config.get("llm.backend")
+    model = config.get("llm.model")
+    llm = LLMProviders.create(backend, model)
     conversation = Conversation()
     conversation.tools = tools
     conversation.set_system_message(

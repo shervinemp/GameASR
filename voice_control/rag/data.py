@@ -215,7 +215,7 @@ class Neo4jImporter:
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
         print("Initializing embedding model...")
         embedding_model_name = config.get(
-            "llm.models.embedding", "google/embeddinggemma-300m"
+            "models.embedding", "google/embeddinggemma-300m"
         )
         self._embedding_model = SentenceTransformer(embedding_model_name)
         print("Model ready.")

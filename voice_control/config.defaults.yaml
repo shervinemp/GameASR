@@ -14,30 +14,59 @@ database:
 
 # --- LLM Configuration ---
 llm:
-  # Provider: one of Qwen3, Gemma4E2B, Gemma4_12B (GGUF/local), or LiteLLM (remote).
-  provider: "Gemma4_12B"
+  # Backend type: "local" (GGUF) or "litellm" (remote APIs via LiteLLM).
+  backend: "local"
+  # Model name — key into llm.local or litellm sub-provider.
+  model: "Gemma4_12B"
   # Maximum tool-calling iterations per utterance.
   # 0 = tools disabled. 1 = single tool call (default). 2+ = chaining.
   max_tool_iterations: 1
 
-  # --- Model specifications ---
-  models:
-    # Default model for general purpose tasks, chat, etc.
-    default: "llama3"
-    # Model used for the offline knowledge extraction script
-    extraction_heavy: "gemini-1.5-pro"
-    # Embedding model for RAG
-    embedding: "avsolatorio/GIST-small-Embedding-v0"
+  # Local GGUF model definitions.
+  # Each key matches a model_manifest.yaml entry for HuggingFace download,
+  # or provide model_path for a local file (no manifest entry needed).
+  local:
+    Qwen3: &qwen
+      n_ctx: 40960
+      max_tokens: 8192
+      decoder: "legacy_xml"
 
-  # --- Provider-specific settings ---
-  providers:
-    # LiteLLM-backed providers: set provider to "openai", "gemini", or "ollama".
-    litellm:
-      provider: "ollama"
-      model: "qwen3:latest"
-      api_base: "http://localhost:11434"
-      timeout: 60
-      max_tokens: 1024
+    _gemma4: &gemma4
+      n_ctx: 8192
+      type_k: "q4_0"
+      type_v: "q4_0"
+
+    Gemma4E2B:
+      <<: *gemma4
+      decoder: "gemma_e2b"
+
+    Gemma4E4B:
+      <<: *gemma4
+      decoder: "gemma_e2b"
+
+    Gemma4_12B:
+      <<: *gemma4
+      decoder: "legacy_xml"
+
+    # Example local model — no manifest entry needed:
+    # my_model:
+    #   model_path: "model_files/llm/my_model.gguf"
+    #   n_ctx: 4096
+    #   decoder: "general"
+
+  # LiteLLM provider settings — used when backend is "litellm".
+  litellm:
+    provider: "ollama"
+    model: "qwen3:latest"
+    api_base: "http://localhost:11434"
+    timeout: 60
+    max_tokens: 1024
+
+# --- Model role assignments (used by RAG, not LLM internals) ---
+models:
+  default: "llama3"
+  extraction_heavy: "gemini-1.5-pro"
+  embedding: "avsolatorio/GIST-small-Embedding-v0"
 
 # --- Hotkey Configuration ---
 # Controls how ASR listening is activated.

@@ -60,14 +60,14 @@ class Pipeline:
             self.tts = tts_cls()
             self.session = session
         else:
-            llm_provider = config.get("llm.provider")
-            llm_settings = config.get("llm.providers")
+            llm_backend = config.get("llm.backend")
+            llm_model = config.get("llm.model")
 
             with ThreadPoolExecutor(max_workers=3) as pool:
                 asr_future = pool.submit(asr_cls)
                 tts_future = pool.submit(tts_cls)
                 llm_future = pool.submit(
-                    LLMProviders.create, llm_provider, llm_settings
+                    LLMProviders.create, llm_backend, llm_model
                 )
 
                 for name, future in [("ASR", asr_future), ("TTS", tts_future), ("LLM", llm_future)]:

@@ -21,7 +21,7 @@ def main():
     logger = get_logger(__name__)
 
     try:
-        provider = config.get("llm.provider")
+        provider = config.get("llm.model")
         provider_cls = LLMProviders.get(provider)
         if not hasattr(provider_cls, "download"):
             raise ValueError(

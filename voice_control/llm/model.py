@@ -9,9 +9,10 @@ from urllib.parse import urlparse
 from .conversation import Conversation
 from .context import DropOldestStrategy
 from .tools import ToolCall
-from .decoders import StreamDecoder, NativeDecoder, LegacyXMLDecoder, GemmaE2BDecoder
+from .decoders import StreamDecoder, NativeDecoder, GeneralDecoder, LegacyXMLDecoder, GemmaE2BDecoder
 
 from ..common.utils import get_logger
+from ..common.config import config
 from ..exceptions import LLMError, ProviderError
 
 
@@ -61,42 +62,59 @@ class LLM(ABC):
         return max(1, (len(text) + 3) // 4)
 
 
-class GGUFLLM(LLM):
-    local_dir: str = os.path.join("model_files", "llm")
-    n_ctx: int = 512
-    max_tokens: int = 128
-    type_k: str | None = None  # KV cache quantization for K (e.g. "q4_0", "q8_0", "f16")
-    type_v: str | None = None  # KV cache quantization for V
+_DECODER_MAP = {
+    "native": NativeDecoder(),
+    "general": GeneralDecoder(),
+    "gemma_e2b": GemmaE2BDecoder(),
+    "legacy_xml": LegacyXMLDecoder(),
+}
 
-    def __init__(self):
-        super().__init__()  # Call base init if it exists
+
+class GGUFLLM(LLM):
+    _GGML_CACHE_TYPES = {"f16": 1, "q4_0": 2, "q8_0": 8}
+
+    def __init__(self, model_key: str):
+        super().__init__()
         from llama_cpp import Llama
 
-        self.logger = get_logger(self.__class__.__name__)
-        from ..common.model_manager import ensure_downloaded
+        self.logger = get_logger(f"GGUF.{model_key}")
 
-        paths = ensure_downloaded(self.__class__.__name__, local_dir=self.local_dir)
-        model_path = paths["model"]
+        local_models: dict = config.get("llm.local", {})
+        entry = local_models.get(model_key)
+        if entry is None:
+            raise ProviderError(f"Missing local model config for '{model_key}'.")
+
+        n_ctx = entry.n_ctx
+        self.max_tokens = entry.max_tokens
+        type_k = entry.type_k
+        type_v = entry.type_v
+        decoder_name = entry.decoder
+        self.decoder = _DECODER_MAP.get(decoder_name, GeneralDecoder())
+
+        if entry.model_path:
+            model_path = entry.model_path
+        else:
+            from ..common.model_manager import ensure_downloaded
+            paths = ensure_downloaded(model_key, local_dir="model_files/llm")
+            model_path = paths["model"]
 
         self.logger.info("Loading model...")
         n_gpu_layers = -1
         flash_attn = True
 
-        _GGML_CACHE_TYPES = {"f16": 1, "q4_0": 2, "q8_0": 8}
-
         for attempt in range(3):
             try:
                 kwargs = dict(
                     model_path=model_path,
-                    n_ctx=self.n_ctx,
+                    n_ctx=n_ctx,
                     n_gpu_layers=n_gpu_layers,
                     flash_attn=flash_attn,
                     verbose=False,
                 )
-                if self.type_k:
-                    kwargs["type_k"] = _GGML_CACHE_TYPES.get(self.type_k, self.type_k)
-                if self.type_v:
-                    kwargs["type_v"] = _GGML_CACHE_TYPES.get(self.type_v, self.type_v)
+                if type_k:
+                    kwargs["type_k"] = self._GGML_CACHE_TYPES.get(type_k, type_k)
+                if type_v:
+                    kwargs["type_v"] = self._GGML_CACHE_TYPES.get(type_v, type_v)
                 self.model = Llama(**kwargs)
                 break
             except Exception as e:
@@ -119,10 +137,10 @@ class GGUFLLM(LLM):
     def create_context_strategy(self, max_turns: int = 20):
         return DropOldestStrategy(max_turns)
 
-    @classmethod
-    def download(cls):
+    @staticmethod
+    def _download(model_key: str):
         from ..common.model_manager import ensure_downloaded
-        ensure_downloaded(cls.__name__, local_dir=cls.local_dir)
+        ensure_downloaded(model_key, local_dir="model_files/llm")
 
     def count_tokens(self, text: str) -> int:
         return len(self.model.tokenize(text.encode("utf-8")))
@@ -493,74 +511,44 @@ class LiteLLMProvider(LLM):
                 )
 
 
-class Qwen3(GGUFLLM):
-    n_ctx: int = 40960
-    max_tokens: int = 8192
-    decoder = LegacyXMLDecoder()
+class _GGUFFactory:
+    """Factory for creating GGUFLLM instances from a model key."""
 
+    def __init__(self, model_key: str):
+        self._model_key = model_key
 
-class Gemma4E2B(GGUFLLM):
-    n_ctx: int = 8192
-    max_tokens: int = 2048
-    decoder = GemmaE2BDecoder()
-    type_k: str = "q4_0"
-    type_v: str = "q4_0"
+    def __call__(self, **kwargs):
+        return GGUFLLM(model_key=self._model_key)
 
-
-class Gemma4_12B(GGUFLLM):
-    n_ctx: int = 8192
-    max_tokens: int = 2048
-    type_k: str = "q4_0"
-    type_v: str = "q4_0"
-    decoder = LegacyXMLDecoder()
-
-
-class Gemma4E4B(GGUFLLM):
-    n_ctx: int = 8192
-    max_tokens: int = 2048
-    decoder = GemmaE2BDecoder()
-    type_k: str = "q4_0"
-    type_v: str = "q4_0"
-
-
-# ----------------------------------------------------------------------
+    def download(self):
+        GGUFLLM._download(self._model_key)
 
 
 class LLMProviders:
-    _providers = {
-        "Qwen3": Qwen3,
-        "Gemma4E2B": Gemma4E2B,
-        "Gemma4_12B": Gemma4_12B,
-        "Gemma4E4B": Gemma4E4B,
-        "LiteLLM": LiteLLMProvider,
-    }
+    _BACKENDS = {"local", "litellm"}
 
-    _settings_aliases = {
-        "LiteLLM": "litellm",
-    }
+    @classmethod
+    def create(cls, backend: str, model: str):
+        if backend == "local":
+            return GGUFLLM(model_key=model)
+        if backend == "litellm":
+            llm_cfg: dict = config.get("llm.litellm", {})
+            return LiteLLMProvider(**llm_cfg)
+        raise ProviderError(f"Unknown LLM backend: {backend!r}. Expected one of: {', '.join(sorted(cls._BACKENDS))}.")
 
     @classmethod
     def get(cls, name: str):
-        if not isinstance(name, str) or not name:
-            raise ProviderError("LLM provider name must be a non-empty string.")
-        provider = cls._providers.get(name)
-        if provider is None:
-            raise ProviderError(f"Unknown LLM provider: {name!r}.")
-        return provider
-
-    @classmethod
-    def create(cls, name: str, settings: dict | None = None):
-        provider = cls.get(name)
-        settings = settings or {}
-        if not isinstance(settings, dict):
-            raise ProviderError("LLM provider settings must be an object.")
-        settings_key = cls._settings_aliases.get(name, name.lower())
-        provider_settings = settings.get(settings_key, {})
-        if not isinstance(provider_settings, dict):
-            raise ProviderError("Selected LLM provider settings must be an object.")
-        # ASVS 2.2.1 / 15.3.3: only the selected provider's documented
-        # configuration object is passed into its constructor.
-        return provider(**provider_settings)
+        """Legacy: resolve a provider name to a callable or class.
+        
+        Used by llm/download.py. Local model keys return a _GGUFFactory;
+        'LiteLLM' returns the LiteLLMProvider class.
+        """
+        if name == "LiteLLM":
+            return LiteLLMProvider
+        local_models = config.get("llm.local", {})
+        if name in local_models:
+            return _GGUFFactory(model_key=name)
+        raise ProviderError(f"Unknown LLM provider: {name!r}.")
 
 
 # ----------------------------------------------------------------------

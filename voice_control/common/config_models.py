@@ -14,17 +14,27 @@ class DatabaseConfig(BaseModel):
     neo4j: Neo4jConfig
 
 
-class LLMModelsConfig(BaseModel):
-    default: str
-    extraction_heavy: str
-    embedding: str
+class LocalModelEntry(BaseModel):
+    model_path: Optional[str] = None
+    n_ctx: int = 512
+    max_tokens: int = 128
+    decoder: str = "general"
+    type_k: Optional[str] = None
+    type_v: Optional[str] = None
 
 
 class LLMConfig(BaseModel):
-    provider: str
-    models: LLMModelsConfig
-    providers: dict
+    backend: str = "local"
+    model: str
     max_tool_iterations: int = Field(default=1, ge=0, description="0 = tools disabled, 1 = single call, N = N+1 max passes")
+    local: dict[str, LocalModelEntry] = Field(default_factory=dict)
+    litellm: dict = Field(default_factory=dict)
+
+
+class ModelsConfig(BaseModel):
+    default: str
+    extraction_heavy: str
+    embedding: str
 
 
 class TTSConfig(BaseModel):
@@ -122,6 +132,7 @@ class AppConfig(BaseModel):
 
     database: DatabaseConfig
     llm: LLMConfig
+    models: ModelsConfig
     tts: TTSConfig
     asr: ASRConfig
     hotkeys: HotkeyConfig = Field(default_factory=HotkeyConfig)

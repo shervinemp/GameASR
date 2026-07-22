@@ -358,11 +358,10 @@ class LLMServer:
 
 
 if __name__ == "__main__":
-    provider_name = config.get("llm.provider")
     llm_session = Session(
         LLMProviders.create(
-            provider_name,
-            config.get("llm.providers"),
+            config.get("llm.backend"),
+            config.get("llm.model"),
         )
     )
     llm_service_instance = LLMService(llm_session)
