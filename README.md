@@ -8,27 +8,10 @@ Voice-controlled game agent with S-Path-RAG. Built on [voxpipe](https://github.c
 
 ```mermaid
 flowchart TB
-    subgraph Core["voxpipe (core pipeline)"]
-        direction TB
-        ASR["ASR (ParakeetV2)"] --> Gate
-        Gate --> LLM["LLM"]
-        LLM -.-> Tools["Tools"]
-        Tools -.-> LLM
-        LLM --> Split["Splitter"]
-        Split --> TTS["TTS (Kokoro)"]
-    end
-
-    subgraph Game["GameASR (game layer)"]
-        direction TB
-        RAG["S-Path-RAG (Neo4j/SQLite)"]
-        Bridge["Bridge (ZMQ)"]
-        AL["Active Learning"]
-    end
-
+    Voxpipe["voxpipe (core pipeline)"] --> RAG["S-Path-RAG (Neo4j/SQLite)"]
+    Voxpipe --> Bridge["Bridge (ZMQ)"]
+    RAG --> Voxpipe
     GameClient["Game Engine (Lua/C++/C#/JS/GDScript)"] <==>|ZMQ| Bridge
-    LLM -.->|retrieve| RAG
-    RAG -.->|evidence| LLM
-    AL -.->|pending triplets| RAG
 ```
 
 ## Features
